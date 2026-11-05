@@ -80,7 +80,15 @@ export async function ensureIntegration(s: DevSettings, wsId: string): Promise<s
   const probe = await git(p, ['rev-parse', '--is-inside-work-tree']);
   if (probe.code !== 0) {
     mkdirSync(path.dirname(p), { recursive: true });
-    await gitOk(s.repoPath, ['worktree', 'add', p, s.targetBranch]);
+    const add = await git(s.repoPath, ['worktree', 'add', p, s.targetBranch]);
+    if (add.code !== 0) {
+      // 'already used by worktree'：已有 worktree 检出 targetBranch（残留注册）→ prune 后复用或重试
+      await git(s.repoPath, ['worktree', 'prune']);
+      const list = (await git(s.repoPath, ['worktree', 'list', '--porcelain'])).stdout;
+      const existing = list.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9)).find((w) => w.endsWith('_integration'));
+      if (existing && (await git(existing, ['rev-parse', '--is-inside-work-tree'])).code === 0) return existing;
+      await gitOk(s.repoPath, ['worktree', 'add', p, s.targetBranch]);
+    }
   }
   return p;
 }

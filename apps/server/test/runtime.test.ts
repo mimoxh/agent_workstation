@@ -308,9 +308,23 @@ describe('dev 工具', () => {
     const { readFileSync } = await import('node:fs');
     expect(readFileSync(wt + '/' + p, 'utf8')).not.toContain('EDITED');
   });
+  it('无 code_ref 时工具直接报错且不写文件', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const cwdFiles = await import('node:fs').then((m) => m.readdirSync(process.cwd()));
+    const bare = { db, actor: { type: 'agent', id: 'x' }, agent: { id: 'x', name: 'x', workstationId: devId }, task: { id: 't-no-code', codeRefJson: null, inputJson: '{}', projectId: null, workstationId: devId }, run: { id: 'r' } } as never;
+    for (const [n, a] of [['read_file', { path: 'a.txt' }], ['apply_patch', { creates: [{ path: 'a.txt', content: 'x' }] }], ['run_command', { command: 'node check.js' }], ['git_commit', { message: 'x' }], ['submit_change', { summary: 'x' }]] as const) {
+      const r = await devTools[n]!.execute(bare, a as never);
+      expect((r as { error?: string }).error).toBeTruthy();
+    }
+    const cwdFiles2 = await import('node:fs').then((m) => m.readdirSync(process.cwd()));
+    expect(cwdFiles2).toEqual(cwdFiles);
+    expect((await import('node:fs')).existsSync('undefined')).toBe(false);
+  });
+
   it('git_commit 拒绝 module 外 + submit_change 前置', async () => {
     const { devTools } = await import('../src/runtime/tools/dev.js');
     const { writeFileSync, mkdirSync } = await import('node:fs');
+    expect(wt).toBeTruthy();
     mkdirSync(wt + '/src/board', { recursive: true });
     writeFileSync(wt + '/src/board/new.txt', 'new\n');
     writeFileSync(wt + '/outside.txt', 'out\n');

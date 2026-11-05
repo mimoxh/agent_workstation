@@ -200,7 +200,10 @@ export function enqueueMerge(db: DB, actor: Actor, taskId: string) {
     const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
     if (!t) return;
     const s = await wsSettings(db, t.workstationId);
-    void queueOf(s.repoPath).add(() => doMerge(db, actor, taskId, s));
+    void queueOf(s.repoPath).add(() => doMerge(db, actor, taskId, s).catch(async (e) => {
+      // 合并任务异常不能静默：任务必须脱离 reviewing/merge，否则永久卡住
+      await sendBack(db, { actor }, taskId, `合并异常：${String(e).slice(0, 300)}`);
+    }));
   })();
 }
 
@@ -246,7 +249,10 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
     return;
   }
   // 4. commit + proposal merged + task approve + 回收
-  await gitOk(integ, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'commit', '--no-edit', '-m', `Merge ${ref.branch}: ${t.title} (task ${taskId.slice(0, 8)})`]);
+  const pending = (await git(integ, ['status', '--porcelain'])).stdout.trim();
+  if (pending) {
+    await gitOk(integ, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'commit', '--no-edit', '-m', `Merge ${ref.branch}: ${t.title} (task ${taskId.slice(0, 8)})`]);
+  }
   const mergeSha = (await gitOk(integ, ['rev-parse', 'HEAD'])).stdout.trim();
   if (p) {
     await db.update(proposal).set({ status: 'merged' }).where(eq(proposal.id, p.id));

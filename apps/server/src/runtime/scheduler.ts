@@ -1,4 +1,5 @@
 import PQueue from 'p-queue';
+import path from 'node:path';
 import { and, eq, like } from 'drizzle-orm';
 import type { Actor, PermCtx } from '@aw/domain';
 import type { DB } from '../db/client.js';
@@ -79,6 +80,14 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
     await gitLock.add(async () => {
     const { createTaskWorktree } = await import('./git.js');
     const { ensureTargetBranch } = await import('./git.js');
+    // mock 模式不得作用于服务自身仓库（防真实仓库被测试污染）
+    const sameRepo = path.resolve(s.repoPath) === path.resolve((await import('node:child_process')).execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
+    const isMock = process.env.AW_ENABLE_MOCK === '1' || process.env.NODE_ENV === 'test';
+    if (isMock && sameRepo) {
+      const p = await db.select().from((await import('../db/schema.js')).project).where(eq((await import('../db/schema.js')).project.id, fresh.projectId));
+      await db.insert(inboxItem).values({ id: crypto.randomUUID(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: fresh.projectId, kind: 'blocked', refType: 'task', refId: t.id, status: 'open', payloadJson: JSON.stringify({ reason: 'mock 模式不得作用于本仓库' }), createdAt: new Date().toISOString() });
+      return;
+    }
     const tb = await ensureTargetBranch(s);
     if (!tb.ok) {
       const p = await db.select().from((await import('../db/schema.js')).project).where(eq((await import('../db/schema.js')).project.id, fresh.projectId));

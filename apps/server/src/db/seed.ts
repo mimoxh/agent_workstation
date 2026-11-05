@@ -60,7 +60,7 @@ export async function seed(db: DB) {
     settings: {
       repoPath,
       targetBranch: 'develop',
-      commands: { build: 'pnpm build', test: 'pnpm test', lint: 'pnpm lint' },
+      commands: repoPath === process.env.AW_SEED_REPO_PATH ? { build: 'pnpm build', test: 'pnpm test', lint: 'pnpm lint' } : { build: 'pnpm build', test: 'pnpm test', lint: 'pnpm lint', setup: 'pnpm install --frozen-lockfile --prefer-offline' },
     },
   });
   if (dev.kind !== 'ok') throw new Error('mount dev 失败');

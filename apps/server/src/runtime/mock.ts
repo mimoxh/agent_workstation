@@ -95,9 +95,10 @@ export function createScriptedMock() {
       if (tpl === 'frontend-dev' || tpl === 'backend-dev') {
         // 文件名按 agent 名区分，避免两个实现者建同名文件造成合并冲突
         const selfName = sys.match(/你是 ([^（\s]+)/)?.[1] ?? 'x';
-        const taskTitle = options.prompt.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content)).join('\n').match(/任务：([^\n（]+)/)?.[1] ?? 'x';
+        // 用整条 user 上下文哈希保证任务间唯一（同名任务也不能撞文件）
+        const allUser = options.prompt.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content)).join('\n');
         let h = 0;
-        for (const ch of selfName + taskTitle) h = (h * 31 + ch.charCodeAt(0)) % 997;
+        for (const ch of selfName + allUser) h = (h * 31 + ch.charCodeAt(0)) % 997;
         const file = `${mod || 'src/'}/feature-${h % 100}.txt`;
         void seed;
         switch (toolRounds) {

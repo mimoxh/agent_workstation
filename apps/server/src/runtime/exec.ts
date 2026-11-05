@@ -66,6 +66,9 @@ export function portEnv(worktreeKey: string): Record<string, string> {
 }
 
 export function runCommand(opts: { cwd: string; command: string; timeoutSec: number; env?: Record<string, string> }): Promise<ExecResult> {
+  if (!opts.cwd || !path.isAbsolute(opts.cwd)) {
+    return Promise.resolve({ exitCode: -1, durationMs: 0, output: 'cwd 缺失或不是绝对路径', truncated: false, timedOut: false });
+  }
   const argv = splitCommand(opts.command);
   if (!argv || argv.length === 0) {
     return Promise.resolve({ exitCode: -1, durationMs: 0, output: '不支持管道/重定向/链式命令/变量展开', truncated: false, timedOut: false });
