@@ -51,6 +51,10 @@ function scrubEnv(extra?: Record<string, string>): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(k)) continue;
     if (k.startsWith('AW_')) continue;
+    // pnpm/npm 注入的变量会干扰子进程的工作区/过滤解析（npm_config_filter → --filter），必须剔除
+    if (/^npm_|^pnpm_|^PNPM_/i.test(k) || k === 'INIT_CWD') continue;
+    // GIT_CONFIG_* 是 git -c 的内部传递机制变量，残留半套（有 COUNT 无 KEY）会让子 git 报 missing config key
+    if (k.startsWith('GIT_CONFIG')) continue;
     if (v !== undefined) out[k] = v;
   }
   return { ...out, ...(extra ?? {}) };

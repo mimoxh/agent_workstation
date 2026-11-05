@@ -16,6 +16,14 @@ const step = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
   }
 };
 
+const cmd = async (name: string, cwd: string, command: string, timeoutSec: number) => {
+  const r = await runCommand({ cwd, command, timeoutSec });
+  const head = r.output.slice(0, 2000);
+  const tail = r.output.length > 2000 ? r.output.slice(-2000) : '';
+  console.log(`--- ${name} exit=${r.exitCode} ---\n${head}${tail ? '\n...<截断>...\n' + tail : ''}`);
+  if (r.exitCode !== 0) throw new Error(r.output.slice(-400));
+};
+
 const argv = process.argv.slice(2);
 const refArg = argv[argv.indexOf('--ref') + 1];
 const repoPath = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
@@ -34,9 +42,25 @@ try {
     await step('ensureTargetBranch', () => ensureTargetBranch(s).then((r) => { if (!r.ok) throw new Error(r.error); }));
     wt = await step('createTaskWorktree', () => createTaskWorktree(s, 'smokews1', taskId));
   }
-  await step('setup(pnpm install)', () => runCommand({ cwd: wt!.worktree, command: s.commands.setup!, timeoutSec: s.setupTimeoutSec }).then((r) => { if (r.exitCode !== 0) throw new Error(r.output.slice(-400)); }));
-  await step('pnpm build', () => runCommand({ cwd: wt!.worktree, command: 'pnpm build', timeoutSec: s.commandTimeoutSec }).then((r) => { if (r.exitCode !== 0) throw new Error(r.output.slice(-400)); }));
-  await step('pnpm test', () => runCommand({ cwd: wt!.worktree, command: 'pnpm test', timeoutSec: s.commandTimeoutSec }).then((r) => { if (r.exitCode !== 0) throw new Error(r.output.slice(-400)); }));
+  const tBuild = Date.now();
+  await step('setup(pnpm install)', () => cmd('setup', wt!.worktree, s.commands.setup!, s.setupTimeoutSec));
+  await step('pnpm build', () => cmd('build', wt!.worktree, 'pnpm build', s.commandTimeoutSec));
+  await step('assert build artifact', async () => {
+    const html = wt!.worktree + '/apps/web/dist/index.html';
+    const st = await import('node:fs').then((m) => m.existsSync(html) ? m.statSync(html) : null);
+    if (!st || st.mtimeMs < tBuild) throw new Error('apps/web/dist/index.html 不存在或过旧——build 未真正执行');
+  });
+  let testOutput = '';
+  await step('pnpm test', async () => {
+    const r = await runCommand({ cwd: wt!.worktree, command: 'pnpm test', timeoutSec: s.commandTimeoutSec });
+    testOutput = r.output;
+    console.log('--- test exit=' + r.exitCode + ' ---\n' + r.output.slice(0, 2000));
+    if (r.exitCode !== 0) throw new Error(r.output.slice(-400));
+  });
+  await step('assert test count', async () => {
+    const m = testOutput.match(/Tests\s+(\d+)\s+passed/);
+    if (!m || Number(m[1]) < 1) throw new Error('test 输出里没有 ' + '' + 'Tests N passed' + '' + '——test 未真正执行');
+  });
 } finally {
   if (wt) {
     await step('removeTaskWorktree', () => removeTaskWorktree(s, 'smokews1', taskId));

@@ -260,6 +260,18 @@ describe('受控执行器', () => {
     const envOut = await runCommand({ cwd: dir, command: 'node env.js', timeoutSec: 5 });
     delete process.env.AW_ANTHROPIC_API_KEY;
     expect(envOut.output).toContain('absent');
+    // pnpm/npm 注入变量同样被剥离（否则子进程 pnpm 会读到 npm_config_filter 之类导致假阳性）
+    writeFileSync(join(dir, 'envp.js'), 'console.log(Object.keys(process.env).filter(k=>/npm_|pnpm|INIT|GIT_CONFIG/i.test(k)).join(",") || "CLEAN")');
+    process.env.npm_config_filter = '@aw/server';
+    process.env.PNPM_SCRIPT_SRC_DIR = 'x';
+    process.env.INIT_CWD = 'x';
+    process.env.GIT_CONFIG_COUNT = '1';
+    const envp = await runCommand({ cwd: dir, command: 'node envp.js', timeoutSec: 5 });
+    delete process.env.npm_config_filter;
+    delete process.env.PNPM_SCRIPT_SRC_DIR;
+    delete process.env.INIT_CWD;
+    delete process.env.GIT_CONFIG_COUNT;
+    expect(envp.output).toContain('CLEAN');
     const big = await runCommand({ cwd: dir, command: 'node big.js', timeoutSec: 10 });
     expect(big.truncated).toBe(true);
     const to = await runCommand({ cwd: dir, command: 'node sleep.js', timeoutSec: 1 });

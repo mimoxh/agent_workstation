@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import PQueue from 'p-queue';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 
 export interface GitResult { code: number; stdout: string; stderr: string; argv: string[]; ms: number; timedOut?: boolean }
 
@@ -103,6 +103,11 @@ export async function createTaskWorktree(s: DevSettings, wsId: string, taskId: s
   const base = (await gitOk(s.repoPath, ['rev-parse', s.targetBranch])).stdout.trim();
   const exists = await git(s.repoPath, ['rev-parse', '--verify', `refs/heads/${branch}`]);
   if (exists.code !== 0) await gitOk(s.repoPath, ['branch', branch, s.targetBranch]);
+  // 目录存在但未注册（上次删除残留的僵尸目录）：probe 不能只信 rev-parse，必须查 worktree list
+  const registered = (await git(s.repoPath, ['worktree', 'list', '--porcelain'])).stdout.split('\n').some((l) => l === `worktree ${dir}`);
+  if (!registered && existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
   const probe = await git(dir, ['rev-parse', '--is-inside-work-tree']);
   if (probe.code !== 0) await gitOk(s.repoPath, ['worktree', 'add', dir, branch]);
   return { worktree: dir, branch, base_sha: base };
