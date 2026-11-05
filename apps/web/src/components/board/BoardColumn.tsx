@@ -5,25 +5,37 @@ export function BoardColumn({
   title,
   tasks,
   pendingId,
+  projectId,
+  wsNames,
   onTransition,
+  onDispatch,
 }: {
   title: string;
   tasks: BoardTask[];
   pendingId: string | null;
+  projectId?: string | undefined;
+  wsNames?: Record<string, string> | undefined;
   onTransition: (taskId: string, event: TaskEvent) => void;
+  onDispatch?: ((task: BoardTask) => void) | undefined;
 }) {
   return (
-    <section
-      className="flex w-44 shrink-0 flex-col gap-2 rounded-md bg-neutral-50 p-2"
-      data-testid={`board-column-${title}`}
-    >
-      <header className="flex items-center justify-between px-1 text-xs font-semibold text-neutral-600">
-        <span>{title}</span>
-        <span>{tasks.length}</span>
-      </header>
-      {tasks.map((t) => (
-        <TaskCard key={t.id} task={t} pending={pendingId === t.id} onTransition={onTransition} />
-      ))}
-    </section>
+    <div className="w-52 shrink-0" data-testid={`board-column-${title}`}>
+      <div className="mb-2 text-xs font-semibold text-neutral-500">
+        {title} <span className="text-neutral-400">{tasks.length}</span>
+      </div>
+      <div className="space-y-2">
+        {tasks.map((t) => (
+          <TaskCard
+            key={t.id}
+            task={t}
+            pending={pendingId === t.id}
+            projectId={projectId}
+            wsNames={wsNames}
+            onTransition={onTransition}
+            onDispatch={onDispatch}
+          />
+        ))}
+      </div>
+    </div>
   );
 }

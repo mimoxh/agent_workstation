@@ -2,10 +2,13 @@ import { serve } from '@hono/node-server';
 import { createDb, migrateDb } from './db/client.js';
 import { seed } from './db/seed.js';
 import { createApp } from './app.js';
+import { loadPlugins } from './plugins.js';
+
+loadPlugins(); // 校验失败直接抛错退出
 
 const { db, sqlite } = createDb();
 migrateDb(sqlite);
-await seed(db); // 幂等，保证空库可启动
+await seed(db);
 
 const { app } = createApp(db);
 const port = Number(process.env.AW_PORT ?? 8787);

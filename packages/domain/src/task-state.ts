@@ -55,7 +55,15 @@ const TRANSITIONS: Readonly<Record<TaskStatus, Partial<Record<TaskEvent, TaskSta
 
 export const TERMINAL: readonly TaskStatus[] = ['done', 'cancelled'];
 
-export function transition(from: TaskStatus, event: TaskEvent): TransitionResult {
+export interface TransitionGuards {
+  acceptancePassed?: boolean;
+  hasAcceptance?: boolean;
+}
+
+export function transition(from: TaskStatus, event: TaskEvent, guards?: TransitionGuards): TransitionResult {
+  if (event === 'approve' && guards?.hasAcceptance && !guards.acceptancePassed) {
+    return { ok: false, error: '需先通过可执行验收' };
+  }
   if (event === 'cancel') {
     return TERMINAL.includes(from)
       ? { ok: false, error: `终态 ${from} 不可再转移` }

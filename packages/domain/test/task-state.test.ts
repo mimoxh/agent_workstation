@@ -81,6 +81,15 @@ describe('task-state', () => {
     }
   });
 
+  it('approve 有验收未通过时拒绝', () => {
+    expect(transition('reviewing', 'approve', { hasAcceptance: true, acceptancePassed: false })).toEqual({
+      ok: false,
+      error: '需先通过可执行验收',
+    });
+    expect(transition('reviewing', 'approve', { hasAcceptance: true, acceptancePassed: true })).toEqual({ ok: true, to: 'done' });
+    expect(transition('reviewing', 'approve', { hasAcceptance: false })).toEqual({ ok: true, to: 'done' });
+  });
+
   it('allowedEvents 与转移表一致', () => {
     for (const s of TASK_STATUSES) {
       for (const e of allowedEvents(s)) {

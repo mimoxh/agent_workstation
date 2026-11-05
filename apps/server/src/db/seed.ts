@@ -1,93 +1,75 @@
 import type { DB } from './client.js';
-import { appUser, project, task, workspace, workstation } from './schema.js';
+import { appUser, pluginInstall, project, workspace } from './schema.js';
 import { eq } from 'drizzle-orm';
 import { createDb, migrateDb } from './client.js';
+import { execSync } from 'node:child_process';
+import { loadPlugins, pluginRegistry } from '../plugins.js';
+import { addAgentInstance, mountWorkstation } from '../usecases/index.js';
+import type { Actor } from '@aw/domain';
 
 const now = () => new Date().toISOString();
+const HUMAN: Actor = { type: 'human', id: 'local' };
 
-// 幂等：全部使用固定 id，重复执行不产生重复数据。
 export async function seed(db: DB) {
   const w = await db.select().from(workspace).where(eq(workspace.id, 'default'));
-  if (w.length === 0) {
-    await db.insert(workspace).values({ id: 'default', name: '默认工作区', createdAt: now() });
-  }
+  if (w.length > 0) return; // 已播种，幂等退出
 
-  const u = await db.select().from(appUser).where(eq(appUser.id, 'local'));
-  if (u.length === 0) {
-    await db
-      .insert(appUser)
-      .values({ id: 'local', workspaceId: 'default', name: '本地用户', createdAt: now() });
-  }
+  await db.insert(workspace).values({ id: 'default', name: '默认工作区', createdAt: now() });
+  await db.insert(appUser).values({ id: 'local', workspaceId: 'default', name: '本地用户', createdAt: now() });
+  await db.insert(project).values({
+    id: 'proj-aw',
+    workspaceId: 'default',
+    name: 'Agent Workstation',
+    goal: '用工作台开发工作台本身',
+    status: 'active',
+    createdAt: now(),
+  });
 
-  const p = await db.select().from(project).where(eq(project.id, 'proj-aw'));
-  if (p.length === 0) {
-    await db.insert(project).values({
-      id: 'proj-aw',
+  // builtin 插件登记
+  for (const m of pluginRegistry.values()) {
+    await db.insert(pluginInstall).values({
+      id: crypto.randomUUID(),
       workspaceId: 'default',
-      name: 'Agent Workstation',
-      goal: '用工作台开发工作台本身',
-      status: 'active',
+      pluginId: m.id,
+      version: m.version,
+      source: 'builtin',
+      enabled: 1,
       createdAt: now(),
     });
   }
 
-  const root = await db.select().from(workstation).where(eq(workstation.id, 'ws-root'));
-  if (root.length === 0) {
-    await db.insert(workstation).values({
-      id: 'ws-root',
-      projectId: 'proj-aw',
-      parentId: null,
-      pluginId: 'pm',
-      pluginVersion: '1.0.0',
-      name: '根',
-      status: 'active',
-      sort: 0,
-      createdAt: now(),
-    });
-  }
+  const root = await mountWorkstation(HUMAN, db, {
+    projectId: 'proj-aw',
+    parentId: null,
+    pluginId: 'pm',
+    name: '根',
+  });
+  if (root.kind !== 'ok') throw new Error('mount pm 失败');
 
-  const dev = await db.select().from(workstation).where(eq(workstation.id, 'ws-dev'));
-  if (dev.length === 0) {
-    await db.insert(workstation).values({
-      id: 'ws-dev',
-      projectId: 'proj-aw',
-      parentId: 'ws-root',
-      pluginId: 'dev',
-      pluginVersion: '1.0.0',
-      name: '开发',
-      status: 'active',
-      sort: 1,
-      createdAt: now(),
-    });
+  let repoPath = '.';
+  try {
+    repoPath = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+  } catch {
+    /* 非 git 环境用占位 */
   }
-
-  const tasks: Array<{ id: string; title: string; status: string; module: string }> = [
-    { id: 'task-1', title: '梳理看板列与状态映射', status: 'draft', module: 'apps/web/src/components/board/' },
-    { id: 'task-2', title: '补齐任务转移的错误提示', status: 'dispatched', module: 'apps/web/src/components/board/' },
-    { id: 'task-3', title: '实现板块区的加载态', status: 'in_progress', module: 'apps/web/src/components/board/' },
-    { id: 'task-4', title: '看板卡片徽标样式统一', status: 'reviewing', module: 'apps/web/src/components/board/' },
-    { id: 'task-5', title: '任务详情页占位路由', status: 'done', module: 'apps/web/src/routes/' },
-    { id: 'task-6', title: '会话区接通消息流', status: 'blocked', module: 'apps/web/src/components/chat/' },
-  ];
-  for (const t of tasks) {
-    const existing = await db.select().from(task).where(eq(task.id, t.id));
-    if (existing.length === 0) {
-      await db.insert(task).values({
-        id: t.id,
-        projectId: 'proj-aw',
-        workstationId: 'ws-dev',
-        typeId: 'dev.issue',
-        title: t.title,
-        status: t.status,
-        inputJson: JSON.stringify({ module: t.module }),
-        createdAt: now(),
-      });
-    }
-  }
+  const dev = await mountWorkstation(HUMAN, db, {
+    projectId: 'proj-aw',
+    parentId: root.id,
+    pluginId: 'dev',
+    name: '开发',
+    settings: {
+      repoPath,
+      targetBranch: 'develop',
+      commands: { build: 'pnpm build', test: 'pnpm test', lint: 'pnpm lint' },
+    },
+  });
+  if (dev.kind !== 'ok') throw new Error('mount dev 失败');
+  // 剧本 A：第二个 frontend-dev 实例
+  await addAgentInstance(HUMAN, db, dev.id, 'frontend-dev');
 }
 
-// 直接执行（pnpm db:seed）：先建表再播种
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replaceAll('\\', '/').split('/').pop() ?? '')) {
+  loadPlugins();
   const { db, sqlite } = createDb();
   migrateDb(sqlite);
   await seed(db);

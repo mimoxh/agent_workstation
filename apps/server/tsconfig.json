@@ -3,7 +3,9 @@
   "compilerOptions": {
     "types": ["node"],
     "paths": {
-      "@aw/domain": ["../../packages/domain/src/index.ts"]
+      "@aw/domain": ["../../packages/domain/src/index.ts"],
+      "@aw/plugin-spec": ["../../packages/plugin-spec/src/index.ts"],
+      "@aw/plugins": ["../../packages/plugins/src/index.ts"]
     }
   },
   "include": ["src", "test", "drizzle.config.ts", "vitest.config.ts"]

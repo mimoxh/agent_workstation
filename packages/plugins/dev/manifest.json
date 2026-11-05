@@ -1,0 +1,149 @@
+{
+  "id": "dev",
+  "name": "全栈开发工作台",
+  "version": "1.0.0",
+  "description": "多 Agent 分工 + 可执行验收的软件开发工作台",
+  "steward": "architect",
+  "entities": {
+    "Module": {
+      "label": "模块",
+      "description": "代码域划分，用于派活与边界校验",
+      "titleField": "name",
+      "fields": {
+        "name": { "type": "string", "label": "名称", "required": true },
+        "path": { "type": "string", "label": "路径", "required": true },
+        "responsibility": { "type": "text", "label": "职责" },
+        "owner": { "type": "string", "label": "负责人" }
+      }
+    },
+    "ADR": {
+      "label": "架构决策",
+      "description": "架构决策记录，防止 Agent 忘了为什么",
+      "titleField": "title",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "context": { "type": "text", "label": "背景" },
+        "decision": { "type": "text", "label": "决策" },
+        "consequences": { "type": "text", "label": "后果" },
+        "status": { "type": "enum", "label": "状态", "enum": ["proposed", "accepted", "superseded"] }
+      }
+    },
+    "TestRun": {
+      "label": "测试运行",
+      "description": "可执行验收的证据",
+      "titleField": "command",
+      "fields": {
+        "command": { "type": "string", "label": "命令", "required": true },
+        "status": { "type": "enum", "label": "状态", "enum": ["passed", "failed", "error"] },
+        "duration": { "type": "number", "label": "耗时(s)" },
+        "output_ref": { "type": "string", "label": "输出" },
+        "commit_sha": { "type": "string", "label": "提交" }
+      }
+    },
+    "Page": {
+      "label": "页面",
+      "description": "前端页面（可选的领域实体）",
+      "titleField": "route",
+      "fields": {
+        "route": { "type": "string", "label": "路由", "required": true },
+        "name": { "type": "string", "label": "名称" },
+        "status": { "type": "string", "label": "状态" },
+        "screenshot_ref": { "type": "string", "label": "截图" }
+      }
+    }
+  },
+  "stages": [
+    { "id": "requirement", "name": "需求", "activePanels": ["board"], "activeAgents": ["architect"] },
+    {
+      "id": "design",
+      "name": "设计",
+      "requirements": [{ "kind": "manual", "text": "涉及新 Module 时需有 ADR" }],
+      "activePanels": ["board", "decisions"],
+      "activeAgents": ["architect"]
+    },
+    { "id": "implement", "name": "实现", "activePanels": ["board", "changes"], "activeAgents": ["frontend-dev", "backend-dev"] },
+    {
+      "id": "test",
+      "name": "测试",
+      "requirements": [{ "kind": "acceptance" }],
+      "activePanels": ["tests", "changes"],
+      "activeAgents": ["test-engineer"]
+    },
+    {
+      "id": "review",
+      "name": "评审",
+      "requirements": [{ "kind": "approval" }],
+      "activePanels": ["changes"],
+      "activeAgents": ["reviewer"]
+    },
+    { "id": "merge", "name": "合并", "activePanels": ["changes"], "activeAgents": [] }
+  ],
+  "panels": [
+    { "id": "board", "type": "board", "entity": "system:task", "title": "任务看板", "editableBy": ["human", "agent"], "config": { "field": "stage" } },
+    { "id": "changes", "type": "diff", "entity": "system:proposal", "title": "改动审阅", "editableBy": ["human", "agent"], "config": { "showComments": true } },
+    { "id": "tests", "type": "table", "entity": "TestRun", "title": "测试结果", "editableBy": ["human"] },
+    { "id": "decisions", "type": "table", "entity": "ADR", "title": "架构决策", "editableBy": ["human", "agent"] },
+    { "id": "files", "type": "tree", "entity": "system:files", "title": "文件树", "editableBy": ["human"] },
+    { "id": "preview", "type": "preview", "entity": "Page", "title": "页面预览", "editableBy": ["human"], "config": { "urlField": "route", "baselineField": "screenshot_ref" } }
+  ],
+  "agents": [
+    {
+      "id": "architect",
+      "name": "架构师",
+      "role": "拆模块、定接口、写 ADR、对外代表",
+      "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "search_code", "git_diff", "report_blocked", "request_human", "respond_task"],
+      "triggers": ["task_assigned", "mentioned", "stage_enter"]
+    },
+    {
+      "id": "frontend-dev",
+      "name": "前端开发",
+      "role": "页面、组件、样式、交互",
+      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
+      "triggers": ["task_assigned", "mentioned"]
+    },
+    {
+      "id": "backend-dev",
+      "name": "后端开发",
+      "role": "API、数据层、任务编排",
+      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
+      "triggers": ["task_assigned", "mentioned"]
+    },
+    {
+      "id": "test-engineer",
+      "name": "测试工程师",
+      "role": "写测试、跑测试、出报告",
+      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "run_command", "run_tests", "capture_screenshot", "send_message"],
+      "triggers": ["task_assigned"]
+    },
+    {
+      "id": "reviewer",
+      "name": "审查",
+      "role": "只读 diff，独立上下文：逐行评论并给出 approve / request_changes",
+      "tools": ["git_diff", "read_file", "review_change", "send_message"],
+      "triggers": ["task_assigned"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "dev.issue",
+      "name": "开发任务",
+      "description": "任务在开发台内的形态：feature / bug / chore，限定在声明的 Module 内",
+      "stages": ["requirement", "design", "implement", "test", "review", "merge"],
+      "inputSchema": {
+        "type": "object",
+        "required": ["title", "kind", "priority", "module"],
+        "properties": {
+          "title": { "type": "string" },
+          "kind": { "type": "string", "enum": ["feature", "bug", "chore"] },
+          "priority": { "type": "string", "enum": ["p0", "p1", "p2"] },
+          "module": { "type": "string", "description": "改动不得越出该 Module 的路径" }
+        }
+      },
+      "acceptance": [{ "kind": "command", "run": "pnpm build", "expect": { "exitCode": 0 } }]
+    }
+  ],
+  "defaults": {
+    "writeMode": "propose",
+    "taskBudget": { "tokens": 200000, "minutes": 30 }
+  }
+}

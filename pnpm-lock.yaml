@@ -26,6 +26,12 @@ importers:
       '@aw/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@aw/plugin-spec':
+        specifier: workspace:*
+        version: link:../../packages/plugin-spec
+      '@aw/plugins':
+        specifier: workspace:*
+        version: link:../../packages/plugins
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.14)
@@ -127,6 +133,35 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+
+  packages/plugin-spec:
+    dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+
+  packages/plugins:
+    dependencies:
+      '@aw/plugin-spec':
+        specifier: workspace:*
+        version: link:../plugin-spec
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
       vitest:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@aw/plugin-spec": ["../plugin-spec/src/index.ts"]
+    }
+  },
+  "include": ["src", "pm", "dev"]
+}

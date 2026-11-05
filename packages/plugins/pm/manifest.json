@@ -1,0 +1,32 @@
+{
+  "id": "pm",
+  "name": "项目管理",
+  "version": "1.0.0",
+  "description": "根工作台：任务立项、派发、依赖与验收",
+  "entities": {
+    "Milestone": {
+      "label": "里程碑",
+      "description": "项目级阶段目标，由人维护",
+      "titleField": "name",
+      "fields": {
+        "name": { "type": "string", "label": "名称", "required": true },
+        "due": { "type": "date", "label": "截止日期" },
+        "status": { "type": "enum", "label": "状态", "enum": ["未开始", "进行中", "已完成"] }
+      }
+    }
+  },
+  "panels": [
+    { "id": "board", "type": "board", "entity": "system:task", "title": "任务看板", "editableBy": ["human", "agent"], "config": { "field": "status" } },
+    { "id": "miles", "type": "timeline", "entity": "Milestone", "title": "里程碑", "editableBy": ["human"] }
+  ],
+  "agents": [
+    {
+      "id": "pm",
+      "name": "项目经理",
+      "role": "拆解目标、分派任务、跟踪阻塞",
+      "tools": ["read_entity", "list_entities", "create_task", "send_message", "request_human", "respond_task"]
+    }
+  ],
+  "steward": "pm",
+  "tasks": []
+}

@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@aw/domain": "workspace:*",
+    "@aw/plugin-spec": "workspace:*",
+    "@aw/plugins": "workspace:*",
     "@hono/node-server": "^2.1.5",
     "@hono/zod-validator": "^0.9.1",
     "better-sqlite3": "^13.0.3",

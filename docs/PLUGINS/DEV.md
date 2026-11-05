@@ -92,7 +92,7 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 
 | Agent | 职责 | 工具 |
 |---|---|---|
-| `architect`（steward） | 拆模块、定接口、写 ADR、对外代表 | `read_entity` `list_entities` `propose_entity` `create_task` `send_message` `search_code` `git_diff` `report_blocked` `request_human` |
+| `architect`（steward） | 拆模块、定接口、写 ADR、对外代表 | `read_entity` `list_entities` `propose_entity` `create_task` `send_message` `search_code` `git_diff` `report_blocked` `request_human` `respond_task` |
 | `frontend-dev` | 页面、组件、样式、交互 | `read_file` `search_code` `git_diff` `apply_patch` `git_commit` `submit_change` `run_command` `send_message` `report_blocked` |
 | `backend-dev` | API、数据层、任务编排 | 同 `frontend-dev` |
 | `test-engineer` | 写测试、跑测试、出报告 | `read_file` `search_code` `git_diff` `apply_patch` `git_commit` `run_command` `run_tests`（M1）`capture_screenshot`（M1）`send_message` |

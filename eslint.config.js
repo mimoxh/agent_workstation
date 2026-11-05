@@ -18,7 +18,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     // ARCHITECTURE §2 硬规则：domain 不得依赖框架或运行时
-    files: ['packages/domain/**/*.ts'],
+    files: ['packages/domain/src/**/*.ts', 'packages/plugin-spec/src/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

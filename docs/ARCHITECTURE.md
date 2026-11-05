@@ -112,7 +112,7 @@ run(id, agent_id, task_id, status, provider, model, fallback_from,
 artifact(id, workstation_id, task_id, type, name, ref,
          meta_json, created_at)
 
--- M0：kind ∈ command_confirm|blocked|proposal_review|run_failed；M1 增加 budget 等
+-- M0：kind ∈ command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered；M1 增加 budget 等
 inbox_item(id, workspace_id, project_id, kind, ref_type, ref_id,
            severity, status, created_at)
 
@@ -291,6 +291,7 @@ Agent 之间的实际交接一律用 `handoff`，自然语言只用于人和 Age
 | `send_message` | 发消息 | speak |
 | `report_blocked` | 上报阻塞 | 总是允许 |
 | `request_human` | 请求人工决策 | 总是允许 |
+| `respond_task` | steward 对派发到本台的任务接单 / 拒绝 / 反提案 | 仅 steward |
 | `search_knowledge` | 检索知识库（M1） | observe |
 
 工具返回结果必须按 token 预算裁剪；超长结果截断并标注 `truncated: true`。
