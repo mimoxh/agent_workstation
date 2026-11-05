@@ -35,6 +35,7 @@ export const project = sqliteTable('project', {
   name: text('name').notNull(),
   goal: text('goal'),
   status: text('status'),
+  trigger: text('trigger'),
   budgetJson: text('budget_json'),
   createdAt: text('created_at').notNull(),
 });
@@ -53,6 +54,7 @@ export const workstation = sqliteTable(
     pluginVersion: text('plugin_version'),
     name: text('name').notNull(),
     status: text('status'),
+  trigger: text('trigger'),
     settingsJson: text('settings_json'),
     sort: integer('sort'),
     createdAt: text('created_at').notNull(),
@@ -80,6 +82,7 @@ export const task = sqliteTable(
     inputJson: text('input_json'),
     acceptanceJson: text('acceptance_json'),
     status: text('status').notNull().default('draft'),
+  trigger: text('trigger'),
     assigneeType: text('assignee_type'),
     assigneeId: text('assignee_id'),
     dispatchReason: text('dispatch_reason'),
@@ -105,6 +108,7 @@ export const agent = sqliteTable('agent', {
   budgetJson: text('budget_json'),
   isSteward: integer('is_steward').notNull().default(0),
   status: text('status'),
+  trigger: text('trigger'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -163,6 +167,7 @@ export const proposal = sqliteTable('proposal', {
   authorType: text('author_type'),
   authorId: text('author_id'),
   status: text('status').notNull().default('pending'),
+  trigger: text('trigger'),
   decidedByType: text('decided_by_type'),
   decidedById: text('decided_by_id'),
   decidedAt: text('decided_at'),
@@ -224,6 +229,7 @@ export const run = sqliteTable(
     agentId: text('agent_id').references(() => agent.id),
     taskId: text('task_id').references(() => task.id),
     status: text('status'),
+    trigger: text('trigger'),
     provider: text('provider'),
     model: text('model'),
     fallbackFrom: text('fallback_from'),
@@ -260,6 +266,7 @@ export const inboxItem = sqliteTable('inbox_item', {
   refId: text('ref_id'),
   severity: text('severity'),
   status: text('status').notNull().default('open'),
+  trigger: text('trigger'),
   createdAt: text('created_at').notNull(),
 });
 

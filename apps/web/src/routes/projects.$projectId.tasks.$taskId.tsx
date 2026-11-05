@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { RespondDialog } from '@/components/board/RespondDialog';
+import { TaskThread } from '@/components/chat/Thread';
 import { EVENT_LABEL, STATUS_LABEL, STATUS_TONE } from '@/components/board/labels';
 import { Shell } from '@/components/layout/Shell';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ interface Task {
 }
 interface Detail { task: Task; parent: Task | null; children: Task[]; events: { id: string; action: string; payloadJson: string | null; createdAt: string }[] }
 interface WsNode { id: string; parentId: string | null; name: string }
-interface WsDetail { id: string; agents: { name: string; role: string | null; isSteward: number }[] }
+interface WsDetail { id: string; agents: { id: string; name: string; role: string | null; isSteward: number }[] }
 
 // 事件日志 payload 里的 assigneeId / workstationId / targetId 解析成名字
 function nameOf(id: unknown, wsNames: Record<string, string>, agentNames: Record<string, string>): unknown {
@@ -52,6 +53,22 @@ function TaskDetailPage() {
     },
   });
   const wsId = detail.data?.task.workstationId;
+  const runAgent = useMutation({
+    mutationFn: async (agentId: string) => {
+      const res = await apiClient.agents[':id'].run.$post({ param: { id: agentId }, json: { taskId } });
+      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? '运行失败');
+      return res.json();
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['runs', taskId] }),
+  });
+  const [runAgentId, setRunAgentId] = useState('');
+  const runs = useQuery({
+    queryKey: ['runs', taskId],
+    queryFn: async () => {
+      const res = await apiClient.tasks[':id'].runs.$get({ param: { id: taskId } });
+      return (await res.json()) as { id: string; provider: string; model: string; status: string; stopReason: string | null; startedAt: string }[];
+    },
+  });
   const ws = useQuery({
     queryKey: ['ws', wsId],
     enabled: !!wsId,
@@ -98,6 +115,7 @@ function TaskDetailPage() {
       workstations={project.data.workstations}
       activeWsId={task.workstationId}
       members={ws.data?.agents ?? []}
+      thread={<TaskThread taskId={taskId} />}
     >
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-5 p-8">
@@ -159,6 +177,25 @@ function TaskDetailPage() {
               })}
             </div>
           </section>
+          <section>
+            <div className="flex items-center gap-2 pb-2">
+              <h2 className="text-sm font-semibold">运行记录</h2>
+              <select data-testid="run-agent-select" className="h-7 rounded border border-neutral-300 text-xs" value={runAgentId} onChange={(e) => setRunAgentId(e.target.value)}>
+                <option value="">运行 Agent…</option>
+                {(ws.data?.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <Button size="sm" variant="outline" disabled={!runAgentId || runAgent.isPending} onClick={() => runAgent.mutate(runAgentId)}>运行</Button>
+              {runAgent.isError && <span className="text-xs text-red-600">{runAgent.error.message}</span>}
+            </div>
+            <div className="space-y-1">
+              {runs.data?.map((r) => (
+                <Link key={r.id} to="/runs/$runId" params={{ runId: r.id }} className="block text-xs text-blue-600 hover:underline">
+                  {r.provider}:{r.model} · {r.status}{r.stopReason ? `/${r.stopReason}` : ''} · {r.startedAt.slice(11,19)}
+                </Link>
+              ))}
+            </div>
+          </section>
+
           <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: task.workstationId }} className="text-sm text-blue-600 hover:underline">← 返回工作台</Link>
         </div>
       </div>

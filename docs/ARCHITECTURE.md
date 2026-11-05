@@ -112,7 +112,7 @@ run(id, agent_id, task_id, status, provider, model, fallback_from,
 artifact(id, workstation_id, task_id, type, name, ref,
          meta_json, created_at)
 
--- M0：kind ∈ command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered；M1 增加 budget 等
+-- M0：kind ∈ command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered|human_request|task_rejected|task_countered|human_request；M1 增加 budget 等
 inbox_item(id, workspace_id, project_id, kind, ref_type, ref_id,
            severity, status, created_at)
 
@@ -275,6 +275,8 @@ Agent 之间的实际交接一律用 `handoff`，自然语言只用于人和 Age
 | token 超任务预算 | 终止，标记 `budget` |
 | wall-clock 超时 | 终止，标记 `timeout` |
 | 连续失败 3 次 | 加入收件箱，人工介入 |
+
+> M0 中所有非 completed 的 run 都进入待处理（宁可多报）；「连续失败 3 次」的聚合在 M1 收件箱分级时实现。
 | 进程重启时状态为 running | 标记 `interrupted` 并进入待处理 |
 
 > M0 全部实现；token 上限取 Agent 或任务预算字段，仅 run 级（三级预算 M1）。

@@ -41,3 +41,7 @@ packages/
 - 代码注释默认不写；保持现有中文注释风格（只在结构需要处写）。
 - 路由文件改动后 `routeTree.gen.ts` 由插件自动重新生成，不要手改。
 - 不要做 git init / commit。
+
+
+## 模型配置（M0.2）
+复制 .env.example 为 .env.local 填 provider 密钥；AW_DEFAULT_MODEL 选默认；AW_AUTORUN=0 关自动运行；AW_ENABLE_MOCK=1 用脚本化 mock。冒烟：pnpm --filter @aw/server smoke:model（不回显 key）。

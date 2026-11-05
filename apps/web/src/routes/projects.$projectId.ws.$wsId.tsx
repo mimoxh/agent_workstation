@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { TaskBoard, type StageCol } from '@/components/board/TaskBoard';
 import type { DispatchTarget } from '@/components/board/DispatchDialog';
 import { Shell } from '@/components/layout/Shell';
+import { WsThread } from '@/components/chat/Thread';
 import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -39,7 +40,7 @@ function WorkstationPage() {
     queryFn: async () => {
       const res = await apiClient.projects[':id'].$get({ param: { id: projectId } });
       if (!res.ok) throw new Error('加载项目失败');
-      return (await res.json()) as { name: string; workstations: WsNode[] };
+  return (await res.json()) as { name: string; workstations: WsNode[] };
     },
   });
   const detail = useQuery({
@@ -47,11 +48,21 @@ function WorkstationPage() {
     queryFn: async () => {
       const res = await apiClient.workstations[':id'].$get({ param: { id: wsId } });
       if (!res.ok) throw new Error('加载工作台失败');
-      return (await res.json()) as WsDetail;
+  return (await res.json()) as WsDetail;
     },
   });
 
   // 子孙台的 manifest taskTypes（供派发对话框）
+
+  const agentStatus = useQuery({
+    queryKey: ['agent-status', wsId],
+    queryFn: async () => {
+      const res = await apiClient.workstations[':id'].agents.status.$get({ param: { id: wsId } });
+      return (await res.json()) as { running: string[] };
+    },
+    refetchInterval: 3000,
+  });
+  const runningIds = new Set(agentStatus.data?.running ?? []);
   const targets = descendants(project.data?.workstations ?? [], wsId);
   const targetDetails = useQuery({
     queryKey: ['ws-targets', targets.map((t) => t.id).join(',')],
@@ -77,9 +88,10 @@ function WorkstationPage() {
   const field = (() => { try { return (JSON.parse(active?.configJson ?? '{}') as { field?: string }).field; } catch { return undefined; } })();
   const stageCols: StageCol[] = (ws.manifest?.stages ?? []).map((s) => ({ id: s.id, title: s.name }));
   const wsNames = Object.fromEntries(project.data.workstations.map((w) => [w.id, w.name]));
+  const members = (ws.agents ?? []).map((a) => ({ ...a, running: runningIds.has(a.id) }));
 
   return (
-    <Shell projectId={projectId} projectName={project.data.name} workstations={project.data.workstations} activeWsId={wsId} members={ws.agents}>
+    <Shell projectId={projectId} projectName={project.data.name} workstations={project.data.workstations} activeWsId={wsId} thread={<WsThread wsId={wsId} />} members={members}>
       <div className="flex h-full flex-col">
         <div className="flex gap-1 border-b border-neutral-200 px-3 pt-2">
           {blocks.map((b, i) => (

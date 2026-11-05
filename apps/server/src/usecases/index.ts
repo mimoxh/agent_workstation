@@ -155,7 +155,7 @@ export async function createTaskUc(
   actor: Actor,
   db: DB,
   wsId: string,
-  input: { title: string; intent?: string | undefined; typeId?: string | undefined; input?: Record<string, unknown> | undefined; acceptance?: unknown[] | undefined; parentId?: string | undefined; assigneeAgentId?: string | undefined },
+  input: { title: string; intent?: string | undefined; typeId?: string | undefined; input?: Record<string, unknown> | undefined; acceptance?: unknown[] | undefined; parentId?: string | undefined; assigneeAgentId?: string | undefined; stage?: string | undefined },
 ) {
   const wsRows = await db.select().from(workstation).where(eq(workstation.id, wsId));
   const ws = wsRows[0];
@@ -220,6 +220,16 @@ export async function createTaskUc(
     }
   }
 
+  // stage：显式给出须属于该任务类型 stages；缺省取第一个 stage
+  let stage: string | null = null;
+  const stageIds = taskType?.stages ?? manifest?.stages?.map((s) => s.id) ?? [];
+  if (input.stage !== undefined) {
+    if (!stageIds.includes(input.stage)) return { kind: 'error' as const, status: 400 as const, error: `stage ${input.stage} 不属于该任务类型` };
+    stage = input.stage;
+  } else if (stageIds.length > 0) {
+    stage = stageIds[0]!;
+  }
+
   const id = uid();
   await db.insert(task).values({
     id,
@@ -232,6 +242,7 @@ export async function createTaskUc(
     inputJson: taskInput ? JSON.stringify(taskInput) : null,
     acceptanceJson: acceptance ? JSON.stringify(acceptance) : null,
     status,
+    stage,
     assigneeType: input.assigneeAgentId ? 'agent' : null,
     assigneeId: input.assigneeAgentId ?? null,
     createdAt: now(),

@@ -22,7 +22,7 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 60_000,
       env: {
-        AW_PORT: '8877',
+        AW_ENABLE_MOCK: '1', AW_DEFAULT_MODEL: 'mock:scripted', AW_PORT: '8877',
         AW_DB_PATH: e2eDbPath,
       },
     },

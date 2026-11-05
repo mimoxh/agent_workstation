@@ -73,13 +73,14 @@ export function Shell({
   workstations,
   activeWsId,
   members,
+  thread,
   children,
 }: {
   projectId: string;
   projectName: string;
   workstations: WorkstationNode[];
   activeWsId: string;
-  members?: { name: string; role: string | null; isSteward: number }[];
+  members?: { name: string; role: string | null; isSteward: number; running?: boolean }[]; thread?: ReactNode;
   children: ReactNode;
 }) {
   const roots = workstations.filter((w) => w.parentId === null);
@@ -107,20 +108,25 @@ export function Shell({
           </nav>
         </aside>
         <main className="min-w-0 flex-1">{children}</main>
-        <aside className="w-56 shrink-0 overflow-y-auto border-l border-neutral-200 p-3 text-sm">
-          <div className="pb-2 text-xs font-semibold text-neutral-500">成员</div>
-          <div className="space-y-1">
-            <div className="text-neutral-700">本地用户</div>
-            {(members ?? []).map((m, i) => (
-              <div key={i} className="text-neutral-700">
-                {m.name}
-                {m.isSteward === 1 && <span className="ml-1 rounded bg-purple-100 px-1 text-xs text-purple-700">steward</span>}
-                <div className="text-xs text-neutral-400">{m.role}</div>
-              </div>
-            ))}
+        <aside className="flex w-56 shrink-0 flex-col border-l border-neutral-200 p-3 text-sm">
+          <div className="max-h-[40%] min-h-0 overflow-y-auto">
+            <div className="pb-2 text-xs font-semibold text-neutral-500">成员</div>
+            <div className="space-y-1">
+              <div className="text-neutral-700">本地用户</div>
+              {(members ?? []).map((m, i) => (
+                <div key={i} className="text-neutral-700">
+                  {m.name}
+                  {m.isSteward === 1 && <span className="ml-1 rounded bg-purple-100 px-1 text-xs text-purple-700">steward</span>}
+                  {m.running && <span className="ml-1 rounded bg-green-100 px-1 text-xs text-green-700">运行中</span>}
+                  <div className="text-xs text-neutral-400">{m.role}</div>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="pt-4 text-xs font-semibold text-neutral-500">会话</div>
-          <div className="text-neutral-400">会话（阶段 2）</div>
+          <div className="min-h-0 flex-1">
+            {thread ?? <div className="text-neutral-400">—</div>}
+          </div>
         </aside>
       </div>
     </div>

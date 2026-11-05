@@ -15,6 +15,13 @@
       "when": 1793855722308,
       "tag": "0001_rapid_enchantress",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793857958763,
+      "tag": "0002_runtime",
+      "breakpoints": true
     }
   ]
 }
