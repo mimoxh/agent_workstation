@@ -1,0 +1,25 @@
+{
+  "name": "agent-workstation",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @aw/domain build && pnpm -r --parallel dev",
+    "build": "pnpm -r run typecheck && pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r run test",
+    "test:e2e": "pnpm --filter @aw/web test:e2e",
+    "db:migrate": "pnpm --filter @aw/server db:migrate",
+    "db:seed": "pnpm --filter @aw/server db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+data/
+*.local
+.env
+.env.*
+!.env.example
+routeTree.gen.ts.bak
+test-results/
+playwright-report/
+.DS_Store
