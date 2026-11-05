@@ -77,8 +77,7 @@ export const agentTemplateDefSchema = z.object({
       provider: z.string().optional(),
       name: z.string().optional(),
       temperature: z.number().optional(),
-    })
-    .optional(),
+    }).optional(),
   tools: z.array(z.string()),
   triggers: z.array(z.enum(['task_assigned', 'mentioned', 'stage_enter', 'schedule', 'manual'])).optional(),
   budget: z.object({ tokens: z.number().optional(), minutes: z.number().optional() }).optional(),

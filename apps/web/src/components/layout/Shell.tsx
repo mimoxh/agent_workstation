@@ -15,6 +15,7 @@ interface InboxItem {
   id: string;
   kind: string;
   refId: string | null;
+  payloadJson: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -38,12 +39,17 @@ function InboxBell() {
     refetchInterval: 5000,
   });
   const resolve = useMutation({
-    mutationFn: async (id: string) => {
-      await apiClient.inbox[':id'].resolve.$post({ param: { id }, json: {} });
-    },
+    mutationFn: async ({ id, decision }: { id: string; decision?: 'approve' | 'deny' }) =>
+      apiClient.inbox[':id'].resolve.$post({ param: { id }, json: { decision } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['inbox'] }),
   });
   const items = inbox.data ?? [];
+  const desc = (i: InboxItem) => {
+    if (i.kind === 'command_confirm') {
+      try { const p = JSON.parse(i.payloadJson ?? '{}') as { command?: string; cwd?: string }; return `命令确认 ${p.command ?? ''}`; } catch { /* noop */ }
+    }
+    return `${KIND_LABEL[i.kind] ?? i.kind} · ${i.refId?.slice(0, 8) ?? ''}`;
+  };
   return (
     <div className="relative">
       <button className="text-neutral-600" onClick={() => setOpen(!open)}>
@@ -56,8 +62,15 @@ function InboxBell() {
           ) : (
             items.map((i) => (
               <div key={i.id} className="flex items-center justify-between gap-2 border-b border-neutral-100 px-1 py-1.5 text-xs last:border-0">
-                <span>{KIND_LABEL[i.kind] ?? i.kind} · {i.refId?.slice(0, 8)}</span>
-                <button className="text-blue-600" onClick={() => resolve.mutate(i.id)}>标记已处理</button>
+                <span>{desc(i)}</span>
+                {i.kind === 'command_confirm' ? (
+                  <span className="flex gap-1">
+                    <button className="text-green-700" onClick={() => resolve.mutate({ id: i.id, decision: 'approve' })}>批准</button>
+                    <button className="text-red-600" onClick={() => resolve.mutate({ id: i.id, decision: 'deny' })}>拒绝</button>
+                  </span>
+                ) : (
+                  <button className="text-blue-600" onClick={() => resolve.mutate({ id: i.id })}>标记已处理</button>
+                )}
               </div>
             ))
           )}

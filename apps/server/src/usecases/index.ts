@@ -416,7 +416,7 @@ export async function transitionTaskUc(actor: Actor, db: DB, taskId: string, eve
   const t = rows[0];
   if (!t) return { kind: 'not_found' as const, status: 404 as const, error: '任务不存在' };
   const hasAcceptance = !!t.acceptanceJson && t.acceptanceJson !== '[]';
-  const r = transition(t.status as never, event, { hasAcceptance, acceptancePassed: false });
+  const r = transition(t.status as never, event, { hasAcceptance, acceptancePassed: hasAcceptance ? ((await (await import('../runtime/dev_workflow.js')).lastAcceptancePassed(db, t.workstationId ?? '', t.id)) ?? false) : false });
   if (!r.ok) return { kind: 'invalid' as const, status: 409 as const, error: r.error };
   const changed = await db
     .update(task)
@@ -431,7 +431,7 @@ export async function transitionTaskUc(actor: Actor, db: DB, taskId: string, eve
 export async function resolveInbox(actor: Actor, db: DB, id: string, resolution?: string) {
   const changed = await db
     .update(inboxItem)
-    .set({ status: 'resolved' })
+    .set({ status: 'resolved', resolutionJson: resolution ?? null })
     .where(and(eq(inboxItem.id, id), eq(inboxItem.status, 'open')));
   if (changed.changes === 0) return { kind: 'not_found' as const, status: 404 as const };
   await logEvent(db, actor, 'inbox_resolved', 'inbox_item', id, { resolution: resolution ?? null });

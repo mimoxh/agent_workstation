@@ -2,8 +2,9 @@ import PQueue from 'p-queue';
 import { and, eq, like } from 'drizzle-orm';
 import type { Actor, PermCtx } from '@aw/domain';
 import type { DB } from '../db/client.js';
-import { agent, message, run, task, thread, workstation } from '../db/schema.js';
+import { agent, inboxItem, message, run, task, thread, workstation } from '../db/schema.js';
 import { events } from '../events.js';
+import { devSettings } from './git.js';
 import { buildPermCtx, manifestOf } from '../usecases/index.js';
 import { buildContext } from './context.js';
 import { runAgent } from './loop.js';
@@ -12,6 +13,8 @@ import type { ToolCtx } from './tools/index.js';
 import type { AgentRow, TaskRow } from './types.js';
 
 const queue = new PQueue({ concurrency: Number(process.env.AW_RUN_CONCURRENCY ?? 2) });
+// git worktree 操作串行化，避免 refs/lock 冲突
+const gitLock = new PQueue({ concurrency: 1 });
 const inFlight = new Set<string>();
 const queued = new Set<string>();
 
@@ -70,6 +73,32 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
   });
   const runRow = (await db.select().from(run).where(eq(run.id, runId)))[0]!;
 
+  // 有 apply_patch 的 assignee agent：平台代建任务 worktree
+  const s = ws ? devSettings(ws.settingsJson) : null;
+  if (trigger === 'task_assigned' && fresh.assigneeType === 'agent' && s && (JSON.parse(a.toolsJson ?? '[]') as string[]).includes('apply_patch')) {
+    await gitLock.add(async () => {
+    const { createTaskWorktree } = await import('./git.js');
+    const { ensureTargetBranch } = await import('./git.js');
+    const tb = await ensureTargetBranch(s);
+    if (!tb.ok) {
+      const p = await db.select().from((await import('../db/schema.js')).project).where(eq((await import('../db/schema.js')).project.id, fresh.projectId));
+      await db.insert(inboxItem).values({ id: crypto.randomUUID(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: fresh.projectId, kind: 'blocked', refType: 'task', refId: t.id, status: 'open', createdAt: new Date().toISOString() });
+    } else {
+      const ref = await createTaskWorktree(s, a.workstationId, fresh.id);
+      await db.update(task).set({ codeRefJson: JSON.stringify(ref) }).where(eq(task.id, fresh.id));
+      fresh = (await db.select().from(task).where(eq(task.id, t.id)))[0] ?? fresh;
+      if (s.commands.setup) {
+        const { runCommand } = await import('./exec.js');
+        const setup = await runCommand({ cwd: ref.worktree, command: s.commands.setup, timeoutSec: s.setupTimeoutSec });
+        if (setup.exitCode !== 0) {
+          const p = await db.select().from((await import('../db/schema.js')).project).where(eq((await import('../db/schema.js')).project.id, fresh.projectId));
+          await db.insert(inboxItem).values({ id: crypto.randomUUID(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: fresh.projectId, kind: 'blocked', refType: 'task', refId: t.id, status: 'open', payloadJson: JSON.stringify({ output: setup.output.slice(0, 500) }), createdAt: new Date().toISOString() });
+        }
+      }
+    }
+    });
+  }
+
   if (!route) {
     await db.update(run).set({ status: 'error', stopReason: 'error', endedAt: new Date().toISOString(), error: '没有可用的模型 provider' }).where(eq(run.id, runId));
     return;
@@ -95,7 +124,7 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
     task: { title: t.title, intent: t.intent, inputJson: t.inputJson, acceptanceJson: t.acceptanceJson, typeId: t.typeId },
     parentTask: parent ? { title: parent.title, status: parent.status, intent: parent.intent } : null,
     siblingTasks: siblings.filter((s) => s.id !== t.id).map((s) => ({ title: s.title, status: s.status })),
-    threadMessages: msgs.map((m) => ({ senderId: m.senderId, senderType: m.senderType, content: m.content, kind: m.kind })),
+    threadMessages: tpl?.id === 'reviewer' ? [] : msgs.map((m) => ({ senderId: m.senderId, senderType: m.senderType, content: m.content, kind: m.kind })),
   });
   void trigger;
 
@@ -127,6 +156,38 @@ export function startScheduler(db: DB) {
       const steward = (await db.select().from(agent).where(and(eq(agent.workstationId, p.assigneeId), eq(agent.isSteward, 1))))[0];
       if (steward) await triggerRun(db, steward.id, taskId, 'task_assigned');
     }
+  });
+
+  // stage 流转 → 触发该 stage activeAgents
+  events.on('task_stage_changed', async (p) => {
+    const { triggerStageAgents } = await import('./dev_workflow.js');
+    await triggerStageAgents(db, String(p.targetId), String(p.stage));
+  });
+
+  // test-engineer run 结束 → 平台跑验收
+  events.on('run_finished', async (p) => {
+    const r = (await db.select().from(run).where(eq(run.id, String(p.runId))))[0];
+    if (!r?.agentId || !r.taskId) return;
+    const a = (await db.select().from(agent).where(eq(agent.id, r.agentId)))[0];
+    if (a?.templateId === 'test-engineer') {
+      const { afterTestRun } = await import('./dev_workflow.js');
+      await afterTestRun(db, r.taskId, r.id);
+    }
+  });
+
+  // 任务终态 → 回收 worktree + 父任务收口
+  events.on('task_status_changed', async (p) => {
+    const to = String((p as Record<string, unknown>).to ?? '');
+    if (!['done', 'cancelled'].includes(to)) return;
+    const t = (await db.select().from(task).where(eq(task.id, String(p.targetId))))[0];
+    if (!t) return;
+    const ws = (await db.select().from(workstation).where(eq(workstation.id, t.workstationId)))[0];
+    if (t.codeRefJson && ws) {
+      const { removeTaskWorktree } = await import('./git.js');
+      await removeTaskWorktree(devSettings(ws.settingsJson), t.workstationId, t.id);
+    }
+    const { maybeCloseParent } = await import('./dev_workflow.js');
+    await maybeCloseParent(db, t.parentId);
   });
 
   // @提及：人发的线程消息含 @Agent名 → 触发

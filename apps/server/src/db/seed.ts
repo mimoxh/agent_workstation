@@ -48,7 +48,7 @@ export async function seed(db: DB) {
 
   let repoPath = '.';
   try {
-    repoPath = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+    repoPath = process.env.AW_SEED_REPO_PATH ?? execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
   } catch {
     /* 非 git 环境用占位 */
   }

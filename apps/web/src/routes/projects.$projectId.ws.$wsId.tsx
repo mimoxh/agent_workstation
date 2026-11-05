@@ -5,6 +5,7 @@ import { TaskBoard, type StageCol } from '@/components/board/TaskBoard';
 import type { DispatchTarget } from '@/components/board/DispatchDialog';
 import { Shell } from '@/components/layout/Shell';
 import { WsThread } from '@/components/chat/Thread';
+import { DiffPanel, FileTree, TestRunTable } from '@/components/board/panels';
 import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -114,10 +115,12 @@ function WorkstationPage() {
             />
           )}
           {active?.panelType === 'table' && (
-            <div className="p-6 text-sm text-neutral-400">实体表（{active.name}）：暂无数据</div>
+            <TestRunTable wsId={wsId} />
           )}
-          {(active?.panelType === 'diff' || active?.panelType === 'tree' || active?.panelType === 'preview' || active?.panelType === 'timeline') && (
-            <div className="p-6 text-sm text-neutral-400">{active.name}：阶段 3 实现</div>
+          {active?.panelType === 'diff' && <DiffPanel wsId={wsId} />}
+          {active?.panelType === 'tree' && <FileTree wsId={wsId} />}
+          {(active?.panelType === 'preview' || active?.panelType === 'timeline') && (
+            <div className="p-6 text-sm text-neutral-400">{active.name}（阶段 3+ 实现）</div>
           )}
         </div>
       </div>

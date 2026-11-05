@@ -12,6 +12,13 @@ export interface ContextInput {
   siblingTasks: { title: string; status: string }[];
   threadMessages: { senderId: string | null; senderType: string | null; content: string | null; kind: string | null }[];
   budgetTokens?: number;
+  promptContent?: string;
+  isReviewer?: boolean;
+  module?: string;
+  branch?: string;
+  moduleFiles?: string;
+  lastTestRun?: string;
+  openComments?: string;
 }
 
 const tokensToChars = (t: number) => t * 3;
@@ -39,6 +46,7 @@ export function buildContext(input: ContextInput): { system: string; messages: {
   const system = clip(
     [
       `插件：${input.pluginDescription}`,
+      input.promptContent ? `提示词：\n${input.promptContent}` : '',
       `你是 ${input.agentName}（${input.agentRole ?? ''}）${input.isSteward ? '【steward】' : ''}，当前 stage：${input.stage ?? '—'}`,
       '规则：',
       rules,
@@ -57,14 +65,20 @@ export function buildContext(input: ContextInput): { system: string; messages: {
       input.siblingTasks.length > 0
         ? `兄弟子任务：${input.siblingTasks.map((s) => `${s.title}(${s.status})`).join('、')}`
         : '',
+      input.module ? `module：${input.module}` : '',
+      input.branch ? `分支：${input.branch}` : '',
+      input.moduleFiles ? `module 文件：\n${input.moduleFiles}` : '',
+      input.lastTestRun ? `最近验收：\n${input.lastTestRun}` : '',
+      input.openComments ? `未解决审查意见：\n${input.openComments}` : '',
     ]
       .filter(Boolean)
       .join('\n'),
     taskBudget,
   );
 
-  const threadLines = input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.content ?? ''}`);
-  const threadText = clip(threadLines.join('\n'), threadBudget);
+  // reviewer 隔离：上下文不含线程消息
+  const threadLines = input.isReviewer ? [] : input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.content ?? ''}`);
+  const threadText = input.isReviewer ? '' : clip(threadLines.join('\n'), threadBudget);
 
   return {
     system,

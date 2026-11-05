@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "smoke:model": "tsx --env-file-if-exists=../../.env.local src/smoke.ts",
+    "smoke:worktree": "tsx src/smoke-worktree.ts",
     "db:migrate": "drizzle-kit generate && tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts"
   },

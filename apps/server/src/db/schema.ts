@@ -77,6 +77,7 @@ export const task = sqliteTable(
     parentId: text('parent_id').references((): AnySQLiteColumn => task.id),
     typeId: text('type_id'),
     stage: text('stage'),
+    codeRefJson: text('code_ref_json'),
     title: text('title').notNull(),
     intent: text('intent'),
     inputJson: text('input_json'),
@@ -267,6 +268,8 @@ export const inboxItem = sqliteTable('inbox_item', {
   severity: text('severity'),
   status: text('status').notNull().default('open'),
   trigger: text('trigger'),
+   payloadJson: text('payload_json'),
+   resolutionJson: text('resolution_json'),
   createdAt: text('created_at').notNull(),
 });
 

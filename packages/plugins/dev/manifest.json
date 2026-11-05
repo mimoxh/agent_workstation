@@ -88,35 +88,35 @@
   ],
   "agents": [
     {
-      "id": "architect",
+      "id": "architect", "promptFile": "architect.md",
       "name": "架构师",
       "role": "拆模块、定接口、写 ADR、对外代表",
       "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "search_code", "git_diff", "report_blocked", "request_human", "respond_task"],
       "triggers": ["task_assigned", "mentioned", "stage_enter"]
     },
     {
-      "id": "frontend-dev",
+      "id": "frontend-dev", "promptFile": "implementer.md",
       "name": "前端开发",
       "role": "页面、组件、样式、交互",
       "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
-      "id": "backend-dev",
+      "id": "backend-dev", "promptFile": "implementer.md",
       "name": "后端开发",
       "role": "API、数据层、任务编排",
       "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
-      "id": "test-engineer",
+      "id": "test-engineer", "promptFile": "test-engineer.md",
       "name": "测试工程师",
       "role": "写测试、跑测试、出报告",
       "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "run_command", "run_tests", "capture_screenshot", "send_message"],
       "triggers": ["task_assigned"]
     },
     {
-      "id": "reviewer",
+      "id": "reviewer", "promptFile": "reviewer.md",
       "name": "审查",
       "role": "只读 diff，独立上下文：逐行评论并给出 approve / request_changes",
       "tools": ["git_diff", "read_file", "review_change", "send_message"],

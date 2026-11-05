@@ -3,6 +3,7 @@ import { and, eq, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DB } from '../../db/client.js';
 import { entity, inboxItem, project, task, thread, threadMember, message } from '../../db/schema.js';
+import { devTools } from './dev.js';
 import { createTaskUc, logEvent, respondTask } from '../../usecases/index.js';
 import { manifestOf } from '../../usecases/index.js';
 import type { AgentRow, TaskRow, RunRow } from '../types.js';
@@ -189,12 +190,16 @@ const tools: Record<string, ToolDef> = {
   },
 };
 
+export function allTools(): Record<string, ToolDef> {
+  return { ...tools, ...devTools };
+}
+
 export function toolSchemasFor(agentTools: string[]): { name: string; description: string; parameters: z.ZodType }[] {
-  return agentTools.filter((n) => tools[n]).map((n) => ({ name: n, description: tools[n]!.description, parameters: tools[n]!.parameters }));
+  return agentTools.filter((n) => allTools()[n]).map((n) => ({ name: n, description: allTools()[n]!.description, parameters: allTools()[n]!.parameters }));
 }
 
 export async function executeTool(ctx: ToolCtx, name: string, args: Record<string, unknown>): Promise<unknown> {
-  const def = tools[name];
+  const def = allTools()[name];
   if (!def) return { error: `工具 ${name} 未实现` };
   const denied = guard(ctx, def.right);
   if (denied) return { error: denied };

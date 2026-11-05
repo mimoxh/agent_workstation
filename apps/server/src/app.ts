@@ -3,8 +3,9 @@ import { TASK_EVENTS } from '@aw/domain';
 import { zValidator } from '@hono/zod-validator';
 import { streamSSE } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
-import { agent, message, proposal, run } from './db/schema.js';
+import { agent, entity, message, proposal, reviewComment, run, task, workstation } from './db/schema.js';
 import { events } from './events.js';
+import { devSettings } from './runtime/git.js';
 import { decideProposal } from './usecases/proposals.js';
 import { postThreadMessage, taskThreadOf, wsThreadOf } from './usecases/threads.js';
 import { Hono } from 'hono';
@@ -157,9 +158,9 @@ export function createApp(db: DB) {
     .get('/inbox', async (c) => c.json(await listInbox(c.get('actor'), c.get('db'), c.req.query('status') ?? 'open')))
     .post(
       '/inbox/:id/resolve',
-      zValidator('json', z.object({ resolution: z.string().optional() })),
+      zValidator('json', z.object({ resolution: z.string().optional(), decision: z.enum(['approve','deny']).optional() })),
       async (c) => {
-        const r = await resolveInbox(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').resolution);
+        const r = await resolveInbox(c.get('actor'), c.get('db'), c.req.param('id'), JSON.stringify({ resolution: c.req.valid('json').resolution, decision: c.req.valid('json').decision }));
         if (r.kind === 'not_found') return c.json({ error: '条目不存在' }, 404);
         return c.json({ ok: true });
       },
@@ -179,6 +180,18 @@ export function createApp(db: DB) {
     .post('/agents/:id/run', zValidator('json', z.object({ taskId: z.string() })), async (c) => { const { scheduler } = await import('./runtime/scheduler.js'); const r = await scheduler.trigger(c.get('db'), c.req.param('id'), c.req.valid('json').taskId, 'manual'); return r.ok ? c.json({ runId: r.runId }, 201) : c.json({ error: r.error }, 400); })
     .get('/workstations/:id/agents/status', async (c) => { const db = c.get('db'); const running = await db.select().from(run).where(eq(run.status, 'running')); const agents = await db.select().from(agent).where(eq(agent.workstationId, c.req.param('id'))); const ids = new Set(agents.map((a) => a.id)); return c.json({ running: running.filter((r) => ids.has(r.agentId ?? '')).map((r) => r.agentId) }); })
     .get('/agents/:id', async (c) => { const a = (await c.get('db').select().from(agent).where(eq(agent.id, c.req.param('id'))))[0]; return a ? c.json(a) : c.json({ error: 'agent 不存在' }, 404); })
+    .post('/proposals/:id/review', zValidator('json', z.object({ decision: z.enum(['approve','request_changes']), summary: z.string(), comments: z.array(z.object({ path: z.string(), line: z.number().optional(), body: z.string() })).optional() })), async (c) => {
+      const db = c.get('db'); const b = c.req.valid('json');
+      const p = (await db.select().from(proposal).where(eq(proposal.id, c.req.param('id'))))[0];
+      if (!p) return c.json({ error: '提案不存在' }, 404);
+      for (const cm of b.comments ?? []) await db.insert(reviewComment).values({ id: crypto.randomUUID(), proposalId: p.id, authorType: 'human', authorId: c.get('actor').id, path: cm.path, line: cm.line ?? null, body: cm.body, resolved: 0, createdAt: new Date().toISOString() });
+      await db.update(proposal).set({ status: b.decision === 'approve' ? 'approved' : 'changes_requested' }).where(eq(proposal.id, p.id));
+      if (p.taskId) { const t = (await db.select().from(task).where(eq(task.id, p.taskId)))[0]; if (t) { const { afterReview } = await import('./runtime/dev_workflow.js'); const wsAgents = await db.select().from(agent).where(eq(agent.workstationId, t.workstationId)); await afterReview({ db, actor: c.get('actor'), permCtx: {} as never, agent: wsAgents[0]!, task: t, run: {} as never }, p.id, b.decision); } }
+      return c.json({ ok: true }); })
+    .post('/proposals/:id/merge', async (c) => { const p = (await c.get('db').select().from(proposal).where(eq(proposal.id, c.req.param('id'))))[0]; if (!p?.taskId) return c.json({ error: '提案不存在' }, 404); const { enqueueMerge } = await import('./runtime/dev_workflow.js'); enqueueMerge(c.get('db'), c.get('actor'), p.taskId); return c.json({ ok: true }); })
+    .get('/workstations/:id/entities', async (c) => { const rows = await c.get('db').select().from(entity).where(eq(entity.workstationId, c.req.param('id'))); return c.json({ entities: rows }); })
+    .get('/workstations/:id/files', async (c) => { const ws = (await c.get('db').select().from(workstation).where(eq(workstation.id, c.req.param('id'))))[0]; if (!ws) return c.json({ error: '不存在' }, 404); const s = devSettings(ws.settingsJson); const { git } = await import('./runtime/git.js'); const path = c.req.query('path') ?? ''; const r = await git(s.repoPath, ['ls-tree', s.targetBranch, '--', path]); return c.json({ entries: r.stdout.split('\n').filter(Boolean) }); })
+    .get('/workstations/:id/file', async (c) => { const ws = (await c.get('db').select().from(workstation).where(eq(workstation.id, c.req.param('id'))))[0]; if (!ws) return c.json({ error: '不存在' }, 404); const s = devSettings(ws.settingsJson); const { git } = await import('./runtime/git.js'); const p = c.req.query('path') ?? ''; const r = await git(s.repoPath, ['show', s.targetBranch + ':' + p]); return c.json({ content: r.stdout.slice(0, 200 * 1024) }); })
   return { app, routes };
 }
 

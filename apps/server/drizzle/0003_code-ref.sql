@@ -1,0 +1,1 @@
+ALTER TABLE `task` ADD `code_ref_json` text;

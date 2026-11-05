@@ -22,6 +22,20 @@
       "when": 1793857958763,
       "tag": "0002_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793858696460,
+      "tag": "0003_code-ref",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793858797188,
+      "tag": "0004_inbox-payload",
+      "breakpoints": true
     }
   ]
 }

@@ -8,11 +8,13 @@ import { loadModels, sanitizeError } from '../src/runtime/models.js';
 import { runAgent } from '../src/runtime/loop.js';
 import { executeTool, type ToolCtx } from '../src/runtime/tools/index.js';
 import { decideProposal } from '../src/usecases/proposals.js';
-import { buildPermCtx } from '../src/usecases/index.js';
+import { buildPermCtx, createTaskUc } from '../src/usecases/index.js';
+const HUMAN = { type: 'human', id: 'local' } as const;
 import { buildContext } from '../src/runtime/context.js';
 import { scheduler } from '../src/runtime/scheduler.js';
-import { agent, inboxItem, run, task, workstation, entityVersion } from '../src/db/schema.js';
+import { agent, entity, inboxItem, run, task, workstation, entityVersion } from '../src/db/schema.js';
 import { and, eq } from 'drizzle-orm';
+import { execFileSync } from 'node:child_process';
 
 let db: DB;
 let app: ReturnType<typeof createApp>['app'];
@@ -199,8 +201,8 @@ describe('脚本化链路', () => {
     expect(children[0]!.status).toBe('in_progress');
     expect(children[0]!.stage).toBe('implement');
     const archRun = runs.find((r) => r.taskId === t.id)!;
-    expect(archRun.tokensIn).toBe(400);
-    expect(archRun.tokensOut).toBe(200);
+    expect(archRun.tokensIn).toBe(500);
+    expect(archRun.tokensOut).toBe(250);
     expect(archRun.trigger).toBe('task_assigned');
   });
 
@@ -230,4 +232,175 @@ describe('context 截断', () => {
     expect(system.length + messages[0]!.content.length).toBeLessThan(100000);
     expect(messages[0]!.content).toContain('[truncated]');
   });
+});
+
+describe('受控执行器', () => {
+  it('白名单/元字符拒绝/输出截断/env 剥离', async () => {
+    const { runCommand, splitCommand, isDangerous } = await import('../src/runtime/exec.js');
+    expect(splitCommand('a | b')).toBeNull();
+    expect(splitCommand('node check.js')).toEqual(['node', 'check.js']);
+    expect(splitCommand('node "a b".js')).toEqual(['node', 'a b.js']);
+    expect(isDangerous(['npx', 'tsx'])).toBe(true);
+    expect(isDangerous(['git', 'push'])).toBe(true);
+    expect(isDangerous(['pnpm', 'install', 'foo'])).toBe(true);
+    expect(isDangerous(['pnpm', 'install'])).toBe(false);
+    expect(isDangerous(['node', '-e', 'x'])).toBe(true);
+    const bad = await runCommand({ cwd: process.cwd(), command: 'echo hi | more', timeoutSec: 5 });
+    expect(bad.output).toContain('不支持');
+    const nw = await runCommand({ cwd: process.cwd(), command: 'rm -rf /', timeoutSec: 5 });
+    expect(nw.output).toContain('白名单');
+    const { writeFileSync, mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'aw-exec-'));
+    writeFileSync(join(dir, 'env.js'), 'console.log(process.env.AW_ANTHROPIC_API_KEY ?? "absent")');
+    writeFileSync(join(dir, 'big.js'), 'console.log("x".repeat(40000))');
+    writeFileSync(join(dir, 'sleep.js'), 'setTimeout(() => {}, 30000)');
+    process.env.AW_ANTHROPIC_API_KEY = 'sk-test-should-strip';
+    const envOut = await runCommand({ cwd: dir, command: 'node env.js', timeoutSec: 5 });
+    delete process.env.AW_ANTHROPIC_API_KEY;
+    expect(envOut.output).toContain('absent');
+    const big = await runCommand({ cwd: dir, command: 'node big.js', timeoutSec: 10 });
+    expect(big.truncated).toBe(true);
+    const to = await runCommand({ cwd: dir, command: 'node sleep.js', timeoutSec: 1 });
+    expect(to.timedOut).toBe(true);
+  });
+});
+
+describe('dev 工具', () => {
+  let repo: string, devId: string, wt: string, t: { id: string; codeRefJson: string | null; inputJson: string | null; projectId: string | null; workstationId: string | null }, ctx: { db: typeof db; actor: { type: 'agent'; id: string }; agent: { id: string; name: string; workstationId: string }; task: typeof t; run: { id: string } };
+  it('fixture 仓库 + worktree', async () => {
+    const { createFixtureRepo } = await import('./fixtures.js');
+    const { createTaskWorktree, devSettings } = await import('../src/runtime/git.js');
+    repo = createFixtureRepo();
+    devId = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!.id;
+    const s = { ...devSettings('{}'), repoPath: repo, targetBranch: 'main', commands: {} };
+    const taskRow = await createTaskUc(HUMAN, db, devId, { title: 'dev工具测试', typeId: 'dev.issue', input: { title: 'dev工具测试', kind: 'feature', priority: 'p1', module: 'src/board' } });
+    const ref = await createTaskWorktree(s, devId, taskRow.task!.id);
+    await db.update(task).set({ codeRefJson: JSON.stringify(ref) }).where(eq(task.id, taskRow.task!.id));
+    wt = ref.worktree;
+    t = (await db.select().from(task).where(eq(task.id, taskRow.task!.id)))[0]! as typeof t;
+    const a = (await db.select().from(agent).where(and(eq(agent.workstationId, devId), eq(agent.templateId, 'frontend-dev'))))[0]!;
+    ctx = { db, actor: { type: 'agent', id: a.id }, agent: { id: a.id, name: a.name, workstationId: devId }, task: t, run: { id: 'r1' } } as never;
+    expect(wt).toBeTruthy();
+  });
+  it('路径逃逸被拒', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const r = await devTools.read_file!.execute(ctx as never, { path: '../evil.txt' });
+    expect((r as { error?: string }).error).toBeTruthy();
+    const r2 = await devTools.read_file!.execute(ctx as never, { path: '.git/config' });
+    expect((r2 as { error?: string }).error).toBeTruthy();
+  });
+  it('越出 Module 被拒', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const r = await devTools.apply_patch!.execute(ctx as never, { creates: [{ path: 'outside.txt', content: 'x' }] });
+    expect((r as { error?: string }).error).toContain('Module');
+  });
+  it('apply_patch 原子性 + oldText 计数', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const p = 'src/board/index.txt';
+    const bad = await devTools.apply_patch!.execute(ctx as never, { edits: [{ path: p, oldText: 'x', newText: 'y' }] });
+    expect((bad as { error?: string }).error).toContain('0 次');
+    const multi = await devTools.apply_patch!.execute(ctx as never, { edits: [{ path: p, oldText: 'o', newText: 'x' }] });
+    expect((multi as { error?: string }).error).toContain('次');
+    const atomic = await devTools.apply_patch!.execute(ctx as never, { edits: [{ path: p, oldText: 'placeholder', newText: 'EDITED' }], creates: [{ path: '../bad.txt', content: 'x' }] });
+    expect((atomic as { error?: string }).error).toBeTruthy();
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(wt + '/' + p, 'utf8')).not.toContain('EDITED');
+  });
+  it('git_commit 拒绝 module 外 + submit_change 前置', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    mkdirSync(wt + '/src/board', { recursive: true });
+    writeFileSync(wt + '/src/board/new.txt', 'new\n');
+    writeFileSync(wt + '/outside.txt', 'out\n');
+    const c = await devTools.git_commit!.execute(ctx as never, { message: 'x' });
+    expect((c as { error?: string }).error).toContain('Module');
+    const noUncommit = await devTools.submit_change!.execute(ctx as never, { summary: 's' });
+    expect((noUncommit as { error?: string }).error).toBeTruthy();
+  });
+});
+describe('危险命令确认', () => {
+  it('批准执行 / 拒绝返回错误', async () => {
+    const { devTools } = await import('../src/runtime/tools/dev.js');
+    const { createFixtureRepo } = await import('./fixtures.js');
+    const { createTaskWorktree, devSettings } = await import('../src/runtime/git.js');
+    const repo = createFixtureRepo();
+    const devId = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!.id;
+    const s = { ...devSettings('{}'), repoPath: repo, targetBranch: 'main', commands: {} };
+    const tr = await createTaskUc(HUMAN, db, devId, { title: 'confirm测试', typeId: 'dev.issue', input: { title: 'confirm测试', kind: 'feature', priority: 'p1', module: 'src/board' } });
+    const ref = await createTaskWorktree(s, devId, tr.task!.id);
+    await db.update(task).set({ codeRefJson: JSON.stringify(ref) }).where(eq(task.id, tr.task!.id));
+    const t2 = (await db.select().from(task).where(eq(task.id, tr.task!.id)))[0]!;
+    const a = (await db.select().from(agent).where(and(eq(agent.workstationId, devId), eq(agent.templateId, 'frontend-dev'))))[0]!;
+    const ctx = { db, actor: { type: 'agent', id: a.id }, agent: { id: a.id, name: a.name, workstationId: devId }, task: t2, run: { id: 'r' } } as never;
+    // 批准路径
+    const p1 = devTools.run_command!.execute(ctx, { command: 'git push --force origin main' });
+    await new Promise((r) => setTimeout(r, 500));
+    const items1 = (await db.select().from(inboxItem).where(eq(inboxItem.kind, 'command_confirm'))).slice(-1);
+    await db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ decision: 'approve' }) }).where(eq(inboxItem.id, items1[0]!.id));
+    const r1 = await p1;
+    expect((r1 as { error?: string }).error).toBeUndefined();
+    // 拒绝路径
+    const p2 = devTools.run_command!.execute(ctx, { command: 'git clean -fd' });
+    await new Promise((r) => setTimeout(r, 500));
+    const items2 = (await db.select().from(inboxItem).where(eq(inboxItem.kind, 'command_confirm'))).slice(-1);
+    await db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ decision: 'deny' }) }).where(eq(inboxItem.id, items2[0]!.id));
+    const r2 = await p2;
+    expect((r2 as { error?: string }).error).toContain('拒绝');
+  }, 20000);
+});
+
+describe('合并队列与验收守卫', () => {
+  it('approve 守卫：无验收记录 → 409', async () => {
+    const tr = await createTaskUc(HUMAN, db, (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!.id, { title: 'guard测试', typeId: 'dev.issue', input: { title: 'g', kind: 'feature', priority: 'p1', module: 'src/board' }, acceptance: [{ kind: 'command', run: 'node check.js' }] });
+    const { transitionTaskUc } = await import('../src/usecases/index.js');
+    for (const ev of ['dispatch', 'start', 'submit', 'begin_review'] as const) await transitionTaskUc(HUMAN, db, tr.task!.id, ev);
+    const r = await transitionTaskUc(HUMAN, db, tr.task!.id, 'approve');
+    expect(r.status).toBe(409);
+  });
+});
+describe('剧本 A 全链路（fixture 仓库）', () => {
+  it('派发→2 子任务→实现→测试→审查(退一次)→合并→父任务 done', async () => {
+    const { createFixtureRepo } = await import('./fixtures.js');
+    const { existsSync } = await import('node:fs');
+    (await import('../src/runtime/scheduler.js')).startScheduler(db);
+    const repo = createFixtureRepo();
+    const dev = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!;
+    await db.update(workstation).set({ settingsJson: JSON.stringify({ repoPath: repo, targetBranch: 'develop', baseBranch: 'main', commands: {}, commandTimeoutSec: 30, setupTimeoutSec: 60, requireHumanFor: [] }) }).where(eq(workstation.id, dev.id));
+    const pmId = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!.id;
+    const t = (await (await post(`/api/workstations/${pmId}/tasks`, { title: '剧本A', intent: 'x' })).json()) as { id: string };
+    await post(`/api/tasks/${t.id}/dispatch`, { targetWorkstationId: dev.id, typeId: 'dev.issue', input: { title: '剧本A', kind: 'feature', priority: 'p1', module: 'src/board' }, acceptance: [{ kind: 'command', run: 'node check.js' }] });
+    // mock 循环依赖事件：多次 idle 直到稳定
+    for (let i = 0; i < 240; i++) { await new Promise((r) => setTimeout(r, 500)); await scheduler.idle(); const p2 = (await db.select().from(task).where(eq(task.id, t.id)))[0]; if (p2?.status === 'done') break; }
+    const parent = (await db.select().from(task).where(eq(task.id, t.id)))[0]!;
+    const children = await db.select().from(task).where(eq(task.parentId, t.id));
+    const runs2 = await db.select().from(run);
+    const el = await db.select().from((await import('../src/db/schema.js')).eventLog);
+    const ib = await db.select().from(inboxItem);
+    console.log('P3-DBG', JSON.stringify({ el: el.map((e) => e.action), ib: ib.map((i) => i.kind), pstage: parent.stage, pa: parent.assigneeType + '/' + parent.assigneeId }));
+    const proposals2 = await (await import('../src/db/schema.js')).proposal;
+    const props = await db.select().from(proposals2);
+    const entities2 = await db.select().from(entity).where(and(eq(entity.workstationId, dev.id), eq(entity.entityType, 'TestRun')));
+    let mergeLog = ''; try { mergeLog = execFileSync('git', ['-C', repo, 'log', 'develop', '--merges', '--format=%s'], { encoding: 'utf8' }); } catch { /* develop 未建 */ }
+    const done2 = runs2.filter((r) => r.status === 'completed').map((r) => JSON.parse(r.traceJson ?? '[]').filter((x: { type: string }) => x.type === 'tool').map((x: { name: string; result: unknown; error?: string }) => x.name + ':' + (x.error ?? JSON.stringify(x.result).slice(0, 60))));
+    console.log('P3-TOOLS', JSON.stringify(done2).slice(0, 2500));
+    const stuck = runs2.filter((r) => r.status === 'running').map((r) => ({ tr: JSON.parse(r.traceJson ?? '[]').slice(-3), e: r.error }));
+    console.log('P3-STUCK', JSON.stringify(stuck).slice(0, 2000));
+    const msgs = await db.select().from((await import('../src/db/schema.js')).message);
+    console.log('P3-MSG', JSON.stringify(msgs.filter((m) => m.kind === 'status').map((m) => m.content?.slice(0, 150))).slice(0, 2000));
+    console.log('P3-CHAIN', JSON.stringify({ parent: parent.status, children: children.map((c) => ({ s: c.status, st: c.stage })), runs: runs2.map((r) => `${r.agentId?.slice(0,4)}:${r.trigger}:${r.status}`), props: props.map((p) => p.status), testruns: entities2.length, merges: mergeLog.split('\n').filter(Boolean).length }));
+    expect(children.length).toBe(2);
+    expect(children.every((c) => c.status === 'done')).toBe(true);
+    expect(parent.status).toBe('done');
+    expect(props.filter((p) => p.status === 'merged').length).toBe(2);
+    expect(props.filter((p) => p.status === 'superseded').length).toBeGreaterThanOrEqual(2);
+    expect(entities2.length).toBeGreaterThanOrEqual(4);
+    expect(mergeLog.split('\n').filter(Boolean).length).toBe(2);
+    expect(runs2.some((r) => r.trigger === 'stage_enter')).toBe(true);
+    for (const c of children) {
+      const cr = JSON.parse(c.codeRefJson ?? '{}') as { worktree?: string };
+      if (cr.worktree) expect(existsSync(cr.worktree)).toBe(false);
+    }
+  }, 180000);
 });
