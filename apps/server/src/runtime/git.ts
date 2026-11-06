@@ -104,7 +104,8 @@ export async function createTaskWorktree(s: DevSettings, wsId: string, taskId: s
   const exists = await git(s.repoPath, ['rev-parse', '--verify', `refs/heads/${branch}`]);
   if (exists.code !== 0) await gitOk(s.repoPath, ['branch', branch, s.targetBranch]);
   // 目录存在但未注册（上次删除残留的僵尸目录）：probe 不能只信 rev-parse，必须查 worktree list
-  const registered = (await git(s.repoPath, ['worktree', 'list', '--porcelain'])).stdout.split('\n').some((l) => l === `worktree ${dir}`);
+  // git 在 Windows 上输出正斜杠路径，比较前要规范化
+  const registered = (await git(s.repoPath, ['worktree', 'list', '--porcelain'])).stdout.split('\n').some((l) => l.startsWith('worktree ') && path.resolve(l.slice('worktree '.length)) === path.resolve(dir));
   if (!registered && existsSync(dir)) {
     rmSync(dir, { recursive: true, force: true });
   }

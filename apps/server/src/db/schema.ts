@@ -91,6 +91,7 @@ export const task = sqliteTable(
     usageJson: text('usage_json'),
     resultJson: text('result_json'),
     blockedReason: text('blocked_reason'),
+    feedbackCount: integer('feedback_count').notNull().default(0),
     dueAt: text('due_at'),
     createdAt: text('created_at').notNull(),
   },

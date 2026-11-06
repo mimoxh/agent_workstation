@@ -5,8 +5,13 @@ import { seed } from './db/seed.js';
 import { inboxItem, run } from './db/schema.js';
 import { createApp } from './app.js';
 import { loadPlugins } from './plugins.js';
-import { loadModels } from './runtime/models.js';
+import { loadModels, sanitizeError } from './runtime/models.js';
 import { startScheduler } from './runtime/scheduler.js';
+
+// 最后一道兜底：单个任务的漏网异常不能带走常驻进程和其他 run
+process.on('unhandledRejection', (e) => {
+  console.error('[unhandledRejection]', sanitizeError(e instanceof Error ? (e.stack ?? e.message) : String(e)));
+});
 
 loadPlugins(); // 校验失败直接抛错退出
 await loadModels();

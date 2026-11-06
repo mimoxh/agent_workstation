@@ -95,6 +95,7 @@ task(id, project_id, workstation_id, parent_id, type_id, stage,
      title, intent, input_json, acceptance_json /* 结构化验收：command|visual|manual|text */,
      status, assignee_type, assignee_id /* 人或 Agent */, dispatch_reason,
      budget_json, usage_json, result_json, blocked_reason,
+     feedback_count /* 连续退回次数，超限转 blocked */,
      due_at, created_at)
 
 -- kind ∈ task | review | discussion | dm；mode 为发言调度模式

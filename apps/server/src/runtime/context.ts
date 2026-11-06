@@ -12,13 +12,13 @@ export interface ContextInput {
   siblingTasks: { title: string; status: string }[];
   threadMessages: { senderId: string | null; senderType: string | null; content: string | null; kind: string | null }[];
   budgetTokens?: number;
-  promptContent?: string;
+  promptContent?: string | undefined;
   isReviewer?: boolean;
-  module?: string;
-  branch?: string;
-  moduleFiles?: string;
-  lastTestRun?: string;
-  openComments?: string;
+  module?: string | undefined;
+  branch?: string | undefined;
+  moduleFiles?: string | undefined;
+  lastTestRun?: string | undefined;
+  openComments?: string | undefined;
 }
 
 const tokensToChars = (t: number) => t * 3;

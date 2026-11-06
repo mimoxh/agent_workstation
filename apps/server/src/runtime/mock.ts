@@ -19,9 +19,14 @@ function selfTemplateId(system: string | undefined): string {
   return line ? line.slice('SELF_TEMPLATE:'.length).trim() : '';
 }
 
+// user 消息的原始文本：按行匹配必须用它，JSON 序列化后换行被转义，[^\n]+ 会一路吃到结尾
+function userText(prompt: Options['prompt']): string {
+  return prompt.flatMap((m) => (m.role === 'user' ? m.content : [])).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+}
+
 // 当前任务 id / module：从 user 消息 task 层提取（buildContext 写入）
 function taskInfo(prompt: Options['prompt']): { module: string; seed: number } {
-  const user = prompt.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content)).join('\n');
+  const user = userText(prompt);
   const mod = user.match(/module：([^\n]+)/)?.[1]?.trim() ?? '';
   // 让两个实现者走不同文件：用任务标题里的字符做种子
   const seed = user.length % 1000;
@@ -127,8 +132,8 @@ export function createScriptedMock() {
       }
 
       if (tpl === 'reviewer') {
-        const userText = options.prompt.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content)).join('\n');
-        const taskKey = userText.match(/任务：([^\n]+)/)?.[1] ?? 'unknown';
+        const user = userText(options.prompt);
+        const taskKey = `${user.match(/任务：([^\n]+)/)?.[1] ?? 'unknown'}|${user.match(/分支：([^\n]+)/)?.[1] ?? ''}`;
         const n = reviewCounts.get(taskKey) ?? 0;
         reviewCounts.set(taskKey, n + 1);
         if (n === 0) {

@@ -1,9 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import PQueue from 'p-queue';
 import type { Actor } from '@aw/domain';
 import { transition } from '@aw/domain';
 import type { DB } from '../db/client.js';
-import { artifact, entity, inboxItem, message, proposal, project, run, task, workstation } from '../db/schema.js';
+import { artifact, entity, inboxItem, message, proposal, project, reviewComment, run, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, type DevSettings } from './git.js';
 import { runCommand, portEnv, type ExecResult } from './exec.js';
@@ -15,8 +15,18 @@ import path from 'node:path';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
+// 连续退回超过此次数就转人工
+const MAX_SEND_BACKS = 3;
 
-async function condTransition(db: DB, actor: Actor, taskId: string, ev: Parameters<typeof transition>[1], extra: Record<string, unknown> = {}) {
+export async function pushInbox(db: DB, projectId: string, item: { kind: string; refType: string; refId: string; payload?: Record<string, unknown> }) {
+  const p = await db.select().from(project).where(eq(project.id, projectId));
+  await db.insert(inboxItem).values({
+    id: uid(), workspaceId: p[0]?.workspaceId ?? 'default', projectId, kind: item.kind, refType: item.refType, refId: item.refId, status: 'open',
+    payloadJson: item.payload ? JSON.stringify(item.payload) : null, createdAt: now(),
+  });
+}
+
+export async function condTransition(db: DB, actor: Actor, taskId: string, ev: Parameters<typeof transition>[1], extra: Record<string, unknown> = {}) {
   const cur = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!cur) return null;
   const r = transition(cur.status as never, ev);
@@ -76,14 +86,17 @@ export async function triggerStageAgents(db: DB, taskId: string, stage: string) 
   }
 }
 
-const feedbackCount = new Map<string, number>();
-
-async function sendBack(db: DB, ctx: { actor: Actor }, taskId: string, note: string) {
-  const n = (feedbackCount.get(taskId) ?? 0) + 1;
-  feedbackCount.set(taskId, n);
-  if (n > 3) {
-    const p = await db.select().from(project).where(eq(project.id, (await db.select().from(task).where(eq(task.id, taskId)))[0]?.projectId ?? ''));
-    await db.insert(inboxItem).values({ id: uid(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: (await db.select().from(task).where(eq(task.id, taskId)))[0]?.projectId ?? null, kind: 'blocked', refType: 'task', refId: taskId, status: 'open', createdAt: now() });
+export async function sendBack(db: DB, ctx: { actor: Actor }, taskId: string, note: string) {
+  const row = (await db.update(task).set({ feedbackCount: sql`${task.feedbackCount} + 1` }).where(eq(task.id, taskId)).returning({ n: task.feedbackCount, projectId: task.projectId }))[0];
+  if (!row) return;
+  if (row.n > MAX_SEND_BACKS) {
+    // 次数用尽：退回实现后转 blocked 等人处理；计数清零，人解除阻塞后重新计
+    const reason = `连续退回超过 ${MAX_SEND_BACKS} 次，需要人工介入。最后一次：${note.slice(0, 500)}`;
+    await condTransition(db, ctx.actor, taskId, 'send_back', { stage: 'implement' });
+    await condTransition(db, ctx.actor, taskId, 'block', { blockedReason: reason, feedbackCount: 0 });
+    await pushInbox(db, row.projectId, { kind: 'blocked', refType: 'task', refId: taskId, payload: { reason } });
+    events.emit('inbox_created', { kind: 'blocked', refId: taskId });
+    await threadMsg(db, taskId, 'platform', reason);
     return;
   }
   await condTransition(db, ctx.actor, taskId, 'send_back');
@@ -107,11 +120,13 @@ export async function afterReview(ctx: ToolCtx, proposalId: string, decision: 'a
     await sendBack(ctx.db, ctx, ctx.task.id, '审查要求修改，回退到实现阶段');
     return;
   }
+  // 审查通过即视为此前意见已处理，不再进入后续上下文
+  const ids = (await ctx.db.select({ id: proposal.id }).from(proposal).where(eq(proposal.taskId, ctx.task.id))).map((p) => p.id);
+  if (ids.length > 0) await ctx.db.update(reviewComment).set({ resolved: 1 }).where(inArray(reviewComment.proposalId, ids));
   const s = await wsSettings(ctx.db, ctx.agent.workstationId);
   await setStage(ctx.db, ctx.actor, ctx.task.id, 'merge');
   if (s.requireHumanFor.includes('merge')) {
-    const p = await ctx.db.select().from(project).where(eq(project.id, ctx.task.projectId));
-    await ctx.db.insert(inboxItem).values({ id: uid(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: ctx.task.projectId, kind: 'proposal_review', refType: 'proposal', refId: proposalId, status: 'open', createdAt: now() });
+    await pushInbox(ctx.db, ctx.task.projectId, { kind: 'proposal_review', refType: 'proposal', refId: proposalId });
     return;
   }
   enqueueMerge(ctx.db, ctx.actor, ctx.task.id);
@@ -200,11 +215,11 @@ export function enqueueMerge(db: DB, actor: Actor, taskId: string) {
     const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
     if (!t) return;
     const s = await wsSettings(db, t.workstationId);
-    void queueOf(s.repoPath).add(() => doMerge(db, actor, taskId, s).catch(async (e) => {
+    await queueOf(s.repoPath).add(() => doMerge(db, actor, taskId, s).catch(async (e) => {
       // 合并任务异常不能静默：任务必须脱离 reviewing/merge，否则永久卡住
       await sendBack(db, { actor }, taskId, `合并异常：${String(e).slice(0, 300)}`);
     }));
-  })();
+  })().catch((e: unknown) => console.error('[merge] 入队失败', taskId, String(e)));
 }
 
 async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
@@ -294,4 +309,4 @@ export async function maybeCloseParent(db: DB, parentId: string | null) {
   }
 }
 
-export { mergeQueues, feedbackCount };
+export { mergeQueues };

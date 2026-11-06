@@ -1,9 +1,10 @@
 import type { Actor } from '@aw/domain';
 import { TASK_EVENTS } from '@aw/domain';
 import { zValidator } from '@hono/zod-validator';
-import { streamSSE } from 'hono/streaming';
+import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
 import { agent, entity, message, proposal, reviewComment, run, task, workstation } from './db/schema.js';
+import { listProposals } from './repositories/index.js';
 import { events } from './events.js';
 import { devSettings } from './runtime/git.js';
 import { decideProposal } from './usecases/proposals.js';
@@ -32,6 +33,17 @@ import {
 type Env = { Variables: { actor: Actor; db: DB } };
 
 const jsonRecord = z.record(z.string(), z.unknown());
+
+// 挂住 SSE 连接直到客户端断开或主动 close，退出时摘掉本连接的全部监听器
+async function holdSSE(stream: SSEStreamingApi, subscribe: (close: () => void) => (() => void)[]) {
+  let close = () => {};
+  const closed = new Promise<void>((resolve) => { close = resolve; });
+  const offs = subscribe(close);
+  stream.onAbort(close);
+  if (stream.aborted) close();
+  await closed;
+  for (const off of offs) off();
+}
 
 export function createApp(db: DB) {
   const app = new Hono<Env>();
@@ -166,17 +178,17 @@ export function createApp(db: DB) {
       },
     )
 
-    .get('/workstations/:id/proposals', async (c) => c.json(await c.get('db').select().from(proposal)))
+    .get('/workstations/:id/proposals', async (c) => c.json(await listProposals(c.get('actor'), c.get('db'), c.req.param('id'))))
     .post('/proposals/:id/approve', async (c) => { const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'approve'); if (r.kind === 'ok') return c.json({ ok: true }); return c.json({ error: (r as { error?: string }).error ?? '失败' }, ((r as { status?: number }).status ?? 400) as never); })
     .post('/proposals/:id/reject', zValidator('json', z.object({ reason: z.string().optional() })), async (c) => { const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'reject', c.req.valid('json').reason); if (r.kind === 'ok') return c.json({ ok: true }); return c.json({ error: (r as { error?: string }).error ?? '失败' }, ((r as { status?: number }).status ?? 400) as never); })
     .get('/tasks/:id/thread', async (c) => { const th = await taskThreadOf(c.get('db'), c.req.param('id')); if (!th) return c.json({ error: '任务不存在' }, 404); const msgs = await c.get('db').select().from(message).where(eq(message.threadId, th.id)); return c.json({ thread: th, messages: msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) }); })
     .get('/workstations/:id/thread', async (c) => { const th = await wsThreadOf(c.get('db'), c.req.param('id')); const msgs = await c.get('db').select().from(message).where(eq(message.threadId, th!.id)); return c.json({ thread: th, messages: msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) }); })
     .post('/threads/:id/messages', zValidator('json', z.object({ content: z.string().min(1) })), async (c) => c.json(await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').content), 201))
-    .get('/threads/:id/stream', async (c) => { const threadId = c.req.param('id'); const existing = await c.get('db').select().from(message).where(eq(message.threadId, threadId)); return streamSSE(c, async (stream) => { for (const m of existing.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) await stream.writeSSE({ event: 'message', data: JSON.stringify(m) }); events.on('message_created', async (p: Record<string, unknown>) => { if (p.threadId === threadId) await stream.writeSSE({ event: 'message', data: JSON.stringify(p) }); }); await new Promise(() => {}); }); })
+    .get('/threads/:id/stream', async (c) => { const threadId = c.req.param('id'); const existing = await c.get('db').select().from(message).where(eq(message.threadId, threadId)); return streamSSE(c, async (stream) => { for (const m of existing.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) await stream.writeSSE({ event: 'message', data: JSON.stringify(m) }); await holdSSE(stream, () => [events.on('message_created', async (p: Record<string, unknown>) => { if (p.threadId === threadId) await stream.writeSSE({ event: 'message', data: JSON.stringify(p) }); })]); }); })
     .get('/tasks/:id/runs', async (c) => c.json(await c.get('db').select().from(run).where(eq(run.taskId, c.req.param('id')))))
     .get('/agents/:id/runs', async (c) => c.json(await c.get('db').select().from(run).where(eq(run.agentId, c.req.param('id')))))
     .get('/runs/:id', async (c) => { const r = (await c.get('db').select().from(run).where(eq(run.id, c.req.param('id'))))[0]; return r ? c.json(r) : c.json({ error: 'run 不存在' }, 404); })
-    .get('/runs/:id/stream', async (c) => { const runId = c.req.param('id'); return streamSSE(c, async (stream) => { const r = (await c.get('db').select().from(run).where(eq(run.id, runId)))[0]; for (const s of JSON.parse(r?.traceJson ?? '[]') as unknown[]) await stream.writeSSE({ event: 'step', data: JSON.stringify(s) }); if (r && r.status !== 'running') { await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: r.stopReason }) }); return; } events.on('run_step', async (p: Record<string, unknown>) => { if (p.runId === runId) await stream.writeSSE({ event: 'step', data: JSON.stringify(p.step) }); }); events.on('run_finished', async (p: Record<string, unknown>) => { if (p.runId === runId) await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: p.stopReason }) }); }); await new Promise(() => {}); }); })
+    .get('/runs/:id/stream', async (c) => { const runId = c.req.param('id'); return streamSSE(c, async (stream) => { const r = (await c.get('db').select().from(run).where(eq(run.id, runId)))[0]; for (const s of JSON.parse(r?.traceJson ?? '[]') as unknown[]) await stream.writeSSE({ event: 'step', data: JSON.stringify(s) }); if (r && r.status !== 'running') { await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: r.stopReason }) }); return; } await holdSSE(stream, (close) => [events.on('run_step', async (p: Record<string, unknown>) => { if (p.runId === runId) await stream.writeSSE({ event: 'step', data: JSON.stringify(p.step) }); }), events.on('run_finished', async (p: Record<string, unknown>) => { if (p.runId !== runId) return; await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: p.stopReason }) }); close(); })]); }); })
     .post('/agents/:id/run', zValidator('json', z.object({ taskId: z.string() })), async (c) => { const { scheduler } = await import('./runtime/scheduler.js'); const r = await scheduler.trigger(c.get('db'), c.req.param('id'), c.req.valid('json').taskId, 'manual'); return r.ok ? c.json({ runId: r.runId }, 201) : c.json({ error: r.error }, 400); })
     .get('/workstations/:id/agents/status', async (c) => { const db = c.get('db'); const running = await db.select().from(run).where(eq(run.status, 'running')); const agents = await db.select().from(agent).where(eq(agent.workstationId, c.req.param('id'))); const ids = new Set(agents.map((a) => a.id)); return c.json({ running: running.filter((r) => ids.has(r.agentId ?? '')).map((r) => r.agentId) }); })
     .get('/agents/:id', async (c) => { const a = (await c.get('db').select().from(agent).where(eq(agent.id, c.req.param('id'))))[0]; return a ? c.json(a) : c.json({ error: 'agent 不存在' }, 404); })

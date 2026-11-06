@@ -198,7 +198,8 @@ describe('脚本化链路', () => {
     expect(children[0]!.assigneeType).toBe('agent');
     const parent = (await db.select().from(task).where(eq(task.id, t.id)))[0]!;
     expect(parent.status).toBe('in_progress');
-    expect(children[0]!.status).toBe('in_progress');
+    // 本仓库 + mock：保护触发，实现者不启动，任务转 blocked 等人处理
+    expect(children[0]!.status).toBe('blocked');
     expect(children[0]!.stage).toBe('implement');
     const archRun = runs.find((r) => r.taskId === t.id)!;
     expect(archRun.tokensIn).toBe(500);

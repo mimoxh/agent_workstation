@@ -1,7 +1,7 @@
 import type { Actor } from '@aw/domain';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { agent, block, eventLog, inboxItem, project, task, workstation } from '../db/schema.js';
+import { agent, block, entity, eventLog, inboxItem, project, proposal, task, workstation } from '../db/schema.js';
 import { buildPermCtx, manifestOf, visibleTaskFilter } from '../usecases/index.js';
 
 // M0.1 不做权限过滤；M0.2 起读路径走 can()：
@@ -66,6 +66,25 @@ export async function getTaskDetail(actor: Actor, db: DB, taskId: string) {
   const children = await db.select().from(task).where(eq(task.parentId, taskId));
   const events = await db.select().from(eventLog).where(eq(eventLog.targetId, taskId));
   return { task: t, parent, children, events: events.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) };
+}
+
+// 提案归属：任务所在台、任务被派发到的台，或目标实体所在台
+export async function listProposals(actor: Actor, db: DB, wsId: string) {
+  const visible = await visibleWsIds(actor, db);
+  if (visible && !visible.includes(wsId)) return [];
+  const rows = await db
+    .select({ proposal })
+    .from(proposal)
+    .leftJoin(task, eq(proposal.taskId, task.id))
+    .leftJoin(entity, eq(proposal.entityId, entity.id))
+    .where(
+      or(
+        eq(task.workstationId, wsId),
+        and(eq(task.assigneeType, 'workstation'), eq(task.assigneeId, wsId)),
+        eq(entity.workstationId, wsId),
+      ),
+    );
+  return rows.map((r) => r.proposal);
 }
 
 export async function listInbox(actor: Actor, db: DB, status = 'open') {
