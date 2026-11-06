@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Workstation · 开发台设计稿</title>
+<meta name="description" content="Agent Workstation 领域工作台主屏设计稿：派发契约头、stage 看板、提案审阅、测试运行、审计轨与会话。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500&family=Atkinson+Hyperlegible+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="screen.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="tb-left">
+    <span class="brand" aria-label="Agent Workstation">AW</span>
+    <nav class="crumbs" aria-label="位置">
+      <span class="crumb">agent-workstation</span>
+      <span class="crumb-sep" aria-hidden="true">/</span>
+      <span class="crumb">根</span>
+      <span class="crumb-sep" aria-hidden="true">/</span>
+      <span class="crumb crumb-cur" aria-current="page">开发</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="tb-cap measured" title="单次运行熔断上限（任务预算）">run ≤ 200,000 tok / 30 min</span>
+    <div class="inbox-wrap">
+      <button type="button" class="btn" id="inboxBtn" aria-expanded="false" aria-controls="inboxPop">
+        待处理 <span class="count" aria-label="3 条">3</span>
+      </button>
+      <div class="inbox" id="inboxPop" role="menu" hidden>
+        <p class="inbox-h">收件箱，3 条需要你</p>
+        <a class="inbox-item" href="#p-board">
+          <span class="chip chip-amber">命令确认</span>
+          <span class="inbox-line">执行 <code>pnpm test</code>，看板状态同步</span>
+          <span class="measured inbox-t">09:58</span>
+        </a>
+        <a class="inbox-item" href="#p-board">
+          <span class="chip chip-amber">阻塞升级</span>
+          <span class="inbox-line">验收断言写入契约，缺 TestRun 字段</span>
+          <span class="measured inbox-t">09:47</span>
+        </a>
+        <a class="inbox-item" href="#p-diff">
+          <span class="chip chip-cool">提案待审</span>
+          <span class="inbox-line">pr-104 状态筛选组件 rev 2</span>
+          <span class="measured inbox-t">09:31</span>
+        </a>
+      </div>
+    </div>
+    <button type="button" class="btn cmd">命令 <span class="measured kbd">⌘K</span></button>
+    <span class="tb-user">本地用户</span>
+  </div>
+</header>
+
+<main class="shell">
+
+  <aside class="rail rail-l" aria-label="工作台树">
+    <h2 class="rail-h">工作台</h2>
+    <ul class="tree">
+      <li>
+        <button type="button" class="tnode">
+          <span class="tname">根</span>
+          <span class="tmeta">pm · 待你 1</span>
+        </button>
+        <ul>
+          <li>
+            <button type="button" class="tnode cur" aria-current="true">
+              <span class="tname">开发</span>
+              <span class="tmeta">dev · 3 在跑</span>
+            </button>
+          </li>
+        </ul>
+      </li>
+    </ul>
+    <button type="button" class="btn btn-quiet">挂载工作台</button>
+    <p class="rail-foot">
+      <span class="measured">plugin dev@0.3.0</span>
+      <span class="measured">ws_dev · sqlite 本地</span>
+    </p>
+  </aside>
+
+  <section class="stage" aria-label="主内容区">
+
+    <header class="contract">
+      <p class="c-route seps">
+        <span class="measured">任务 tsk-118</span>
+        <span class="measured">根 → 开发</span>
+        <span class="measured">派发于 09:41</span>
+        <span class="measured">steward 架构师</span>
+      </p>
+      <div class="c-row">
+        <div class="c-main">
+          <h1>给任务看板加状态筛选</h1>
+          <ul class="c-facts">
+            <li>范围 <code>apps/web/src/components/board/</code></li>
+            <li class="seps">
+              <span>子任务 <b class="measured">2</b></span>
+              <span>提案 <b class="measured">3</b></span>
+              <span>运行 <b class="measured">5</b></span>
+            </li>
+          </ul>
+        </div>
+        <div class="c-accept">
+          <p class="c-label">验收断言</p>
+          <ul class="c-checks">
+            <li class="ok"><span class="ck" aria-hidden="true">✓</span><code>pnpm build</code><span class="measured">通过 12.4s</span></li>
+            <li class="ok"><span class="ck" aria-hidden="true">✓</span><code>pnpm test</code><span class="measured">通过 41.2s</span></li>
+            <li class="run"><span class="ck" aria-hidden="true">…</span><code>e2e board-filter</code><span class="measured">运行中</span></li>
+          </ul>
+        </div>
+        <div class="c-ops">
+          <dl class="c-read">
+            <div><dt>已用</dt><dd class="measured">46,310 / 200,000 tok</dd></div>
+            <div><dt>耗时</dt><dd class="measured">18:12 / 30:00</dd></div>
+            <div><dt>成本</dt><dd class="measured">$0.86 预估</dd></div>
+          </dl>
+          <div class="c-confirm" id="confirmBox">
+            <p class="c-label">待你确认 <span class="chip chip-amber">命令白名单内</span></p>
+            <p class="c-cmd"><code>pnpm test</code> · cwd 锁定 board/</p>
+            <div class="c-acts">
+              <button type="button" class="btn btn-primary" id="approveBtn">批准执行</button>
+              <button type="button" class="btn" id="rejectBtn">拒绝</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="stagerail" aria-label="任务阶段">
+        <li class="done">需求<span class="measured">09:41</span></li>
+        <li class="done">设计<span class="measured">09:52</span></li>
+        <li class="done">实现<span class="measured">10:04</span></li>
+        <li class="cur" aria-current="step">测试<span class="measured">进行中</span></li>
+        <li>评审</li>
+        <li>合并</li>
+      </ol>
+    </header>
+
+    <nav class="ptabs" aria-label="板块">
+      <button type="button" class="ptab on" data-panel="p-board" aria-current="true">任务看板</button>
+      <button type="button" class="ptab" data-panel="p-diff">改动审阅 <span class="measured">3</span></button>
+      <button type="button" class="ptab" data-panel="p-tests">测试结果</button>
+      <button type="button" class="ptab" data-panel="p-decisions">架构决策 <span class="measured">3</span></button>
+      <button type="button" class="ptab" data-panel="p-files">文件树</button>
+      <button type="button" class="ptab" data-panel="p-preview">页面预览</button>
+      <span class="ptabs-sp"></span>
+      <button type="button" class="btn">新建任务</button>
+    </nav>
+
+    <div class="panels">
+
+      <section class="panel on" id="p-board" aria-label="任务看板">
+        <div class="board">
+
+          <div class="col">
+            <div class="col-h"><h2>未开始</h2><span class="measured n">1</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">内部</span><span class="chip">待派发</span></div>
+              <h3>改动审阅面板：空态与骨架行</h3>
+              <p class="card-who">未指派</p>
+              <div class="card-foot"><span class="measured">board/panels.tsx</span><span class="ticks" aria-label="stage 0/6"><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+            </article>
+            <div class="col-add"><button type="button" class="btn btn-quiet">＋ 建卡</button></div>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>需求</h2><span class="measured n">1</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">派发</span><span class="chip chip-cool">需求整理</span></div>
+              <h3>板块首屏 &lt;300ms 的性能基线</h3>
+              <p class="card-who">架构师 · steward</p>
+              <div class="card-foot"><span class="measured">bench/panels</span><span class="ticks"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></span></div>
+            </article>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>设计</h2><span class="measured n">1</span></div>
+            <article class="card blocked">
+              <div class="card-top"><span class="kind">内部</span><span class="chip chip-amber">阻塞已上报</span></div>
+              <h3>验收断言写入任务契约</h3>
+              <p class="card-who">架构师 · 上报根台</p>
+              <p class="card-note">缺 <code>test_run.artifact_refs</code> 字段，需人决策</p>
+              <div class="card-foot"><span class="measured">domain/task</span><span class="ticks"><i class="on"></i><i class="cur"></i><i></i><i></i><i></i><i></i></span></div>
+            </article>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>实现</h2><span class="measured n">1</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">子任务 1b</span><span class="chip chip-cool">运行中</span></div>
+              <h3>筛选计数徽标</h3>
+              <p class="card-who">frontend-dev fd-1 <span class="measured">wt-fd1</span></p>
+              <div class="card-foot"><span class="measured">TaskCard.tsx</span><span class="ticks"><i class="on"></i><i class="on"></i><i class="cur"></i><i></i><i></i><i></i></span></div>
+            </article>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>测试</h2><span class="measured n">1</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">子任务 1a</span><span class="chip chip-cool">TestRun tr-31</span></div>
+              <h3>看板状态同步（URL 参数）</h3>
+              <p class="card-who">fd-2 → 测试工程师 · 运行中</p>
+              <div class="card-foot"><span class="measured">board/</span><span class="ticks"><i class="on"></i><i class="on"></i><i class="on"></i><i class="cur"></i><i></i><i></i></span></div>
+            </article>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>评审</h2><span class="measured n">1</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">提案 pr-104</span><span class="chip chip-amber">待合并决定</span></div>
+              <h3>状态筛选组件</h3>
+              <p class="card-who">审查 rev 2 · 意见已修订</p>
+              <div class="card-foot"><span class="measured">board/TaskBoard.tsx</span><span class="ticks"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="cur"></i><i></i></span></div>
+              <div class="card-acts">
+                <button type="button" class="btn btn-primary">通过并入队</button>
+                <button type="button" class="btn">退回修订</button>
+              </div>
+            </article>
+          </div>
+
+          <div class="col">
+            <div class="col-h"><h2>合并</h2><span class="measured n">2</span></div>
+            <article class="card">
+              <div class="card-top"><span class="kind">提案 pr-101</span><span class="chip chip-cool">队列 #1</span></div>
+              <h3>TaskCard stage 徽标</h3>
+              <p class="card-who">待 pr-104 之后合入 main</p>
+              <div class="card-foot"><span class="measured">TaskCard.tsx</span><span class="ticks"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="cur"></i></span></div>
+            </article>
+            <article class="card done">
+              <div class="card-top"><span class="kind">内部</span><span class="chip">已合并</span></div>
+              <h3>看板列计数徽标</h3>
+              <p class="card-who">合并于 <span class="measured">09:12</span>，快照已留</p>
+              <div class="card-foot"><span class="measured">BoardColumn.tsx</span><span class="ticks"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></div>
+            </article>
+          </div>
+
+        </div>
+      </section>
+
+      <section class="panel" id="p-diff" hidden aria-label="改动审阅">
+        <div class="diffwrap">
+          <aside class="plist">
+            <p class="c-label">提案 3</p>
+            <button type="button" class="prow on"><span class="measured">pr-104</span><span class="pt">状态筛选组件 rev 2</span><span class="chip chip-amber">待决定</span></button>
+            <button type="button" class="prow"><span class="measured">pr-101</span><span class="pt">TaskCard stage 徽标</span><span class="chip chip-cool">排队合并</span></button>
+            <button type="button" class="prow"><span class="measured">pr-099</span><span class="pt">列计数徽标</span><span class="chip">已合并 v3</span></button>
+          </aside>
+          <div class="diff">
+            <div class="diff-h">
+              <span class="measured">apps/web/src/components/board/TaskBoard.tsx</span>
+              <span class="vers"><button type="button" class="vchip on">v4 → v5</button><button type="button" class="vchip">v3 → v4</button></span>
+            </div>
+            <pre class="diff-b"><code><span class="dl"><i> </i>export function TaskBoard() {</span>
+<span class="dl"><i> </i>  const tasks = useTasks()</span>
+<span class="dl minus"><i>-</i>  const [tab, setTab] = useState&lt;GroupBy&gt;("status")</span>
+<span class="dl plus"><i>+</i>  const [sp] = useSearchParams()</span>
+<span class="dl plus"><i>+</i>  const filter = sp.get("filter") ?? "all"</span>
+<span class="dl plus"><i>+</i>  const shown = filterTasks(tasks, filter)</span>
+<span class="dl"><i> </i>  return (</span>
+<span class="dl minus"><i>-</i>    &lt;Board group={tab} tasks={tasks} /&gt;</span>
+<span class="dl plus"><i>+</i>    &lt;Board group="stage" tasks={shown} filter={filter} /&gt;</span>
+<span class="dl"><i> </i>  )</span></code></pre>
+            <p class="diff-why">理由：过滤状态以 URL 承载，可分享，不落库。<br><span class="measured">frontend-dev fd-2 · 09:52</span></p>
+          </div>
+          <aside class="review">
+            <p class="c-label">审查，2 条意见（已修订）</p>
+            <div class="rnote"><p class="rwho">审查 <span class="measured">09:44</span></p><p><code>activeFilters</code> 空数组序列化会产生 <code>?filter=</code> 空值。</p></div>
+            <div class="rnote"><p class="rwho">审查 <span class="measured">09:46</span></p><p><code>useSearchParams</code> 订阅缺失导致筛选不回填。</p></div>
+            <p class="rnote resolved">rev 2 均已修订 <span class="measured">10:03</span></p>
+            <div class="c-acts"><button type="button" class="btn btn-primary">通过并入队</button><button type="button" class="btn">退回修订</button></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="p-tests" hidden aria-label="测试结果">
+        <table class="tbl">
+          <thead><tr><th>Run</th><th>任务</th><th>命令</th><th>状态</th><th class="num">耗时</th><th class="num">tok</th><th class="num">完成于</th></tr></thead>
+          <tbody>
+            <tr><td class="measured">tr-31</td><td>看板状态同步</td><td><code>build + test + e2e</code></td><td><span class="chip chip-cool">运行中</span></td><td class="measured num">计时中</td><td class="measured num">18,204…</td><td class="measured num">待完成</td></tr>
+            <tr><td class="measured">tr-29</td><td>状态筛选组件 rev 2</td><td><code>pnpm build && pnpm test</code></td><td><span class="chip chip-ok">通过</span></td><td class="measured num">53.6s</td><td class="measured num">12,310</td><td class="measured num">10:01</td></tr>
+            <tr><td class="measured">tr-28</td><td>状态筛选组件 rev 1</td><td><code>e2e board-filter</code></td><td><span class="chip chip-bad">失败</span></td><td class="measured num">31.0s</td><td class="measured num">9,842</td><td class="measured num">09:49</td></tr>
+            <tr><td class="measured">tr-24</td><td>TaskCard stage 徽标</td><td><code>pnpm build && pnpm test</code></td><td><span class="chip chip-ok">通过</span></td><td class="measured num">48.1s</td><td class="measured num">11,077</td><td class="measured num">09:05</td></tr>
+          </tbody>
+        </table>
+        <p class="tbl-note">TestRun 为验收证据随任务回传；失败行可展开 stderr。</p>
+      </section>
+
+      <section class="panel" id="p-decisions" hidden aria-label="架构决策">
+        <ol class="trail">
+          <li class="trow">
+            <span class="tv measured">ADR-003 · v2</span>
+            <div class="tmain"><h3>状态过滤以 URL 参数承载</h3><p class="treason">提案 pr-096 沉淀，群聊结论卡回写板块。</p></div>
+            <span class="twho">架构师</span><span class="measured tt">昨日 17:20</span><span class="chip chip-ok">生效</span>
+          </li>
+          <li class="trow">
+            <span class="tv measured">ADR-002 · v1</span>
+            <div class="tmain"><h3>提案即 PR：一 Agent 一 worktree，串行合并</h3><p class="treason">避免多实例写同一工作树的合并地狱。</p></div>
+            <span class="twho">本地用户</span><span class="measured tt">11-03</span><span class="chip chip-ok">生效</span>
+          </li>
+          <li class="trow">
+            <span class="tv measured">ADR-001 · v3</span>
+            <div class="tmain"><h3>板块渲染器注册表：board / table / tree / diff</h3><p class="treason">Entity 绑定类型与渲染器，板块不持有实体。</p></div>
+            <span class="twho">架构师</span><span class="measured tt">11-02</span><span class="chip chip-ok">生效</span>
+          </li>
+        </ol>
+      </section>
+
+      <section class="panel" id="p-files" hidden aria-label="文件树">
+        <div class="filewrap">
+          <ul class="ftree">
+            <li class="dir">apps/<ul><li class="dir">web/src/components/board/<ul>
+              <li class="file on">TaskBoard.tsx <span class="measured">Δ v5</span></li>
+              <li class="file">BoardColumn.tsx</li>
+              <li class="file">TaskCard.tsx <span class="measured">Δ v2</span></li>
+              <li class="file">panels.tsx</li>
+              <li class="file">dispatch.ts</li>
+            </ul></li></ul></li>
+            <li class="dir">packages/domain/</li>
+            <li class="dir">packages/plugins/dev/</li>
+          </ul>
+          <div class="fview">
+            <p class="fpath"><span class="measured">apps/web/src/components/board/TaskBoard.tsx</span><span class="measured">148 行 · 本 run 内改动</span></p>
+            <pre><code>export function TaskBoard() {
+  const tasks = useTasks()
+  const [sp] = useSearchParams()
+  const filter = sp.get("filter") ?? "all"
+  …</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="p-preview" hidden aria-label="页面预览">
+        <div class="empty">
+          <p class="empty-t">预览板块未装载</p>
+          <p class="empty-l">dev 插件在 M1 才启用页面预览；当前工作台未声明 preview 面板渲染器。</p>
+          <button type="button" class="btn">查看插件清单</button>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+  <aside class="rail rail-r" aria-label="成员与会话">
+    <section class="members">
+      <h2 class="rail-h">成员 <span class="measured">6</span></h2>
+      <ul class="mlist">
+        <li class="mrow person"><span class="mname">本地用户</span><span class="mmeta measured">participant · 全权</span><span class="chip chip-amber">人</span></li>
+        <li class="mrow"><span class="mname">架构师</span><span class="mmeta measured">steward · 接单</span><span class="chip chip-cool">运行中</span></li>
+        <li class="mrow"><span class="mname">前端开发</span><span class="mmeta measured">实例 fd-1 · wt-fd1</span><span class="chip chip-cool">运行中</span></li>
+        <li class="mrow"><span class="mname">前端开发</span><span class="mmeta measured">实例 fd-2 · wt-fd2</span><span class="chip chip-cool">运行中</span></li>
+        <li class="mrow"><span class="mname">测试工程师</span><span class="mmeta measured">TestRun tr-31</span><span class="chip chip-cool">运行中</span></li>
+        <li class="mrow idle"><span class="mname">后端开发</span><span class="mmeta measured">template</span><span class="chip">待命</span></li>
+        <li class="mrow idle"><span class="mname">审查</span><span class="mmeta measured">template</span><span class="chip">待命</span></li>
+      </ul>
+    </section>
+    <section class="thread" aria-label="群聊">
+      <h2 class="rail-h">群聊，开发台内部</h2>
+      <div class="tlog">
+        <p class="msg"><span class="mwho agent">架构师</span><span class="measured mt">09:44</span><br>接单。拆为两子任务，均限定 <code>board/</code>：筛选组件、状态同步。已建本群。</p>
+        <p class="sys measured">─ 派发 子任务 1a → frontend-dev fd-2 · wt-fd2</p>
+        <p class="sys measured">─ 派发 子任务 1b → frontend-dev fd-1 · wt-fd1</p>
+        <p class="msg"><span class="mwho agent">前端开发 fd-2</span><span class="measured mt">09:51</span><br>状态同步打算走 URL <code>?filter=</code>，过滤不落库，可分享。</p>
+        <p class="msg"><span class="mwho human">本地用户</span><span class="measured mt">09:52</span><br>同意，URL 承载。注意空值序列化。</p>
+        <div class="concl" id="conclCard">
+          <button type="button" class="concl-h" id="conclBtn" aria-expanded="false">
+            <span class="c-label">结论</span><span class="measured">4 条消息 · 展开</span>
+          </button>
+          <div class="concl-b" id="conclBody" hidden>
+            <p>状态同步以 URL 参数承载；过滤不落库；空筛选不序列化。回写 ADR-003。</p>
+            <p class="measured">架构师 / fd-1 / fd-2 / 本地用户 · 09:49 → 09:52</p>
+          </div>
+        </div>
+        <p class="sys measured">─ 提案 pr-104 rev 2 · 进入评审</p>
+        <p class="msg"><span class="mwho agent">测试工程师</span><span class="measured mt">10:02</span><br>tr-31 排队：build + test + e2e。预计 90s。</p>
+      </div>
+      <form class="tinput" onsubmit="return false">
+        <label class="sr-only" for="msgIn">发消息</label>
+        <input id="msgIn" class="input" type="text" placeholder="消息或 @成员">
+        <button type="submit" class="btn btn-primary">发送</button>
+      </form>
+    </section>
+  </aside>
+
+</main>
+<script src="app.js"></script>
+</body>
+</html>

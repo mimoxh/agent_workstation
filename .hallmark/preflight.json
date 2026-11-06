@@ -1,0 +1,1 @@
+﻿{"project":"agent-workstation","screen":"workstation console /projects/:pid/ws/:wsId","scope":"app","source":"docs/PRD.md (v0.3)","os":"windows","shell":"powershell","node":"22.x","chrome":"detected","puppeteer-core":"global","fonts":"Host Grotesk + Atkinson Hyperlegible Mono via Google Fonts"}
