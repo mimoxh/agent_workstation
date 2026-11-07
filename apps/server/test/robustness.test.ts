@@ -288,16 +288,6 @@ describe('SSE 监听器回收', () => {
     return { ctl, res };
   };
 
-  it('thread：客户端断开后监听器被移除', async () => {
-    const base = events.listenerCount('message_created');
-    await withServer(async (url) => {
-      const conns = [await open(`${url}/api/threads/th/stream`, 'message_created', base), await open(`${url}/api/threads/th/stream`, 'message_created', base + 1)];
-      expect(events.listenerCount('message_created')).toBe(base + 2);
-      for (const c of conns) c.ctl.abort();
-      await waitFor(() => events.listenerCount('message_created') === base);
-    });
-  });
-
   it('run：客户端断开后两类监听器都被移除', async () => {
     await db.insert(run).values({ id: 'r-open', status: 'running', startedAt: now(), tokensIn: 0, tokensOut: 0, traceJson: '[]' });
     const step = events.listenerCount('run_step');

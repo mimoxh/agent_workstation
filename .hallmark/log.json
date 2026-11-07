@@ -1,48 +1,60 @@
 [
-    {
-        "date":  "2026-11-05",
-        "mode":  "build",
-        "shape":  "app screen",
-        "theme":  "cobalt",
-        "axes":  "light/grotesk-sans/cool",
-        "hero":  "none",
-        "nav":  "top bar: brand, ws path, event strip, command+inbox+user",
-        "footer":  "none",
-        "imagery":  "none",
-        "photos":  [
-
-                   ],
-        "entry":  "designs/aw-board-screen/index.html",
-        "fingerprint":  "three-pane shell / stage kanban",
-        "sections":  "board,changes,tests,decisions,files,preview",
-        "signature":  "stage dispatch board + topbar ASCII event strip",
-        "waived":  [
-
-                   ],
-        "prompt":  "Agent Workstation workstation screen design",
-        "scope":  "app"
-    },
-    {
-        "date":  "2026-11-05",
-        "mode":  "build",
-        "shape":  "app screen",
-        "theme":  "console/graphite",
-        "axes":  "dark/grotesk-sans/cool",
-        "hero":  "none",
-        "nav":  "top bar: brand, ws path, run cap, inbox+command+user",
-        "footer":  "none",
-        "imagery":  "none",
-        "photos":  [
-
-                   ],
-        "entry":  "designs/aw-console-screen/index.html",
-        "fingerprint":  "dispatch contract header / stage rail / three-pane IDE shell",
-        "sections":  "board,diff,tests,decisions,files,preview,members,thread",
-        "signature":  "dispatch contract header + stage-gated board + collapsible conclusion card",
-        "waived":  [
-
-                   ],
-        "prompt":  "Agent Workstation domain workstation screen, PRD-driven",
-        "scope":  "app"
-    }
+ {
+  "date": "2026-11-07",
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "lumen",
+  "axes": "dark/roman-serif/warm",
+  "hero": "none",
+  "nav": "top bar: wordmark, project switcher pill, workstation tabs with wait counts, search pill; second-neutral sidebar per tab",
+  "footer": "none",
+  "imagery": "none",
+  "photos": [],
+  "entry": "designs/aw-workbench/index.html",
+  "fingerprint": "tabbed shell / console queue + figures strip / chat feed with typed cards",
+  "sections": "console overview,inbox,pm chat,runs,ws chat,task thread,board,changes,tests,members",
+  "signature": "collaboration feed with typed cards answered in place",
+  "waived": [],
+  "prompt": "multi-agent collaboration workbench: cross-project console, workstation tabs, agent group chat and task threads, approvals queue"
+ },
+ {
+  "date": "2026-11-05",
+  "mode": "build",
+  "shape": "app screen",
+  "theme": "cobalt",
+  "axes": "light/grotesk-sans/cool",
+  "hero": "none",
+  "nav": "top bar: brand, ws path, event strip, command+inbox+user",
+  "footer": "none",
+  "imagery": "none",
+  "photos": [],
+  "entry": "designs/aw-board-screen/index.html",
+  "fingerprint": "three-pane shell / stage kanban",
+  "sections": "board,changes,tests,decisions,files,preview",
+  "signature": "stage dispatch board + topbar ASCII event strip",
+  "waived": [],
+  "prompt": "Agent Workstation workstation screen design",
+  "scope": "app"
+ },
+ {
+  "date": "2026-11-05",
+  "mode": "build",
+  "shape": "app screen",
+  "theme": "console/graphite",
+  "axes": "dark/grotesk-sans/cool",
+  "hero": "none",
+  "nav": "top bar: brand, ws path, run cap, inbox+command+user",
+  "footer": "none",
+  "imagery": "none",
+  "photos": [],
+  "entry": "designs/aw-console-screen/index.html",
+  "fingerprint": "dispatch contract header / stage rail / three-pane IDE shell",
+  "sections": "board,diff,tests,decisions,files,preview,members,thread",
+  "signature": "dispatch contract header + stage-gated board + collapsible conclusion card",
+  "waived": [],
+  "prompt": "Agent Workstation domain workstation screen, PRD-driven",
+  "scope": "app"
+ }
 ]

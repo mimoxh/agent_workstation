@@ -1,215 +1,183 @@
-import type { TaskStatus } from '@aw/domain';
-import { allowedEvents } from '@aw/domain';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { useState } from 'react';
-import { RespondDialog } from '@/components/board/RespondDialog';
-import { TaskThread } from '@/components/chat/Thread';
-import { EVENT_LABEL, STATUS_LABEL, STATUS_TONE } from '@/components/board/labels';
-import { Shell } from '@/components/layout/Shell';
-import { Badge } from '@/components/ui/badge';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useState, type ReactNode } from 'react';
+import { useTaskActions } from '@/components/board/actions';
+import { Composer } from '@/components/chat/Composer';
+import { TaskProposalsPanel } from '@/components/panels/ProposalReview';
+import { TaskTestRunsPanel } from '@/components/panels/TestRuns';
+import { RunTable } from '@/components/run/RunTable';
+import { TaskHeader } from '@/components/task/TaskHeader';
+import { TaskSide } from '@/components/task/TaskSide';
+import { Timeline } from '@/components/timeline/Timeline';
 import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api';
+import { Dialog, DialogForm } from '@/components/ui/dialog';
+import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Field, Input, Select } from '@/components/ui/input';
+import { api, unwrap } from '@/lib/api';
+import { nameMaps, useInbox, useProject, useTask, useTaskProposals, useTaskRuns, useTaskTestRuns, useWorkstation, type RunRow, type TaskDetail, type WsAgent } from '@/lib/queries';
+import { cn } from '@/lib/utils';
+
+const VIEWS = ['timeline', 'changes', 'tests', 'runs'] as const;
+type ViewId = (typeof VIEWS)[number];
 
 export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
-  component: TaskDetailPage,
+  validateSearch: (s: Record<string, unknown>): { view?: ViewId } => (VIEWS.includes(s.view as ViewId) ? { view: s.view as ViewId } : {}),
+  component: TaskPage,
 });
 
-interface Task {
-  id: string; title: string; status: string; stage: string | null; intent: string | null;
-  inputJson: string | null; acceptanceJson: string | null; typeId: string | null;
-  assigneeType: string | null; assigneeId: string | null; workstationId: string; projectId: string;
-}
-interface Detail { task: Task; parent: Task | null; children: Task[]; events: { id: string; action: string; payloadJson: string | null; createdAt: string }[] }
-interface WsNode { id: string; parentId: string | null; name: string }
-interface WsDetail { id: string; agents: { id: string; name: string; role: string | null; isSteward: number }[] }
-
-// 事件日志 payload 里的 assigneeId / workstationId / targetId 解析成名字
-function nameOf(id: unknown, wsNames: Record<string, string>, agentNames: Record<string, string>): unknown {
-  if (typeof id !== 'string') return id;
-  return wsNames[id] ?? agentNames[id] ?? (id.length > 12 ? id.slice(0, 8) : id);
-}
-
-function TaskDetailPage() {
-  const { projectId, taskId } = Route.useParams();
-  const qc = useQueryClient();
-  const [respond, setRespond] = useState<{ action: 'reject' | 'counter' } | null>(null);
-  const [respondError, setRespondError] = useState<string | null>(null);
-
-  const detail = useQuery({
-    queryKey: ['task', taskId],
-    queryFn: async () => {
-      const res = await apiClient.tasks[':id'].$get({ param: { id: taskId } });
-      if (!res.ok) throw new Error('任务不存在');
-      return (await res.json()) as Detail;
-    },
+function RunsView({ taskId, projectId, runs, agents }: { taskId: string; projectId: string; runs: RunRow[]; agents: WsAgent[] }) {
+  const [agentId, setAgentId] = useState('');
+  const run = useMutation({
+    mutationFn: async () => unwrap(await api.agents[':id'].run.$post({ param: { id: agentId }, json: { taskId } })),
   });
-  const project = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () => {
-      const res = await apiClient.projects[':id'].$get({ param: { id: projectId } });
-      if (!res.ok) throw new Error('加载项目失败');
-      return (await res.json()) as { name: string; workstations: WsNode[] };
-    },
-  });
-  const wsId = detail.data?.task.workstationId;
-  const runAgent = useMutation({
-    mutationFn: async (agentId: string) => {
-      const res = await apiClient.agents[':id'].run.$post({ param: { id: agentId }, json: { taskId } });
-      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? '运行失败');
-      return res.json();
-    },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['runs', taskId] }),
-  });
-  const [runAgentId, setRunAgentId] = useState('');
-  const runs = useQuery({
-    queryKey: ['runs', taskId],
-    queryFn: async () => {
-      const res = await apiClient.tasks[':id'].runs.$get({ param: { id: taskId } });
-      return (await res.json()) as { id: string; provider: string; model: string; status: string; stopReason: string | null; startedAt: string }[];
-    },
-  });
-  const ws = useQuery({
-    queryKey: ['ws', wsId],
-    enabled: !!wsId,
-    queryFn: async () => {
-      const res = await apiClient.workstations[':id'].$get({ param: { id: wsId! } });
-      return (await res.json()) as WsDetail;
-    },
-  });
-
-  const mut = useMutation({
-    mutationFn: async ({ path, json }: { path: 'transition' | 'respond'; json: Record<string, unknown> }) => {
-      const res = await apiClient.tasks[':id'][path].$post({ param: { id: taskId }, json: json as never });
-      if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? '操作失败');
-      return res.json();
-    },
-    onSuccess: async () => {
-      setRespond(null);
-      setRespondError(null);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['task', taskId] }),
-        qc.invalidateQueries({ queryKey: ['inbox'] }),
-        qc.invalidateQueries({ queryKey: ['tasks'] }),
-      ]);
-    },
-    onError: (e) => setRespondError(e.message),
-  });
-
-  if (!detail.data || !project.data) return <div className="p-8 text-sm text-neutral-500">加载中…</div>;
-  const { task, parent, children, events } = detail.data;
-  const status = task.status as TaskStatus;
-  const input = JSON.parse(task.inputJson ?? '{}') as Record<string, unknown>;
-  const acceptance = JSON.parse(task.acceptanceJson ?? '[]') as { kind: string; run?: string }[];
-  const wsNames = Object.fromEntries(project.data.workstations.map((w) => [w.id, w.name]));
-  const agentNames = Object.fromEntries((ws.data?.agents ?? []).map((a) => [a.name, a.name]));
-  const wsNameById = (id: string | null) => (id ? (wsNames[id] ?? id.slice(0, 8)) : '—');
-  const events2 = allowedEvents(status).filter(
-    (e) => e !== 'accept' && e !== 'reject' && e !== 'counter' && e !== 'dispatch',
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-2 border-b border-rule px-4 py-2">
+        <Select className="h-8 w-44" aria-label="选择 Agent" data-testid="run-agent-select" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+          <option value="">选择 Agent…</option>
+          {agents.filter((a) => a.status !== 'paused').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </Select>
+        <Button disabled={!agentId || run.isPending} onClick={() => run.mutate()} data-testid="run-agent">手动运行</Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {runs.length === 0 ? <Empty title="还没有运行记录" /> : <RunTable runs={runs} projectId={projectId} showTask={false} />}
+      </div>
+    </div>
   );
+}
+
+function SubmitDialog({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  const [summary, setSummary] = useState('');
+  const submit = useMutation({
+    meta: { silent: true },
+    mutationFn: async () => unwrap(await api.tasks[':id']['submit-change'].$post({ param: { id: taskId }, json: { summary: summary.trim() } })),
+    onSuccess: onClose,
+  });
+  return (
+    <Dialog title="提交我的改动" onClose={onClose} testId="submit-dialog">
+      <DialogForm error={submit.error?.message} submitting={submit.isPending} submitLabel="提交" canSubmit={!!summary.trim()} onSubmit={() => submit.mutate()} onCancel={onClose}>
+        <Field label="改动说明" required hint="在 worktree 里提交好 commit 后再点这里，改动会进入测试 → 评审 → 合并">
+          <Input autoFocus value={summary} onChange={(e) => setSummary(e.target.value)} data-testid="submit-summary" />
+        </Field>
+      </DialogForm>
+    </Dialog>
+  );
+}
+
+// 人随时可以插手：打断在跑的 run、接管任务、改完交还
+function InterventionActions({ detail, running }: { detail: TaskDetail; running: boolean }) {
+  const { task } = detail;
+  const [submitting, setSubmitting] = useState(false);
+  const param = { param: { id: task.id } };
+  const interrupt = useMutation({ mutationFn: async () => unwrap(await api.tasks[':id'].interrupt.$post(param)) });
+  const takeover = useMutation({ mutationFn: async () => unwrap(await api.tasks[':id'].takeover.$post(param)) });
+  const release = useMutation({ mutationFn: async () => unwrap(await api.tasks[':id'].release.$post({ ...param, json: {} })) });
+  const canTakeOver = task.assigneeType === 'agent' && ['in_progress', 'blocked', 'escalated'].includes(task.status);
+  const held = task.assigneeType === 'human';
+  return (
+    <>
+      {running && <Button size="sm" variant="quiet" disabled={interrupt.isPending} onClick={() => interrupt.mutate()} data-testid="task-interrupt">打断</Button>}
+      {canTakeOver && <Button size="sm" variant="quiet" disabled={takeover.isPending} onClick={() => takeover.mutate()} data-testid="task-takeover">接管</Button>}
+      {held && <Button size="sm" variant="quiet" disabled={release.isPending} onClick={() => release.mutate()} data-testid="task-release">交还</Button>}
+      {held && task.codeRefJson && <Button size="sm" onClick={() => setSubmitting(true)} data-testid="task-submit">提交改动</Button>}
+      {submitting && <SubmitDialog taskId={task.id} onClose={() => setSubmitting(false)} />}
+    </>
+  );
+}
+
+function TaskComposer({ detail, running }: { detail: TaskDetail; running: boolean }) {
+  const th = useQuery({ queryKey: ['thread', 'task', detail.task.id], queryFn: async () => unwrap(await api.tasks[':id'].thread.$get({ param: { id: detail.task.id } })) });
+  if (!th.data) return null;
+  const held = detail.task.assigneeType === 'human';
+  return (
+    <Composer
+      threadId={th.data.thread.id}
+      wide
+      hint={held ? '你正在接管这个任务，Agent 不会被唤醒，@ 可以点名求助' : '说话默认给负责这件事的成员，@ 可以点名任何参与者'}
+      actions={<InterventionActions detail={detail} running={running} />}
+    />
+  );
+}
+
+function TaskPage() {
+  const { projectId, taskId } = Route.useParams();
+  const { view = 'timeline' } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const detail = useTask(taskId);
+  const project = useProject(projectId);
+  const ownerWsId = detail.data?.task.workstationId;
+  const execWsId = detail.data?.flow.workstationId;
+  const owner = useWorkstation(ownerWsId);
+  const exec = useWorkstation(execWsId);
+  const runs = useTaskRuns(taskId);
+  const proposals = useTaskProposals(taskId);
+  const testRuns = useTaskTestRuns(taskId);
+  const inbox = useInbox(projectId);
+  const actions = useTaskActions(project.data, ownerWsId);
+
+  if (detail.isLoading) return <Loading />;
+  if (detail.isError || !detail.data) return <ErrorState error={detail.error ?? new Error('任务不存在')} />;
+
+  const d = detail.data;
+  const names = nameMaps(project.data);
+  const runRows = runs.data ?? [];
+  const proposalRows = proposals.data ?? [];
+  const testRows = testRuns.data ?? [];
+  const stageNames = Object.fromEntries(d.flow.stages.map((s) => [s.id, s.name]));
+  const labels: Record<ViewId, ReactNode> = {
+    timeline: '时间线',
+    changes: <>改动 <span className="measured text-xs">{proposalRows.length}</span></>,
+    tests: <>验收 <span className="measured text-xs">{testRows.length}</span></>,
+    runs: <>运行 <span className="measured text-xs">{runRows.length}</span></>,
+  };
 
   return (
-    <Shell
-      projectId={projectId}
-      projectName={project.data.name}
-      workstations={project.data.workstations}
-      activeWsId={task.workstationId}
-      members={ws.data?.agents ?? []}
-      thread={<TaskThread taskId={taskId} />}
-    >
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-5 p-8">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">{task.title}</h1>
-            <Badge tone={STATUS_TONE[status] ?? 'neutral'}>{STATUS_LABEL[status] ?? status}</Badge>
-            {task.stage && <Badge tone="blue">{task.stage}</Badge>}
+    <div className="flex h-full min-h-0" data-testid="task-page">
+      <section className="flex min-w-0 flex-1 flex-col" aria-label="协作">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="px-5 md:px-10 lg:px-14">
+            <div className="mx-auto max-w-[54rem]">
+              <TaskHeader
+                detail={d}
+                projectId={projectId}
+                names={names}
+                runs={runRows}
+                testRuns={testRows.filter((r) => r.taskId === taskId)}
+                proposalCount={proposalRows.length}
+                inbox={(inbox.data ?? []).filter((i) => i.taskId === taskId)}
+                pendingAction={actions.pendingId === taskId}
+                canDispatch={actions.canDispatch}
+                canAssign={actions.canAssign}
+                onAction={(a) => actions.run(a, d.task)}
+              />
+              <nav className="mt-5 flex gap-0.5 border-b border-rule" role="tablist" aria-label="任务视图">
+                {VIEWS.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === v}
+                    data-testid={`task-view-${v}`}
+                    onClick={() => void navigate({ search: v === 'timeline' ? {} : { view: v } })}
+                    className={cn('relative h-9 px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-1.5 after:-bottom-px after:h-0.5 after:bg-ink', view === v ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}
+                  >
+                    {labels[v]}
+                  </button>
+                ))}
+              </nav>
+            </div>
           </div>
-          {mut.isError && !respond && <div className="text-sm text-red-600">{mut.error.message}</div>}
-          <section className="space-y-1 text-sm">
-            {task.intent && <div><span className="text-neutral-500">intent：</span>{task.intent}</div>}
-            {Object.keys(input).length > 0 && <div><span className="text-neutral-500">input：</span><code className="text-xs">{JSON.stringify(input)}</code></div>}
-            {acceptance.length > 0 && (
-              <div><span className="text-neutral-500">验收：</span>{acceptance.map((a, i) => <code key={i} className="mr-2 text-xs">{a.run ?? a.kind}</code>)}</div>
-            )}
-            {task.assigneeType && (
-              <div><span className="text-neutral-500">派发去向：</span>{task.assigneeType === 'workstation' ? wsNameById(task.assigneeId) : `${task.assigneeType} / ${task.assigneeId?.slice(0, 8)}`}</div>
-            )}
-            {parent && (
-              <div>父任务：<Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: parent.id }} className="text-blue-600 hover:underline">{parent.title}</Link></div>
-            )}
-            {children.map((c) => (
-              <div key={c.id}>子任务：<Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: c.id }} className="text-blue-600 hover:underline">{c.title}</Link>（{STATUS_LABEL[c.status as TaskStatus] ?? c.status}）</div>
-            ))}
-          </section>
-          <section className="flex flex-wrap gap-2">
-            {status === 'dispatched' && task.assigneeType === 'workstation' && (
-              <>
-                <Button size="sm" variant="outline" disabled={mut.isPending} onClick={() => mut.mutate({ path: 'respond', json: { action: 'accept' } })}>接单</Button>
-                <Button size="sm" variant="outline" onClick={() => { setRespondError(null); setRespond({ action: 'reject' }); }}>拒绝</Button>
-                <Button size="sm" variant="outline" onClick={() => { setRespondError(null); setRespond({ action: 'counter' }); }}>反提案</Button>
-              </>
-            )}
-            {events2.map((e) => (
-              <Button key={e} size="sm" variant={e === 'cancel' ? 'ghost' : 'outline'} disabled={mut.isPending}
-                onClick={() => mut.mutate({ path: 'transition', json: { event: e } })}>
-                {EVENT_LABEL[e]}
-              </Button>
-            ))}
-          </section>
-          <section>
-            <h2 className="pb-2 text-sm font-semibold">事件日志</h2>
-            <div className="space-y-1">
-              {events.map((ev) => {
-                let payload: string;
-                try {
-                  const p = JSON.parse(ev.payloadJson ?? '{}') as Record<string, unknown>;
-                  for (const k of ['assigneeId', 'workstationId', 'targetId']) {
-                    if (p[k] !== undefined) p[k] = nameOf(p[k], wsNames, agentNames);
-                  }
-                  payload = JSON.stringify(p);
-                } catch { payload = ev.payloadJson ?? ''; }
-                return (
-                  <div key={ev.id} className="text-xs text-neutral-600">
-                    <span className="text-neutral-400">{ev.createdAt.slice(11, 19)}</span> {ev.action}
-                    {payload && payload !== '{}' && <code className="ml-2 text-neutral-400">{payload}</code>}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-          <section>
-            <div className="flex items-center gap-2 pb-2">
-              <h2 className="text-sm font-semibold">运行记录</h2>
-              <select data-testid="run-agent-select" className="h-7 rounded border border-neutral-300 text-xs" value={runAgentId} onChange={(e) => setRunAgentId(e.target.value)}>
-                <option value="">运行 Agent…</option>
-                {(ws.data?.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-              <Button size="sm" variant="outline" disabled={!runAgentId || runAgent.isPending} onClick={() => runAgent.mutate(runAgentId)}>运行</Button>
-              {runAgent.isError && <span className="text-xs text-red-600">{runAgent.error.message}</span>}
-            </div>
-            <div className="space-y-1">
-              {runs.data?.map((r) => (
-                <Link key={r.id} to="/runs/$runId" params={{ runId: r.id }} className="block text-xs text-blue-600 hover:underline">
-                  {r.provider}:{r.model} · {r.status}{r.stopReason ? `/${r.stopReason}` : ''} · {r.startedAt.slice(11,19)}
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: task.workstationId }} className="text-sm text-blue-600 hover:underline">← 返回工作台</Link>
+          <div className={view === 'timeline' ? '' : 'px-1 py-2 md:px-6'}>
+            {view === 'timeline' && <Timeline taskId={taskId} projectId={projectId} names={names.agent} stages={stageNames} embedded />}
+            {view === 'changes' && <TaskProposalsPanel taskId={taskId} projectId={projectId} />}
+            {view === 'tests' && <TaskTestRunsPanel taskId={taskId} projectId={projectId} />}
+            {view === 'runs' && <RunsView taskId={taskId} projectId={projectId} runs={runRows} agents={[...(owner.data?.agents ?? []), ...(exec.data && exec.data.id !== owner.data?.id ? exec.data.agents : [])]} />}
+          </div>
         </div>
-      </div>
-      {respond && (
-        <RespondDialog
-          action={respond.action}
-          taskTitle={task.title}
-          module={typeof input.module === 'string' ? input.module : undefined}
-          submitting={mut.isPending}
-          error={respondError}
-          onClose={() => setRespond(null)}
-          onSubmit={(body) => mut.mutate({ path: 'respond', json: body as Record<string, unknown> })}
-        />
-      )}
-    </Shell>
+        <TaskComposer detail={d} running={runRows.some((r) => r.status === 'running')} />
+      </section>
+      <TaskSide detail={d} ws={exec.data} projectId={projectId} names={names.agent} />
+      {actions.dialogs}
+    </div>
   );
 }

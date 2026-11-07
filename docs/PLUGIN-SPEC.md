@@ -222,6 +222,7 @@ export interface RelationDef {
 | `system:task` | 平台 task 表 | 经任务状态机 |
 | `system:proposal` | 平台 proposal 表 | 经提案合并流程 |
 | `system:files` | git 工作树（虚拟实体） | 只读 |
+| `system:knowledge` | 知识库来源 | 经导入 |
 
 ### 字段类型语义
 
@@ -241,7 +242,7 @@ export interface RelationDef {
 ```ts
 export interface PanelDef {
   id: string;
-  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview';
+  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge';
   entity: string;                 // 插件实体或系统实体（system:*）
   title: string;
   config?: Record<string, unknown>;
@@ -261,6 +262,7 @@ export interface PanelDef {
 | `detail` | 只读详情 | `layout` |
 | `diff` | 代码改动审阅 | `showComments` |
 | `preview` | 页面预览 + 截图对比 | `urlField`, `baselineField` |
+| `knowledge` | 知识库导入与检索 | — |
 
 ## 6. 阶段定义
 
@@ -579,7 +581,7 @@ export interface ToolDef {
 | 插件实体使用 `system:` 前缀 | 装载失败 |
 | stage 引用不存在的 Agent 或面板 | 装载失败 |
 | 任务类型 `stages` 引用不存在的 stage | 装载失败 |
-| version 升级 | minor 允许加字段；major 需声明式迁移（见 MARKETPLACE §4，v0.2 提供） |
+| version 升级 | minor 允许加字段；major 需声明式迁移（见 MARKETPLACE §4，v0.2 提供）。启动时为已挂载工作台补齐新板块和这次新增的工具，人收窄过的工具不恢复 |
 
 ## 13. 权限边界（重要）
 

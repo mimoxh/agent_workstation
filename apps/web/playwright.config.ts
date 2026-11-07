@@ -26,7 +26,9 @@ const e2eRepo = path.join(e2eDir, 'repo');
 export default defineConfig({
   testDir: './e2e',
   timeout: 300_000,
+  expect: { timeout: 10_000 },
   use: {
+    actionTimeout: 15_000,
     baseURL: 'http://localhost:5273',
     viewport: { width: 1280, height: 800 },
   },

@@ -43,6 +43,27 @@
       "when": 1793968140530,
       "tag": "0005_feedback-count",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794022651878,
+      "tag": "0006_cleanup-trigger-columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794023414438,
+      "tag": "0007_collaboration-core",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794024641028,
+      "tag": "0008_knowledge-base",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,941 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Workstation · 控制台与工作台标签原型</title>
+<meta name="description" content="新信息架构原型：控制台为默认主界面，顶栏标签切换工作台，左侧栏切换工作台内功能（群聊 / 任务群 / 板块 / 团队）。">
+<style>
+:root {
+  --paper: oklch(17% 0.008 250);
+  --paper-2: oklch(21% 0.009 250);
+  --paper-3: oklch(13.5% 0.007 250);
+  --ink: oklch(95% 0.005 250);
+  --ink-2: oklch(83% 0.008 250);
+  --muted: oklch(71% 0.01 250);
+  --rule: oklch(31% 0.01 250);
+  --rule-2: oklch(42% 0.012 250);
+  --accent: oklch(82% 0.15 80);
+  --accent-ink: oklch(18% 0.04 75);
+  --accent-soft: oklch(29% 0.05 80);
+  --cool: oklch(77% 0.12 245);
+  --cool-soft: oklch(29% 0.05 245);
+  --ok: oklch(76% 0.15 150);
+  --ok-soft: oklch(24.5% 0.03 150);
+  --bad: oklch(70% 0.17 25);
+  --bad-soft: oklch(24.5% 0.035 25);
+  --r-card: 10px;
+  --r-pill: 6px;
+  --sans: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, "Microsoft YaHei UI", ui-monospace, monospace;
+  --top-h: 48px;
+  --side-w: 236px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { color-scheme: dark; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--paper); color: var(--ink); font: 0.92rem/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden; }
+h1, h2, h3, p, ul { margin: 0; padding: 0; }
+h1, h2, h3 { font-weight: 500; letter-spacing: -0.01em; }
+ul { list-style: none; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input, textarea { font: inherit; color: inherit; }
+code, kbd, .m { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.m { font-size: 0.86em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-pill); }
+::-webkit-scrollbar { width: 10px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--rule-2); border: 3px solid var(--paper); border-radius: 6px; }
+.muted { color: var(--muted); }
+.t-cool { color: var(--cool); } .t-amber { color: var(--accent); } .t-ok { color: var(--ok); } .t-bad { color: var(--bad); }
+
+/* ── 外壳 ─────────────────────────────── */
+.app { display: grid; grid-template-rows: var(--top-h) 1fr; height: 100dvh; }
+.top { display: flex; align-items: stretch; gap: 0; border-bottom: 1px solid var(--rule); background: var(--paper-3); min-width: 0; }
+.brand { display: grid; place-items: center; width: 48px; flex-shrink: 0; font-weight: 600; letter-spacing: -0.02em; border-right: 1px solid var(--rule); }
+.proj { position: relative; display: flex; align-items: center; padding: 0 6px; border-right: 1px solid var(--rule); flex-shrink: 0; }
+.proj-btn { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-pill); max-width: 220px; }
+.proj-btn:hover, .proj-btn[aria-expanded="true"] { background: var(--paper-2); }
+.proj-btn .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.proj-btn .chev { color: var(--muted); font-size: 0.7rem; }
+.proj-sq { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 0.72rem; font-weight: 600; background: var(--paper-2); border: 1px solid var(--rule-2); flex-shrink: 0; }
+.menu { position: absolute; top: calc(100% + 4px); left: 6px; z-index: 20; width: 300px; background: var(--paper-2); border: 1px solid var(--rule-2); border-radius: var(--r-card); padding: 6px; box-shadow: 0 12px 32px oklch(0% 0 0 / 0.45); }
+.menu-h { padding: 4px 8px 6px; font-size: 0.78rem; color: var(--muted); }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px; border-radius: var(--r-pill); }
+.menu-item:hover { background: var(--paper-3); }
+.menu-item[aria-current="true"] { background: var(--paper-3); box-shadow: inset 2px 0 0 var(--cool); }
+.menu-item .sub { font-size: 0.78rem; color: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
+
+.tabs { display: flex; align-items: stretch; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 14px; white-space: nowrap; color: var(--muted); border-right: 1px solid var(--rule); transition: color 140ms, background 140ms; }
+.tab:hover { color: var(--ink-2); background: var(--paper); }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--paper); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--paper); }
+.tab[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--cool); }
+.tab.console[aria-selected="true"]::before { background: var(--accent); }
+.tab .par { color: var(--muted); font-size: 0.8rem; }
+.tab .ico { font-size: 0.95rem; }
+.tab-add { padding: 0 14px; color: var(--muted); font-size: 1.1rem; }
+.tab-add:hover { color: var(--ink); background: var(--paper); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.run { background: var(--cool); animation: pulse 1.8s ease-in-out infinite; }
+.dot.wait { background: var(--accent); }
+.dot.idle { background: var(--rule-2); }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+@keyframes pulse { 50% { opacity: 0.4; } }
+.cnt { font-family: var(--mono); font-size: 0.72rem; min-width: 18px; padding: 0 5px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
+.cnt.cool { background: var(--cool-soft); color: var(--cool); }
+.cnt.plain { background: var(--paper-2); color: var(--muted); }
+
+.top-r { display: flex; align-items: center; gap: 14px; padding: 0 14px; flex-shrink: 0; border-left: 1px solid var(--rule); font-size: 0.82rem; }
+.live { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--rule-2); border-radius: var(--r-pill); font-size: 0.82rem; color: var(--ink-2); background: transparent; white-space: nowrap; transition: background 140ms, border-color 140ms; }
+.btn:hover { background: var(--paper-2); color: var(--ink); }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.btn.pri:hover { background: oklch(86% 0.14 80); }
+.btn.quiet { border-color: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--ink); }
+.btn.sm { padding: 3px 8px; font-size: 0.78rem; }
+kbd { font-size: 0.72rem; color: var(--muted); }
+
+.body { display: grid; grid-template-columns: var(--side-w) 1fr; min-height: 0; }
+.side { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding: 12px 8px; border-right: 1px solid var(--rule); background: var(--paper); }
+.side-head { padding: 2px 8px 0; }
+.side-head h2 { font-size: 1rem; }
+.side-head p { font-size: 0.78rem; color: var(--muted); }
+.grp h3 { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 4px; font-size: 0.76rem; font-weight: 500; color: var(--muted); letter-spacing: 0.02em; }
+.grp h3 button { color: var(--muted); font-size: 0.9rem; line-height: 1; padding: 0 2px; }
+.grp h3 button:hover { color: var(--ink); }
+.nav { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 6px 8px; border-radius: var(--r-pill); color: var(--ink-2); transition: background 140ms; min-width: 0; }
+.nav:hover { background: var(--paper-2); }
+.nav[aria-current="page"] { background: var(--paper-2); color: var(--ink); box-shadow: inset 2px 0 0 var(--cool); }
+.nav .gl { width: 16px; text-align: center; color: var(--muted); flex-shrink: 0; font-size: 0.85rem; }
+.nav .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav.task .lb { font-size: 0.86rem; }
+.nav.unread .lb { color: var(--ink); font-weight: 500; }
+.side-foot { margin-top: auto; padding: 8px; font-size: 0.74rem; color: var(--muted); display: grid; gap: 2px; }
+
+.main { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--paper); }
+.page-h { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 20px; border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+.page-h h1 { font-size: 1.05rem; }
+.page-h .sub { font-size: 0.8rem; color: var(--muted); }
+.page-h .sp { flex: 1; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.pad { padding: 18px 20px 28px; }
+
+/* ── 通用件 ───────────────────────────── */
+.card { border: 1px solid var(--rule); border-radius: var(--r-card); background: var(--paper-2); }
+.sec { margin-bottom: 22px; }
+.sec-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.sec-h h2 { font-size: 0.92rem; }
+.sec-h a, .sec-h button.link { font-size: 0.8rem; color: var(--cool); }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 4px; font-size: 0.74rem; white-space: nowrap; border: 1px solid var(--rule-2); color: var(--ink-2); }
+.chip.amber { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.chip.cool { border-color: transparent; background: var(--cool-soft); color: var(--cool); }
+.chip.ok { border-color: transparent; background: var(--ok-soft); color: var(--ok); }
+.chip.bad { border-color: transparent; background: var(--bad-soft); color: var(--bad); }
+.av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 0.74rem; font-weight: 500; background: var(--paper-3); border: 1px solid var(--rule-2); color: var(--ink-2); flex-shrink: 0; position: relative; }
+.av.me { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.av.lg { width: 32px; height: 32px; font-size: 0.82rem; }
+.av .dot { position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border: 2px solid var(--paper); box-sizing: content-box; }
+.avs { display: flex; }
+.avs .av { width: 22px; height: 22px; font-size: 0.66rem; margin-left: -5px; border-color: var(--paper-2); border-width: 2px; }
+.avs .av:first-child { margin-left: 0; }
+.bar { height: 4px; border-radius: 2px; background: var(--paper-3); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--cool); border-radius: 2px; }
+.bar i.hot { background: var(--accent); }
+.empty { padding: 36px 20px; text-align: center; color: var(--muted); }
+
+/* ── 控制台 ───────────────────────────── */
+.dash { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+.kpi { padding: 12px 14px; }
+.kpi .v { font-family: var(--mono); font-size: 1.35rem; line-height: 1.2; }
+.kpi .l { font-size: 0.78rem; color: var(--muted); }
+.need { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-card); overflow: hidden; }
+.need-i { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 14px; background: var(--paper-2); }
+.need-i .ln { min-width: 0; }
+.need-i .ln b { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.need-i .ln span { font-size: 0.78rem; color: var(--muted); }
+.need-i .acts { display: flex; gap: 6px; }
+.need-i.done { opacity: 0.55; }
+.projects { display: grid; gap: 14px; }
+.pj { overflow: hidden; }
+.pj-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.pj-h h3 { font-size: 0.92rem; }
+.pj-h .sp { flex: 1; }
+.wsrow { display: grid; grid-template-columns: minmax(150px, 1.4fr) 1fr 1fr minmax(120px, 1fr); gap: 14px; align-items: center; width: 100%; text-align: left; padding: 10px 14px; border-top: 1px solid var(--rule); transition: background 140ms; }
+.wsrow:first-of-type { border-top: 0; }
+.wsrow:hover { background: var(--paper-3); }
+.wsrow .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wsrow .nm b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsrow .nm .pl { font-size: 0.74rem; color: var(--muted); }
+.wsrow .st { font-size: 0.8rem; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.wsrow .bud { display: grid; gap: 4px; font-size: 0.74rem; color: var(--muted); }
+.pmchat { position: sticky; top: 0; display: flex; flex-direction: column; max-height: calc(100dvh - var(--top-h) - 110px); }
+.pmchat-h { padding: 10px 14px; border-bottom: 1px solid var(--rule); display: grid; gap: 8px; }
+.seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.seg button { padding: 2px 8px; border-radius: 4px; font-size: 0.76rem; color: var(--muted); border: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { color: var(--ink); border-color: var(--rule-2); background: var(--paper-3); }
+.pmchat .feed { padding: 12px 14px; overflow-y: auto; min-height: 200px; }
+.pmchat .composer { margin: 0; border-top: 1px solid var(--rule); border-radius: 0 0 var(--r-card) var(--r-card); }
+
+/* ── 群聊 / 任务群 ──────────────────────── */
+.chatwrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; flex: 1; }
+.chatcol { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.feed { display: flex; flex-direction: column; gap: 14px; }
+.chatcol .feed { flex: 1; overflow-y: auto; padding: 18px 20px; }
+.day { align-self: center; font-size: 0.74rem; color: var(--muted); padding: 2px 10px; border: 1px solid var(--rule); border-radius: 10px; }
+.msg { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; }
+.msg .who { display: flex; align-items: baseline; gap: 8px; font-size: 0.84rem; }
+.msg .who b { font-weight: 500; }
+.msg .who .role { font-size: 0.74rem; color: var(--muted); }
+.msg .who time { font-size: 0.74rem; color: var(--muted); font-family: var(--mono); }
+.msg .tx { color: var(--ink-2); margin-top: 1px; }
+.msg .tx .at { color: var(--cool); }
+.msg.compact { grid-template-columns: 32px minmax(0, 1fr); }
+.tool { display: flex; align-items: center; gap: 8px; padding-left: 42px; font-size: 0.8rem; color: var(--muted); }
+.tool code { color: var(--cool); font-size: 0.78rem; }
+.tool .tw { white-space: nowrap; flex-shrink: 0; }
+.tool .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc { margin-top: 6px; border: 1px solid var(--rule); border-left: 3px solid var(--rule-2); border-radius: var(--r-pill); background: var(--paper-2); padding: 9px 12px; display: grid; gap: 6px; max-width: 620px; }
+.bc.cool { border-left-color: var(--cool); }
+.bc.amber { border-left-color: var(--accent); background: color-mix(in oklab, var(--accent-soft) 40%, var(--paper-2)); }
+.bc.ok { border-left-color: var(--ok); }
+.bc .bh { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+.bc .bh b { color: var(--ink); font-weight: 500; font-size: 0.86rem; }
+.bc .bb { font-size: 0.86rem; color: var(--ink-2); }
+.bc dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 0.82rem; }
+.bc dt { color: var(--muted); }
+.bc dd { margin: 0; color: var(--ink-2); }
+.bc pre { margin: 0; padding: 6px 8px; background: var(--paper-3); border-radius: 4px; font: 0.8rem var(--mono); color: var(--ink-2); overflow-x: auto; }
+.bc .acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bc .resolved { font-size: 0.78rem; color: var(--muted); }
+.taskref { color: var(--cool); }
+.taskref:hover { text-decoration: underline; }
+.composer { margin: 0 20px 16px; border: 1px solid var(--rule-2); border-radius: var(--r-card); background: var(--paper-2); }
+.composer textarea { display: block; width: 100%; resize: none; border: 0; background: transparent; padding: 10px 12px 4px; min-height: 44px; outline: none; }
+.composer textarea::placeholder { color: var(--muted); }
+.composer .row { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px 12px; font-size: 0.76rem; color: var(--muted); }
+.composer .row .sp { flex: 1; }
+.members { width: 270px; border-left: 1px solid var(--rule); overflow-y: auto; padding: 14px 12px; display: grid; align-content: start; gap: 16px; }
+.members h3 { font-size: 0.76rem; color: var(--muted); font-weight: 500; padding: 0 4px 6px; }
+.mem { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 4px; border-radius: var(--r-pill); }
+.mem:hover { background: var(--paper-2); }
+.mem b { font-weight: 500; font-size: 0.86rem; display: block; }
+.mem > div > span { font-size: 0.76rem; color: var(--muted); display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.facts { display: grid; gap: 10px; font-size: 0.82rem; }
+.facts .f { display: grid; gap: 4px; }
+.facts .f > span:first-child { color: var(--muted); font-size: 0.76rem; }
+.sublist { display: grid; gap: 4px; }
+.sublist li { display: flex; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--ink-2); }
+
+.taskhead { display: grid; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+.taskhead .r1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.taskhead h1 { font-size: 1.05rem; }
+.stages { display: flex; gap: 2px; }
+.stages span { font-size: 0.74rem; padding: 2px 9px; color: var(--muted); background: var(--paper-2); }
+.stages span:first-child { border-radius: 4px 0 0 4px; }
+.stages span:last-child { border-radius: 0 4px 4px 0; }
+.stages span.past { color: var(--ink-2); }
+.stages span.cur { background: var(--cool-soft); color: var(--cool); }
+.taskhead .r2 { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.taskhead .r2 .bar { width: 120px; }
+
+/* ── 看板 / 列表 ─────────────────────────── */
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(176px, 1fr); gap: 12px; padding: 16px 20px; overflow-x: auto; flex: 1; min-height: 0; align-items: start; }
+.col { background: var(--paper-3); border: 1px solid var(--rule); border-radius: var(--r-card); padding: 8px; display: grid; gap: 8px; align-content: start; min-height: 120px; }
+.col-h { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.8rem; color: var(--muted); }
+.tcard { text-align: left; display: grid; gap: 8px; padding: 10px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: var(--r-pill); transition: border-color 140ms; }
+.tcard:hover { border-color: var(--rule-2); }
+.tcard b { font-weight: 500; font-size: 0.88rem; }
+.tcard .ft { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.74rem; color: var(--muted); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.76rem; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--rule); color: var(--ink-2); vertical-align: middle; }
+.tbl tr.click { cursor: pointer; }
+.tbl tr.click:hover td { background: var(--paper-2); }
+.diff { display: grid; grid-template-columns: 280px minmax(0, 1fr); flex: 1; min-height: 0; }
+.diff-list { border-right: 1px solid var(--rule); overflow-y: auto; padding: 10px 8px; display: grid; align-content: start; gap: 4px; }
+.diff-body { overflow: auto; padding: 16px 20px; }
+.hunk { font: 0.8rem/1.6 var(--mono); border: 1px solid var(--rule); border-radius: var(--r-pill); overflow: hidden; }
+.hunk div { padding: 0 12px; white-space: pre; }
+.hunk .h { background: var(--paper-3); color: var(--muted); padding: 4px 12px; }
+.hunk .add { background: color-mix(in oklab, var(--ok-soft) 70%, transparent); color: var(--ink); }
+.hunk .del { background: color-mix(in oklab, var(--bad-soft) 70%, transparent); color: var(--ink-2); }
+.note { margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--rule-2); border-radius: var(--r-card); font-size: 0.82rem; color: var(--muted); }
+.note b { color: var(--ink-2); font-weight: 500; }
+
+.toast { position: fixed; right: 18px; bottom: 18px; z-index: 30; padding: 9px 14px; border-radius: var(--r-pill); background: var(--paper-2); border: 1px solid var(--rule-2); font-size: 0.84rem; animation: rise 160ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.side-toggle { display: none; }
+@media (max-width: 1180px) {
+  .dash { grid-template-columns: 1fr; }
+  .pmchat { position: static; max-height: none; }
+  .members { display: none; }
+}
+@media (max-width: 760px) {
+  .body { grid-template-columns: minmax(0, 1fr); }
+  .page-h .sub, .page-h .avs { display: none; }
+  .side { position: fixed; z-index: 15; top: var(--top-h); bottom: 0; left: 0; width: 260px; transform: translateX(-100%); transition: transform 160ms; }
+  .app.side-open .side { transform: none; box-shadow: 0 0 40px oklch(0% 0 0 / 0.5); }
+  .side-toggle { display: grid; place-items: center; width: 44px; flex-shrink: 0; border-right: 1px solid var(--rule); color: var(--muted); }
+  .brand { display: none; }
+  .top-r .hide-s { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wsrow { grid-template-columns: 1fr; gap: 6px; }
+  .pad, .chatcol .feed { padding-left: 16px; padding-right: 16px; }
+  .composer { margin: 0 16px 12px; }
+  .diff { grid-template-columns: 1fr; }
+  .diff-list { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .proj-btn { max-width: 140px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top" id="top"></header>
+  <div class="body">
+    <aside class="side" id="side" aria-label="功能导航"></aside>
+    <main class="main" id="main"></main>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// ── 数据 ────────────────────────────────────────────
+const A = {
+  me: { n: '你', i: '你', role: '本地用户' },
+  pm: { n: '项目经理', i: 'PM', role: 'steward' },
+  arch: { n: '架构师', i: '架', role: 'architect' },
+  fe: { n: '前端开发', i: '前', role: 'frontend-dev' },
+  be: { n: '后端开发', i: '后', role: 'backend-dev' },
+  qa: { n: '测试工程师', i: '测', role: 'test-engineer' },
+  rev: { n: '审查', i: '审', role: 'reviewer' },
+  mob: { n: '移动端开发', i: '移', role: 'mobile-dev' },
+  npm: { n: '项目经理', i: 'PM', role: 'steward' },
+  ed: { n: '主编', i: '编', role: 'editor' },
+  wr: { n: '执笔', i: '笔', role: 'writer' },
+  lore: { n: '设定官', i: '设', role: 'lore-keeper' },
+};
+
+const DEV_STAGES = ['需求', '设计', '实现', '测试', '评审', '合并'];
+
+const P = {
+  aw: {
+    name: 'agent-workstation', sq: 'A', desc: '多 Agent 协作工作台本身',
+    ws: [
+      {
+        id: 'pm', name: '项目管理', plugin: 'pm@1.1.0', root: true,
+        agents: [{ a: 'pm', st: 'run', doing: '拆解 M0.3 里程碑', tok: '38k' }],
+        panels: [['board', '任务看板', '▦'], ['miles', '里程碑', '◇'], ['knowledge', '知识库', '❐']],
+        stages: ['待办', '进行中', '完成'],
+        tasks: [
+          { id: 'p1', title: 'M0.3 里程碑拆解', stage: '进行中', st: 'run', owners: ['pm'], tok: [21, 80] },
+          { id: 'p2', title: '首页信息架构改版', stage: '待办', st: 'idle', owners: ['pm'], tok: [0, 60] },
+        ],
+        budget: [118, 400],
+        chat: [
+          { day: '今天' },
+          { who: 'me', t: '09:12', tx: '这周先把全栈开发台的筛选和合并队列收掉。' },
+          { who: 'pm', t: '09:13', tx: '好。我把「状态筛选组件」派给全栈开发，合并队列重试已经在评审。', card: { k: 'dispatch', task: 't1', to: '全栈开发' } },
+        ],
+      },
+      {
+        id: 'dev', name: '全栈开发', plugin: 'dev@1.1.0',
+        agents: [
+          { a: 'arch', st: 'idle', doing: '空闲 · 上次：拆分筛选组件', tok: '22k' },
+          { a: 'fe', st: 'run', doing: '状态筛选组件 · 实现', tok: '61k' },
+          { a: 'be', st: 'run', doing: '合并队列重试 · 回应评审意见', tok: '44k' },
+          { a: 'qa', st: 'wait', doing: 'TestRun 字段契约 · 等你决定', tok: '17k' },
+          { a: 'rev', st: 'idle', doing: '空闲', tok: '9k' },
+        ],
+        panels: [['board', '任务看板', '▦'], ['changes', '改动审阅', '±'], ['tests', '测试结果', '✓'], ['decisions', '架构决策', '◇'], ['files', '文件树', '⌸'], ['preview', '页面预览', '▭'], ['knowledge', '知识库', '❐']],
+        stages: DEV_STAGES,
+        tasks: [
+          { id: 't1', title: '状态筛选组件', stage: '实现', st: 'run', owners: ['fe', 'arch'], tok: [62, 200], unread: 3 },
+          { id: 't2', title: 'TestRun 字段契约', stage: '测试', st: 'wait', owners: ['qa'], tok: [17, 120], unread: 1 },
+          { id: 't3', title: '合并队列重试', stage: '评审', st: 'run', owners: ['be', 'rev'], tok: [44, 160] },
+          { id: 't4', title: 'worktree 清理命令', stage: '需求', st: 'idle', owners: ['arch'], tok: [0, 100] },
+          { id: 't5', title: 'SSE 连接泄漏', stage: '合并', st: 'ok', owners: ['be'], tok: [38, 120], closed: true },
+        ],
+        budget: [233, 800],
+        chat: [
+          { day: '今天' },
+          { who: 'pm', t: '09:13', tx: '新任务进来了，架构师先看一下。', card: { k: 'dispatch', task: 't1', to: '全栈开发' } },
+          { who: 'arch', t: '09:20', tx: '拆成两块：筛选状态放 URL search，组件本身只管渲染。交给前端。', card: { k: 'handoff', from: 'arch', to: 'fe', task: 't1', sum: '设计已定：search 参数 status=open|attention|done，组件无内部状态。' } },
+          { tool: 'fe', tx: '<code>read_file</code> apps/web/src/components/board/filter.ts' },
+          { tool: 'fe', tx: '<code>propose_change</code> pr-104 rev 1 · +86 −12' },
+          { who: 'qa', t: '09:47', tx: '<a class="taskref" data-go="task:t2">TestRun 字段契约</a> 卡住了：验收断言要 duration，但 TestRun 实体没有这个字段。', card: { k: 'block', id: 'n2', q: 'duration 是加到 TestRun 实体里，还是只在断言里临时算？' } },
+          { who: 'be', t: '09:52', tx: '合并队列重试改完了，评审意见 3 条都处理了，等审查复看。' },
+          { who: 'fe', t: '09:58', tx: '要跑一下测试确认筛选没破坏看板。', card: { k: 'command', id: 'n1', cmd: 'pnpm --filter @aw/web test', task: 't1' } },
+        ],
+      },
+      {
+        id: 'mobile', name: '移动端', parent: '全栈开发', plugin: 'dev@1.1.0',
+        agents: [{ a: 'mob', st: 'idle', doing: '空闲', tok: '4k' }],
+        panels: [['board', '任务看板', '▦'], ['changes', '改动审阅', '±'], ['tests', '测试结果', '✓'], ['files', '文件树', '⌸']],
+        stages: DEV_STAGES,
+        tasks: [{ id: 'm1', title: '窄屏侧栏抽屉', stage: '需求', st: 'idle', owners: ['mob'], tok: [0, 80] }],
+        budget: [4, 200],
+        chat: [{ day: '昨天' }, { who: 'mob', t: '17:40', tx: '移动端台刚挂上，等第一个任务。' }],
+      },
+    ],
+  },
+  novel: {
+    name: '长篇小说 · 雾港', sq: '雾', desc: 'novel 插件验收样本',
+    ws: [
+      {
+        id: 'pm', name: '项目管理', plugin: 'pm@1.1.0', root: true,
+        agents: [{ a: 'npm', st: 'idle', doing: '空闲', tok: '12k' }],
+        panels: [['board', '任务看板', '▦'], ['miles', '里程碑', '◇'], ['knowledge', '知识库', '❐']],
+        stages: ['待办', '进行中', '完成'],
+        tasks: [{ id: 'q1', title: '第一卷交付节奏', stage: '进行中', st: 'idle', owners: ['npm'], tok: [12, 60] }],
+        budget: [12, 300],
+        chat: [{ day: '昨天' }, { who: 'npm', t: '21:02', tx: '第一卷大纲已经交给写作台，第三章等主编确认后开写。' }],
+      },
+      {
+        id: 'write', name: '写作台', plugin: 'novel@0.1.0',
+        agents: [
+          { a: 'ed', st: 'wait', doing: '第三章大纲 · 等你确认', tok: '31k' },
+          { a: 'wr', st: 'idle', doing: '空闲', tok: '88k' },
+          { a: 'lore', st: 'run', doing: '人物设定 · 校对年龄线', tok: '19k' },
+        ],
+        panels: [['board', '章节看板', '▦'], ['chars', '人物设定', '☺'], ['timeline', '故事时间线', '◇'], ['knowledge', '知识库', '❐']],
+        stages: ['大纲', '初稿', '修订', '定稿'],
+        tasks: [
+          { id: 'c3', title: '第三章 · 雾里的码头', stage: '大纲', st: 'wait', owners: ['ed'], tok: [31, 120], unread: 1 },
+          { id: 'c2', title: '第二章 · 回港', stage: '修订', st: 'run', owners: ['wr', 'lore'], tok: [88, 160] },
+        ],
+        budget: [138, 600],
+        chat: [
+          { day: '今天' },
+          { who: 'lore', t: '08:40', tx: '第二章里沈舟说自己 31 岁，人物卡写的是 29，我先按人物卡改。' },
+          { who: 'ed', t: '08:55', tx: '第三章大纲好了，你确认一下节奏再开写。', card: { k: 'block', id: 'n4', q: '第三章是否把码头冲突提前到开头？大纲两版都附在任务群里。' } },
+        ],
+      },
+    ],
+  },
+};
+
+const INBOX = [
+  { id: 'n1', kind: '命令确认', tone: 'amber', p: 'aw', ws: 'dev', task: 't1', tx: '执行 <code>pnpm --filter @aw/web test</code>', from: 'fe', t: '09:58', acts: ['允许', '拒绝'] },
+  { id: 'n2', kind: '阻塞', tone: 'amber', p: 'aw', ws: 'dev', task: 't2', tx: 'TestRun 缺 duration 字段，需要你决定口径', from: 'qa', t: '09:47', acts: ['回复'] },
+  { id: 'n3', kind: '提案待审', tone: 'cool', p: 'aw', ws: 'dev', task: 't1', tx: 'pr-104 状态筛选组件 rev 2 · +86 −12', from: 'fe', t: '09:31', acts: ['审阅'] },
+  { id: 'n4', kind: '待确认', tone: 'amber', p: 'novel', ws: 'write', task: 'c3', tx: '第三章大纲：码头冲突是否提前', from: 'ed', t: '08:55', acts: ['回复'] },
+];
+
+const TASK_FEED = {
+  t1: [
+    { day: '今天' },
+    { who: 'pm', t: '09:13', tx: '从项目管理派发。', card: { k: 'contract' } },
+    { who: 'arch', t: '09:20', tx: '筛选状态放 URL search，组件无内部状态。', card: { k: 'handoff', from: 'arch', to: 'fe', task: 't1', sum: '设计已定，进入实现。' } },
+    { tool: 'fe', tx: '<code>read_file</code> apps/web/src/components/board/filter.ts' },
+    { tool: 'fe', tx: '<code>write_file</code> apps/web/src/components/board/TaskBoard.tsx' },
+    { who: 'fe', t: '09:31', tx: 'rev 2 改完了，筛选按钮换成了分段控件。', card: { k: 'proposal', id: 'n3', pr: 'pr-104', rev: 2, add: 86, del: 12, files: 3 } },
+    { who: 'rev', t: '09:40', tx: '<span class="at">@前端开发</span> 空状态文案和看板其它列不一致，顺手统一。' },
+    { who: 'fe', t: '09:58', tx: '要跑一下测试确认筛选没破坏看板。', card: { k: 'command', id: 'n1', cmd: 'pnpm --filter @aw/web test', task: 't1' } },
+  ],
+};
+
+// ── 状态 ────────────────────────────────────────────
+const S = {
+  project: 'aw', route: { tab: 'console', view: 'overview' }, menu: false,
+  resolved: {}, pmProject: 'aw', members: true, read: {},
+};
+const LS = 'aw.proto.workbench';
+try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}').keep || {}); } catch (e) {}
+const save = () => { try { localStorage.setItem(LS, JSON.stringify({ keep: { project: S.project, members: S.members } })); } catch (e) {} };
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const wsOf = (p, id) => P[p].ws.find((w) => w.id === id);
+const taskOf = (p, id) => { for (const w of P[p].ws) { const t = w.tasks.find((x) => x.id === id); if (t) return { t, w }; } return null; };
+const openInbox = () => INBOX.filter((i) => !S.resolved[i.id]);
+const wsNeed = (p, w) => openInbox().filter((i) => i.p === p && i.ws === w.id).length;
+const wsRunning = (w) => w.agents.filter((a) => a.st === 'run').length;
+const pct = ([a, b]) => Math.min(100, Math.round((a / b) * 100));
+
+// 路由：#/console/<view>  ·  #/<project>/<ws>/<view>[/<arg>]
+function parse() {
+  const seg = (S.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  if (!seg.length || seg[0] === 'console') return { tab: 'console', view: seg[1] || 'overview', arg: seg[2] };
+  const [p, ws, view, arg] = seg;
+  if (!P[p] || !wsOf(p, ws)) return { tab: 'console', view: 'overview' };
+  S.project = p;
+  return { tab: ws, view: view || 'chat', arg };
+}
+// 路由放内存里，hash 只做可分享的同步（data: / 快照环境下 hash 不可写）
+S.hash = location.hash;
+const go = (h) => {
+  S.hash = h;
+  try { if (location.hash !== h) history.pushState(null, '', h); } catch (e) {}
+  render();
+};
+const wsHash = (p, ws, view = 'chat', arg) => `#/${p}/${ws}/${view}${arg ? '/' + arg : ''}`;
+
+function toast(msg) {
+  const el = $('#toast');
+  el.innerHTML = `<div class="toast">${msg}</div>`;
+  clearTimeout(toast.h);
+  toast.h = setTimeout(() => { el.innerHTML = ''; }, 2200);
+}
+
+// ── 顶栏 ────────────────────────────────────────────
+function renderTop() {
+  const pr = P[S.project];
+  const r = S.route;
+  const need = openInbox().length;
+  const running = Object.values(P).flatMap((p) => p.ws).reduce((n, w) => n + wsRunning(w), 0);
+  const tabs = pr.ws.map((w) => {
+    const n = wsNeed(S.project, w);
+    const run = wsRunning(w);
+    return `<button class="tab" role="tab" aria-selected="${r.tab === w.id}" data-go="${wsHash(S.project, w.id, lastView(w.id))}" data-testid="ws-tab-${w.id}">
+      ${w.parent ? `<span class="par">${esc(w.parent)} ›</span>` : ''}${esc(w.name)}
+      ${n ? `<span class="cnt" title="${n} 条等你">${n}</span>` : run ? `<span class="dot run" title="${run} 个 Agent 在跑"></span>` : ''}
+    </button>`;
+  }).join('');
+  $('#top').innerHTML = `
+    <button class="side-toggle" data-act="side" aria-label="打开侧栏">☰</button>
+    <span class="brand" aria-label="Agent Workstation">AW</span>
+    <div class="proj">
+      <button class="proj-btn" data-act="menu" aria-expanded="${S.menu}" aria-haspopup="menu" title="切换项目">
+        <span class="proj-sq">${esc(pr.sq)}</span><span class="nm">${esc(pr.name)}</span><span class="chev">▾</span>
+      </button>
+      ${S.menu ? projectMenu() : ''}
+    </div>
+    <nav class="tabs" role="tablist" aria-label="工作台">
+      <button class="tab console" role="tab" aria-selected="${r.tab === 'console'}" data-go="#/console/${S.lastConsole || 'overview'}"><span class="ico">⌂</span>控制台${need ? `<span class="cnt">${need}</span>` : ''}</button>
+      ${tabs}
+      <button class="tab-add" data-act="mount" title="挂载工作台" aria-label="挂载工作台">+</button>
+    </nav>
+    <div class="top-r">
+      <span class="live hide-s"><span class="dot ok"></span>实时</span>
+      ${running ? `<span class="m t-cool hide-s">${running} 个 run 在跑</span>` : ''}
+      <button class="btn hide-s" data-act="palette">跳转 <kbd>Ctrl K</kbd></button>
+      <span class="hide-s" style="color:var(--accent)">本地用户</span>
+    </div>`;
+}
+
+function projectMenu() {
+  const items = Object.entries(P).map(([id, p]) => {
+    const n = openInbox().filter((i) => i.p === id).length;
+    const run = p.ws.reduce((k, w) => k + wsRunning(w), 0);
+    return `<button class="menu-item" role="menuitem" aria-current="${id === S.project}" data-act="proj" data-id="${id}">
+      <span class="proj-sq">${esc(p.sq)}</span>
+      <span style="flex:1;min-width:0"><span style="display:block">${esc(p.name)}</span><span class="sub">${p.ws.length} 个工作台${run ? ` · <span class="t-cool">${run} 在跑</span>` : ''}</span></span>
+      ${n ? `<span class="cnt">${n}</span>` : ''}
+    </button>`;
+  }).join('');
+  return `<div class="menu" role="menu">
+    <p class="menu-h">切换项目 — 标签换成该项目的工作台</p>${items}<hr>
+    <button class="menu-item" data-act="newproj"><span class="proj-sq">+</span>新建项目</button>
+    <button class="menu-item" data-go="#/console/projects"><span class="proj-sq">≡</span>全部项目</button>
+  </div>`;
+}
+
+const lastViews = {};
+const lastView = (ws) => lastViews[S.project + '/' + ws] || 'chat';
+
+// ── 侧栏 ────────────────────────────────────────────
+function nav(label, href, { cur, gl = '', badge = '', cls = '' } = {}) {
+  return `<button class="nav ${cls}" data-go="${href}" ${cur ? 'aria-current="page"' : ''}><span class="gl">${gl}</span><span class="lb">${label}</span>${badge}</button>`;
+}
+
+function renderSide() {
+  const r = S.route;
+  if (r.tab === 'console') {
+    const need = openInbox().length;
+    const v = r.view;
+    $('#side').innerHTML = `
+      <div class="side-head"><h2>控制台</h2><p>全部项目 · ${Object.keys(P).length} 个</p></div>
+      <div class="grp">
+        ${nav('总览', '#/console/overview', { cur: v === 'overview', gl: '⌂' })}
+        ${nav('需要我', '#/console/inbox', { cur: v === 'inbox', gl: '!', badge: need ? `<span class="cnt">${need}</span>` : '' })}
+        ${nav('运行账本', '#/console/runs', { cur: v === 'runs', gl: '≡' })}
+      </div>
+      <div class="grp"><h3>项目经理</h3>
+        ${Object.entries(P).map(([id, p]) => nav(esc(p.name), `#/console/pm/${id}`, { cur: v === 'pm' && r.arg === id, gl: `<span class="av" style="width:18px;height:18px;font-size:0.6rem">PM</span>` })).join('')}
+      </div>
+      <div class="grp"><h3>项目 <button data-act="newproj" title="新建项目">+</button></h3>
+        ${Object.entries(P).map(([id, p]) => nav(esc(p.name), `#/${id}/${p.ws[1]?.id || p.ws[0].id}/chat`, { gl: `<span class="proj-sq" style="width:16px;height:16px;font-size:0.62rem">${esc(p.sq)}</span>`, badge: `<span class="m muted">${p.ws.length} 台</span>` })).join('')}
+      </div>
+      <div class="grp">
+        ${nav('插件市场', '#/console/plugins', { cur: v === 'plugins', gl: '⧉' })}
+        ${nav('模型与设置', '#/console/settings', { cur: v === 'settings', gl: '⚙' })}
+      </div>
+      <div class="side-foot"><span>sqlite 本地 · 实时已连接</span></div>`;
+    return;
+  }
+  const w = wsOf(S.project, r.tab);
+  const active = w.tasks.filter((t) => !t.closed);
+  const need = (tid) => openInbox().filter((i) => i.task === tid).length;
+  const pending = openInbox().filter((i) => i.p === S.project && i.ws === w.id && i.kind === '提案待审').length;
+  $('#side').innerHTML = `
+    <div class="side-head"><h2>${esc(w.name)}</h2><p>${w.root ? '根工作台 · ' : ''}${esc(w.plugin)} · ${w.agents.length} 名成员</p></div>
+    <div class="grp"><h3>群聊 <button data-act="newtask" title="新建任务">+</button></h3>
+      ${nav(`${esc(w.name)} 大群`, wsHash(S.project, w.id, 'chat'), { cur: r.view === 'chat', gl: '#', cls: S.read[w.id] ? '' : 'unread', badge: w.agents.some((a) => a.st === 'run') ? '<span class="dot run"></span>' : '' })}
+      ${active.map((t) => {
+        const n = need(t.id);
+        const dotc = t.st === 'wait' ? 'wait' : t.st === 'run' ? 'run' : 'idle';
+        return nav(esc(t.title), wsHash(S.project, w.id, 'task', t.id), { cur: r.view === 'task' && r.arg === t.id, gl: `<span class="dot ${dotc}"></span>`, cls: 'task' + (t.unread && !S.read[t.id] ? ' unread' : ''), badge: n ? `<span class="cnt">${n}</span>` : '' });
+      }).join('')}
+    </div>
+    <div class="grp"><h3>功能</h3>
+      ${w.panels.map(([id, name, gl]) => nav(name, wsHash(S.project, w.id, id), { cur: r.view === id, gl, badge: id === 'changes' && pending ? `<span class="cnt cool">${pending}</span>` : '' })).join('')}
+    </div>
+    <div class="grp"><h3>团队</h3>
+      ${nav('成员', wsHash(S.project, w.id, 'agents'), { cur: r.view === 'agents', gl: '☺', badge: `<span class="m muted">${w.agents.length}</span>` })}
+      ${nav('工作台设置', wsHash(S.project, w.id, 'settings'), { cur: r.view === 'settings', gl: '⚙' })}
+    </div>
+    <div class="side-foot"><span>plugin ${esc(w.plugin)}</span><span>预算 ${w.budget[0]}k / ${w.budget[1]}k tok</span></div>`;
+}
+
+// ── 消息流 ──────────────────────────────────────────
+function av(key, dot) {
+  const a = A[key];
+  return `<span class="av lg ${key === 'me' ? 'me' : ''}" title="${esc(a.n)}">${esc(a.i)}${dot ? `<span class="dot ${dot}"></span>` : ''}</span>`;
+}
+
+function card(c, p) {
+  const done = c.id && S.resolved[c.id];
+  const resolvedLine = done ? `<span class="resolved">${esc(done)} · 你</span>` : '';
+  switch (c.k) {
+    case 'dispatch': {
+      const x = taskOf(p, c.task);
+      return `<div class="bc cool"><div class="bh"><b>派发任务</b><span>→ ${esc(c.to)}</span></div>
+        <div class="bb"><a class="taskref" data-go="${wsHash(p, x.w.id, 'task', c.task)}">${esc(x.t.title)}</a> · 预算 ${x.t.tok[1]}k tok · 起点 ${esc(x.w.stages[0])}</div></div>`;
+    }
+    case 'contract':
+      return `<div class="bc cool"><div class="bh"><b>任务契约</b></div><dl>
+        <dt>目标</dt><dd>看板支持按 open / attention / done 筛选，状态可分享</dd>
+        <dt>验收</dt><dd>e2e：切换筛选后刷新页面保持；空列文案统一</dd>
+        <dt>预算</dt><dd class="m">200k tok · 30 min</dd></dl></div>`;
+    case 'handoff':
+      return `<div class="bc"><div class="bh"><b>交接</b><span>${esc(A[c.from].n)} → ${esc(A[c.to].n)}</span></div><div class="bb">${esc(c.sum)}</div></div>`;
+    case 'block':
+      return `<div class="bc amber"><div class="bh"><span class="chip amber">等你</span><b>需要决定</b></div><div class="bb">${esc(c.q)}</div>
+        <div class="acts">${done ? resolvedLine : `<button class="btn sm pri" data-act="resolve" data-id="${c.id}" data-label="已回复">回复</button><button class="btn sm" data-act="resolve" data-id="${c.id}" data-label="已交给项目经理分诊">交给项目经理分诊</button>`}</div></div>`;
+    case 'command':
+      return `<div class="bc amber"><div class="bh"><span class="chip amber">命令确认</span><b>受控执行</b><span class="m">worktree t1</span></div><pre>${esc(c.cmd)}</pre>
+        <div class="acts">${done ? resolvedLine : `<button class="btn sm pri" data-act="resolve" data-id="${c.id}" data-label="已允许">允许</button><button class="btn sm" data-act="resolve" data-id="${c.id}" data-label="已拒绝">拒绝</button><span class="muted" style="font-size:0.76rem">本任务内同类命令不再询问</span>`}</div></div>`;
+    case 'proposal':
+      return `<div class="bc cool"><div class="bh"><span class="chip cool">提案</span><b>${c.pr} rev ${c.rev}</b><span class="m"><span class="t-ok">+${c.add}</span> <span class="t-bad">−${c.del}</span> · ${c.files} 个文件</span></div>
+        <div class="acts">${done ? resolvedLine : `<button class="btn sm" data-go="${wsHash(p, 'dev', 'changes')}">打开改动审阅</button><button class="btn sm pri" data-act="resolve" data-id="${c.id}" data-label="已批准">批准</button>`}</div></div>`;
+    case 'conclusion':
+      return `<div class="bc ok"><div class="bh"><span class="chip ok">结论</span><b>${esc(c.title)}</b></div><div class="bb">${esc(c.tx)}</div></div>`;
+  }
+  return '';
+}
+
+function feed(items, p) {
+  return items.map((m) => {
+    if (m.day) return `<span class="day">${m.day}</span>`;
+    if (m.tool) return `<div class="tool"><span class="dot run" style="animation:none"></span><span class="tw">${esc(A[m.tool].n)}</span><span class="tt">${m.tx}</span></div>`;
+    const a = A[m.who];
+    return `<div class="msg">${av(m.who)}<div><div class="who"><b>${esc(a.n)}</b><span class="role">${esc(a.role)}</span><time>${m.t}</time></div>
+      <div class="tx">${m.raw ? esc(m.tx).replace(/@(\S+)/g, '<span class="at">@$1</span>') : m.tx}</div>${m.card ? card(m.card, p) : ''}</div></div>`;
+  }).join('');
+}
+
+function composer(ph, target) {
+  return `<form class="composer" data-act="send" data-target="${target}">
+    <textarea rows="2" placeholder="${esc(ph)}" aria-label="消息"></textarea>
+    <div class="row"><span>@ 提及成员 · / 派发任务 · Enter 发送</span><span class="sp"></span><button class="btn sm pri" type="submit">发送</button></div>
+  </form>`;
+}
+
+function memberPanel(w, title = '成员') {
+  const label = { run: '<span class="t-cool">在跑</span>', wait: '<span class="t-amber">等你</span>', idle: '空闲' };
+  return `<section><h3>${title} · ${w.agents.length + 1}</h3>
+    <div class="mem">${av('me')}<div><b>你</b><span>本地用户 · 人类参与者</span></div></div>
+    ${w.agents.map((x) => `<div class="mem">${av(x.a, x.st)}<div><b>${esc(A[x.a].n)}</b><span>${x.st === 'idle' ? esc(x.doing) : `${label[x.st]} · ${esc(x.doing)}`}</span></div></div>`).join('')}
+  </section>`;
+}
+
+// ── 主区 ────────────────────────────────────────────
+function renderMain() {
+  const r = S.route;
+  const el = $('#main');
+  if (r.tab === 'console') {
+    S.lastConsole = r.view === 'pm' ? `pm/${r.arg}` : r.view;
+    el.innerHTML = ({ overview: consoleOverview, inbox: consoleInbox, pm: consolePm, runs: consoleRuns }[r.view] || consoleStub)(r);
+  } else {
+    const w = wsOf(S.project, r.tab);
+    lastViews[S.project + '/' + w.id] = r.view === 'task' ? `task/${r.arg}` : r.view;
+    if (r.view === 'chat') S.read[w.id] = true;
+    if (r.view === 'task') S.read[r.arg] = true;
+    const fn = { chat: wsChat, task: wsTask, board: wsBoard, changes: wsChanges, tests: wsTests, agents: wsAgents }[r.view] || wsStub;
+    el.innerHTML = fn(w, r);
+  }
+  const f = el.querySelector('.chatcol .feed, .pmchat .feed');
+  if (f) f.scrollTop = f.scrollHeight;
+}
+
+function needList(items, { compact } = {}) {
+  if (!items.length) return `<div class="card empty">没有等你处理的事。Agent 们在自己跑。</div>`;
+  return `<div class="need">${items.map((i) => {
+    const w = wsOf(i.p, i.ws);
+    const t = taskOf(i.p, i.task)?.t;
+    const done = S.resolved[i.id];
+    return `<div class="need-i ${done ? 'done' : ''}">
+      <span class="chip ${i.tone}">${i.kind}</span>
+      <div class="ln"><b>${i.tx}</b><span>${esc(P[i.p].name)} › ${esc(w.name)} › <a class="taskref" data-go="${wsHash(i.p, i.ws, 'task', i.task)}">${esc(t?.title || '')}</a> · ${esc(A[i.from].n)} · <span class="m">${i.t}</span></span></div>
+      <div class="acts">${done ? `<span class="muted" style="font-size:0.78rem">${esc(done)}</span>` : i.acts.map((a, k) => a === '审阅' ? `<button class="btn sm" data-go="${wsHash(i.p, i.ws, 'changes')}">审阅</button>` : a === '回复' ? `<button class="btn sm ${k === 0 ? 'pri' : ''}" data-go="${wsHash(i.p, i.ws, 'task', i.task)}">去回复</button>` : `<button class="btn sm ${k === 0 ? 'pri' : ''}" data-act="resolve" data-id="${i.id}" data-label="已${a}">${a}</button>`).join('')}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function consoleOverview() {
+  const all = Object.values(P).flatMap((p) => p.ws);
+  const run = all.reduce((n, w) => n + wsRunning(w), 0);
+  const tasks = all.flatMap((w) => w.tasks).filter((t) => !t.closed).length;
+  const tok = all.reduce((n, w) => n + w.budget[0], 0);
+  const need = openInbox();
+  const projects = Object.entries(P).map(([pid, p]) => `
+    <section class="card pj">
+      <div class="pj-h"><span class="proj-sq">${esc(p.sq)}</span><h3>${esc(p.name)}</h3><span class="muted" style="font-size:0.78rem">${esc(p.desc)}</span><span class="sp"></span>
+        <button class="btn sm quiet" data-act="proj" data-id="${pid}" data-stay="1">切到此项目</button></div>
+      ${p.ws.map((w) => {
+        const n = wsNeed(pid, w);
+        const open = w.tasks.filter((t) => !t.closed).length;
+        const runA = w.agents.filter((a) => a.st === 'run');
+        return `<button class="wsrow" data-go="${wsHash(pid, w.id, 'chat')}">
+          <span class="nm">${w.parent ? `<span class="muted">${esc(w.parent)} ›</span>` : ''}<b>${esc(w.name)}</b><span class="pl m">${esc(w.plugin)}</span></span>
+          <span class="st"><span>${open} 个任务</span>${n ? `<span class="t-amber">${n} 等你</span>` : ''}</span>
+          <span class="st"><span class="avs">${w.agents.map((x) => `<span class="av" title="${esc(A[x.a].n)}">${esc(A[x.a].i)}</span>`).join('')}</span>${runA.length ? `<span class="t-cool">${runA.length} 在跑</span>` : '<span>空闲</span>'}</span>
+          <span class="bud"><span class="m">${w.budget[0]}k / ${w.budget[1]}k tok</span><span class="bar"><i class="${pct(w.budget) > 75 ? 'hot' : ''}" style="width:${pct(w.budget)}%"></i></span></span>
+        </button>`;
+      }).join('')}
+    </section>`).join('');
+  return `<div class="page-h"><h1>总览</h1><span class="sub">全部项目 · 今天</span><span class="sp"></span><button class="btn" data-act="newproj">新建项目</button></div>
+  <div class="scroll"><div class="pad">
+    <div class="kpis">
+      <div class="card kpi"><div class="v t-amber">${need.length}</div><div class="l">需要你</div></div>
+      <div class="card kpi"><div class="v t-cool">${run}</div><div class="l">Agent 在跑</div></div>
+      <div class="card kpi"><div class="v">${tasks}</div><div class="l">进行中的任务</div></div>
+      <div class="card kpi"><div class="v">${tok}k</div><div class="l">今日 token</div></div>
+    </div>
+    <div class="dash">
+      <div>
+        <section class="sec"><div class="sec-h"><h2>需要你</h2><button class="link" data-go="#/console/inbox">全部 ${need.length}</button></div>${needList(need.slice(0, 4))}</section>
+        <section class="sec"><div class="sec-h"><h2>全部工作台</h2><span class="muted" style="font-size:0.78rem">点一行打开对应标签</span></div><div class="projects">${projects}</div></section>
+      </div>
+      ${pmCard()}
+    </div>
+  </div></div>`;
+}
+
+function pmCard() {
+  const p = S.pmProject;
+  const w = P[p].ws.find((x) => x.root);
+  return `<aside class="card pmchat" aria-label="和项目经理对话">
+    <div class="pmchat-h"><div style="display:flex;align-items:center;justify-content:space-between"><b style="font-weight:500">和项目经理对话</b><button class="taskref" style="font-size:0.78rem" data-go="#/console/pm/${p}">展开</button></div>
+      <div class="seg">${Object.entries(P).map(([id, x]) => `<button aria-pressed="${id === p}" data-act="pmproj" data-id="${id}">${esc(x.name)}</button>`).join('')}</div></div>
+    <div class="feed">${feed(w.chat.slice(-3), p)}</div>
+    ${composer('让项目经理派活、问进度…', `pm:${p}`)}
+  </aside>`;
+}
+
+function consoleInbox() {
+  const all = INBOX;
+  return `<div class="page-h"><h1>需要我</h1><span class="sub">跨项目 · ${openInbox().length} 条待处理</span></div>
+  <div class="scroll"><div class="pad">
+    ${Object.entries(P).map(([pid, p]) => {
+      const items = all.filter((i) => i.p === pid);
+      return items.length ? `<section class="sec"><div class="sec-h"><h2>${esc(p.name)}</h2></div>${needList(items)}</section>` : '';
+    }).join('')}
+    <p class="note"><b>设计说明</b>：这里是原「收件箱」，上提到控制台、跨项目汇总。处理后保留一行灰显，便于撤销/追溯；任务群里的同一张卡片同步变成已处理。</p>
+  </div></div>`;
+}
+
+function consolePm(r) {
+  const p = r.arg && P[r.arg] ? r.arg : 'aw';
+  const w = P[p].ws.find((x) => x.root);
+  return `<div class="page-h"><span class="av lg">PM</span><div><h1>项目经理 · ${esc(P[p].name)}</h1><span class="sub">根工作台 steward · 派发、分诊阻塞、汇报进度</span></div><span class="sp"></span>
+    <button class="btn" data-go="${wsHash(p, w.id, 'chat')}">打开项目管理台</button></div>
+  <div class="chatwrap"><div class="chatcol"><div class="feed">${feed(w.chat, p)}</div>${composer('对项目经理说点什么，比如「把筛选组件派给全栈开发」', `pm:${p}`)}</div></div>`;
+}
+
+function consoleRuns() {
+  const rows = [
+    ['run-482', '全栈开发', '前端开发', '状态筛选组件', 'run', '61k', '4m'],
+    ['run-481', '全栈开发', '后端开发', '合并队列重试', 'run', '44k', '9m'],
+    ['run-479', '写作台', '设定官', '第二章 · 回港', 'run', '19k', '2m'],
+    ['run-476', '全栈开发', '测试工程师', 'TestRun 字段契约', 'wait', '17k', '—'],
+    ['run-470', '项目管理', '项目经理', 'M0.3 里程碑拆解', 'ok', '21k', '6m'],
+  ];
+  const st = { run: '<span class="chip cool">运行中</span>', wait: '<span class="chip amber">等你</span>', ok: '<span class="chip ok">完成</span>' };
+  return `<div class="page-h"><h1>运行账本</h1><span class="sub">全部项目的 run、token 与耗时</span></div>
+  <div class="scroll"><div class="pad"><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>Run</th><th>工作台</th><th>Agent</th><th>任务</th><th>状态</th><th>token</th><th>耗时</th></tr></thead>
+  <tbody>${rows.map((x) => `<tr><td class="m">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td>${st[x[4]]}</td><td class="m">${x[5]}</td><td class="m">${x[6]}</td></tr>`).join('')}</tbody></table></div></div></div>`;
+}
+
+function consoleStub(r) {
+  const t = { projects: '全部项目', plugins: '插件市场', settings: '模型与设置' }[r.view] || r.view;
+  return `<div class="page-h"><h1>${esc(t)}</h1></div><div class="scroll"><div class="pad"><div class="card empty">原型里这一页沿用现有实现（/${esc(r.view)}），只是入口挪到了控制台侧栏。</div></div></div>`;
+}
+
+function wsChat(w) {
+  const p = S.project;
+  const showM = S.members;
+  return `<div class="page-h"><span style="color:var(--muted);font-size:1.1rem">#</span><div><h1>${esc(w.name)} 大群</h1><span class="sub">${w.agents.length} 名 Agent + 你 · 工作台级讨论，任务细节进各自任务群</span></div><span class="sp"></span>
+    <span class="avs">${w.agents.map((x) => `<span class="av" title="${esc(A[x.a].n)}">${esc(A[x.a].i)}</span>`).join('')}</span>
+    <button class="btn quiet" data-act="members" aria-pressed="${showM}">成员</button></div>
+  <div class="chatwrap"><div class="chatcol"><div class="feed">${feed(w.chat, p)}</div>${composer(`在 #${w.name} 里发言，@ 某个 Agent 让它接手`, `ws:${w.id}`)}</div>
+    ${showM ? `<aside class="members">${memberPanel(w)}</aside>` : ''}</div>`;
+}
+
+function wsTask(w, r) {
+  const p = S.project;
+  const t = w.tasks.find((x) => x.id === r.arg);
+  if (!t) return wsStub(w, { view: 'task' });
+  const si = w.stages.indexOf(t.stage);
+  const items = TASK_FEED[t.id] || [
+    { day: '今天' },
+    { who: t.owners[0], t: '09:00', tx: `接手「${t.title}」，当前在${t.stage}阶段。` },
+    ...(w.chat.filter((m) => m.card && (m.card.task === t.id))),
+  ];
+  const stc = { run: '<span class="chip cool">进行中</span>', wait: '<span class="chip amber">等你</span>', idle: '<span class="chip">未开始</span>', ok: '<span class="chip ok">已完成</span>' }[t.st];
+  return `<div class="taskhead">
+      <div class="r1"><span style="color:var(--muted)">#</span><h1>${esc(t.title)}</h1>${stc}<span class="stages">${w.stages.map((s, i) => `<span class="${i < si ? 'past' : i === si ? 'cur' : ''}">${s}</span>`).join('')}</span><span style="flex:1"></span>
+        <button class="btn sm" data-act="advance">推进阶段</button><button class="btn sm quiet" data-go="${wsHash(p, w.id, 'board')}">在看板中查看</button></div>
+      <div class="r2"><span class="avs">${t.owners.map((o) => `<span class="av" title="${esc(A[o].n)}">${esc(A[o].i)}</span>`).join('')}</span>
+        <span class="m">${t.id}</span><span>预算</span><span class="bar"><i class="${pct(t.tok) > 75 ? 'hot' : ''}" style="width:${pct(t.tok)}%"></i></span><span class="m">${t.tok[0]}k / ${t.tok[1]}k tok</span><span>moderated · 发言由调度排序</span></div>
+    </div>
+  <div class="chatwrap"><div class="chatcol"><div class="feed">${feed(items, p)}</div>${composer(`在「${t.title}」任务群里回复，或 @ 成员`, `task:${t.id}`)}</div>
+    <aside class="members">
+      <section><h3>任务参与者</h3>${t.owners.map((o) => { const ag = w.agents.find((x) => x.a === o); return `<div class="mem">${av(o, ag?.st)}<div><b>${esc(A[o].n)}</b><span>${esc(ag?.doing || '')}</span></div></div>`; }).join('')}</section>
+      <section class="facts"><h3 style="padding-bottom:0">任务</h3>
+        <div class="f"><span>子任务</span><ul class="sublist"><li><span class="dot ok"></span>筛选参数放进 URL</li><li><span class="dot run"></span>分段控件 + 空状态</li><li><span class="dot idle"></span>e2e 覆盖</li></ul></div>
+        <div class="f"><span>相关提案</span><a class="taskref" data-go="${wsHash(p, w.id, 'changes')}">pr-104 rev 2</a></div>
+        <div class="f"><span>worktree</span><code style="font-size:0.78rem">.aw/worktrees/${t.id}</code></div>
+      </section>
+    </aside></div>`;
+}
+
+function wsBoard(w) {
+  const p = S.project;
+  const cols = w.stages.map((s) => {
+    const ts = w.tasks.filter((t) => t.stage === s);
+    return `<div class="col"><div class="col-h"><span>${s}</span><span class="m">${ts.length}</span></div>
+      ${ts.map((t) => `<button class="tcard" data-go="${wsHash(p, w.id, 'task', t.id)}"><b>${esc(t.title)}</b>
+        <span class="ft"><span class="avs">${t.owners.map((o) => `<span class="av">${esc(A[o].i)}</span>`).join('')}</span>
+        ${t.st === 'wait' ? '<span class="chip amber">等你</span>' : t.st === 'run' ? '<span class="chip cool">进行中</span>' : t.st === 'ok' ? '<span class="chip ok">完成</span>' : `<span class="m">${t.id}</span>`}</span>
+        <span class="bar"><i class="${pct(t.tok) > 75 ? 'hot' : ''}" style="width:${pct(t.tok)}%"></i></span></button>`).join('')}
+    </div>`;
+  }).join('');
+  return `<div class="page-h"><h1>任务看板</h1><span class="sub">按阶段分列 · 点卡片进入任务群</span><span class="sp"></span>
+    <div class="seg"><button aria-pressed="true">进行中</button><button>需要我</button><button>已完成</button></div><button class="btn pri" data-act="newtask">新建任务</button></div>
+  <div class="board">${cols}</div>`;
+}
+
+function wsChanges(w) {
+  const p = S.project;
+  const done = S.resolved.n3;
+  return `<div class="page-h"><h1>改动审阅</h1><span class="sub">提案制写入：Agent 的改动先成为提案，批准后进合并队列</span></div>
+  <div class="diff">
+    <div class="diff-list">
+      <button class="nav" aria-current="page"><span class="gl">±</span><span class="lb">pr-104 状态筛选组件 rev 2</span>${done ? '<span class="chip ok">已批准</span>' : '<span class="cnt cool">待审</span>'}</button>
+      <button class="nav"><span class="gl">±</span><span class="lb">pr-103 合并队列重试 rev 3</span><span class="chip">评审中</span></button>
+      <button class="nav"><span class="gl">±</span><span class="lb">pr-101 SSE 连接泄漏</span><span class="chip ok">已合并</span></button>
+    </div>
+    <div class="diff-body">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap"><b style="font-weight:500">pr-104 rev 2</b><span class="m"><span class="t-ok">+86</span> <span class="t-bad">−12</span></span><span class="muted" style="font-size:0.8rem">前端开发 · <a class="taskref" data-go="${wsHash(p, w.id, 'task', 't1')}">状态筛选组件</a></span><span style="flex:1"></span>
+        ${done ? `<span class="muted">${esc(done)}</span>` : `<button class="btn sm">要求修改</button><button class="btn sm pri" data-act="resolve" data-id="n3" data-label="已批准">批准</button>`}</div>
+      <div class="hunk"><div class="h">apps/web/src/components/board/TaskBoard.tsx</div><div>  const cols = groupBy === 'stage' ? stages : STATUS_COLS;</div><div class="del">- const [status, setStatus] = useState('open');</div><div class="add">+ const status = filter.status ?? 'open';</div><div class="add">+ const visible = tasks.filter((t) =&gt; match(t, status));</div><div>  return (</div></div>
+    </div>
+  </div>`;
+}
+
+function wsTests(w) {
+  const rows = [['tr-88', 'pnpm --filter @aw/web test', 'ok', '142 / 142', '18.4s', '状态筛选组件'], ['tr-87', 'pnpm test:e2e board.spec', 'bad', '11 / 12', '41.0s', '状态筛选组件'], ['tr-85', 'pnpm --filter @aw/server test', 'ok', '96 / 96', '9.2s', '合并队列重试']];
+  return `<div class="page-h"><h1>测试结果</h1><span class="sub">受控执行的测试运行</span></div>
+  <div class="scroll"><div class="pad"><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>运行</th><th>命令</th><th>结果</th><th>通过</th><th>耗时</th><th>任务</th></tr></thead><tbody>
+  ${rows.map((x) => `<tr><td class="m">${x[0]}</td><td><code>${x[1]}</code></td><td>${x[2] === 'ok' ? '<span class="chip ok">通过</span>' : '<span class="chip bad">失败</span>'}</td><td class="m">${x[3]}</td><td class="m">${x[4]}</td><td>${x[5]}</td></tr>`).join('')}
+  </tbody></table></div></div></div>`;
+}
+
+function wsAgents(w) {
+  return `<div class="page-h"><h1>成员</h1><span class="sub">${esc(w.name)} 的 Agent 编制 · 模型、权限、预算</span><span class="sp"></span><button class="btn">添加 Agent</button></div>
+  <div class="scroll"><div class="pad"><div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr><th>成员</th><th>角色</th><th>状态</th><th>当前</th><th>今日 token</th></tr></thead><tbody>
+  ${w.agents.map((x) => `<tr><td><span style="display:flex;align-items:center;gap:8px">${av(x.a)}${esc(A[x.a].n)}</span></td><td class="m muted">${esc(A[x.a].role)}</td><td>${x.st === 'run' ? '<span class="chip cool">在跑</span>' : x.st === 'wait' ? '<span class="chip amber">等你</span>' : '<span class="chip">空闲</span>'}</td><td>${esc(x.doing)}</td><td class="m">${x.tok}</td></tr>`).join('')}
+  </tbody></table></div></div></div>`;
+}
+
+function wsStub(w, r) {
+  const name = w.panels.find((x) => x[0] === r.view)?.[1] || ({ settings: '工作台设置' }[r.view]) || r.view;
+  return `<div class="page-h"><h1>${esc(name)}</h1><span class="sub">${esc(w.name)}</span></div><div class="scroll"><div class="pad"><div class="card empty">这个板块沿用现有渲染器（panels/），只换到左侧栏入口，原型不重画。</div></div></div>`;
+}
+
+// ── 交互 ────────────────────────────────────────────
+function render() {
+  S.route = parse();
+  renderTop(); renderSide(); renderMain();
+  $('#app').classList.remove('side-open');
+  save();
+}
+
+function resolve(id, label) {
+  S.resolved[id] = label;
+  toast(`${label} · 相关 Agent 会继续`);
+  renderTop(); renderSide(); renderMain();
+}
+
+function sendMsg(form) {
+  const ta = form.querySelector('textarea');
+  const tx = ta.value.trim();
+  if (!tx) return;
+  const [kind, id] = form.dataset.target.split(':');
+  const now = new Date();
+  const t = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const m = { who: 'me', t, tx, raw: true };
+  if (kind === 'pm') P[id].ws.find((w) => w.root).chat.push(m);
+  else if (kind === 'ws') wsOf(S.project, id).chat.push(m);
+  else (TASK_FEED[id] ||= [{ day: '今天' }]).push(m);
+  renderMain();
+  const mention = tx.match(/@(\S+)/);
+  if (mention) toast(`已提及 ${esc(mention[1])}，它会排进下一轮发言`);
+}
+
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('[data-go]');
+  if (g) { e.preventDefault(); S.menu = false; go(g.dataset.go); return; }
+  const a = e.target.closest('[data-act]');
+  if (!a) { if (S.menu && !e.target.closest('.menu')) { S.menu = false; renderTop(); } return; }
+  const act = a.dataset.act;
+  if (act === 'menu') { S.menu = !S.menu; renderTop(); }
+  else if (act === 'proj') {
+    const id = a.dataset.id; S.menu = false; S.project = id;
+    if (S.route.tab === 'console' || a.dataset.stay) { render(); toast(`顶栏标签已换成「${P[id].name}」的工作台`); }
+    else go(wsHash(id, P[id].ws[1]?.id || P[id].ws[0].id, 'chat'));
+  }
+  else if (act === 'resolve') resolve(a.dataset.id, a.dataset.label);
+  else if (act === 'pmproj') { S.pmProject = a.dataset.id; renderMain(); }
+  else if (act === 'members') { S.members = !S.members; save(); renderMain(); }
+  else if (act === 'side') $('#app').classList.toggle('side-open');
+  else if (act === 'mount') toast('挂载工作台：选插件 → 选父工作台 → 新标签出现在顶栏');
+  else if (act === 'newproj') toast('新建项目：原型未展开，沿用现有对话框');
+  else if (act === 'newtask') toast('新建任务：创建后会在左侧「群聊」下出现一个任务群');
+  else if (act === 'advance') toast('推进阶段：需要满足阶段门槛（验收 / 审批）');
+  else if (act === 'palette') toast('Ctrl K：跨项目搜索工作台、任务、成员');
+});
+document.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-act="send"]');
+  if (f) { e.preventDefault(); sendMsg(f); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('.composer textarea') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e.target.closest('form')); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); toast('Ctrl K：跨项目搜索工作台、任务、成员'); }
+  if (e.key === 'Escape' && S.menu) { S.menu = false; renderTop(); }
+});
+window.addEventListener('popstate', () => { S.hash = location.hash; render(); });
+render();
+</script>
+</body>
+</html>

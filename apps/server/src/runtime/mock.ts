@@ -19,6 +19,13 @@ function selfTemplateId(system: string | undefined): string {
   return line ? line.slice('SELF_TEMPLATE:'.length).trim() : '';
 }
 
+function runTrigger(system: string | undefined): string {
+  const line = (system ?? '').split('\n').find((l) => l.startsWith('RUN_TRIGGER:'));
+  return line ? line.slice('RUN_TRIGGER:'.length).trim() : '';
+}
+
+const CONVERSATION_TRIGGERS = new Set(['mentioned', 'moderated', 'conclude', 'block_triage', 'human_reply']);
+
 // user 消息的原始文本：按行匹配必须用它，JSON 序列化后换行被转义，[^\n]+ 会一路吃到结尾
 function userText(prompt: Options['prompt']): string {
   return prompt.flatMap((m) => (m.role === 'user' ? m.content : [])).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
@@ -71,6 +78,28 @@ export function createScriptedMock() {
         warnings: [],
       });
 
+      // 会话回合：确定性地覆盖点名、主持、收束、分诊
+      const trigger = runTrigger(sys);
+      if (CONVERSATION_TRIGGERS.has(trigger)) {
+        const user = userText(options.prompt);
+        const lastLine = user.split('\n').filter(Boolean).at(-1) ?? '';
+        if (toolRounds > 0) return done(trigger === 'moderated' && tpl === 'pm' ? '已起草任务，确认后派发（mock）。' : '');
+        if (trigger === 'conclude') return calls([['record_decision', { summary: '结论：按当前方案推进（mock）。' }]]);
+        if (trigger === 'block_triage') {
+          if (user.includes('需人决策')) return calls([['escalate_block', { reason: '需要人来决定（mock）' }]]);
+          return calls([['resolve_block', { note: '按默认方案继续（mock）' }]]);
+        }
+        if (trigger === 'moderated') {
+          if (tpl === 'pm') return calls([['create_task', { title: lastLine.split('] ').at(-1)?.slice(0, 30) || '新任务（mock）', intent: '由对话起草（mock）' }]]);
+          const others = agents.filter((a) => a.templateId !== tpl);
+          const spoke = /agent:[^\n]*\[chat\]/.test(user);
+          if (!spoke && others[0]) return done(`@${others[0].name} 你怎么看（mock）`);
+          return calls([['record_decision', { summary: '结论：采纳成员意见（mock）。' }]]);
+        }
+        if (trigger === 'mentioned' && lastLine.includes('转问架构师')) return done('@架构师 这里需要你确认（mock）');
+        return done('收到（mock）。');
+      }
+
       if (tpl === 'architect') {
         const fes = agents.filter((a) => a.templateId === 'frontend-dev');
         switch (toolRounds) {
@@ -98,14 +127,9 @@ export function createScriptedMock() {
       }
 
       if (tpl === 'frontend-dev' || tpl === 'backend-dev') {
-        // 文件名按 agent 名区分，避免两个实现者建同名文件造成合并冲突
-        const selfName = sys.match(/你是 ([^（\s]+)/)?.[1] ?? 'x';
-        // 用整条 user 上下文哈希保证任务间唯一（同名任务也不能撞文件）
-        const allUser = options.prompt.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content)).join('\n');
-        let h = 0;
-        for (const ch of selfName + allUser) h = (h * 31 + ch.charCodeAt(0)) % 997;
-        const file = `${mod || 'src/'}/feature-${h % 100}.txt`;
-        void seed;
+        // 文件名取任务分支：任务间唯一、同一任务的修订轮次不变，否则会撞名造成合并冲突
+        const branch = userText(options.prompt).match(/分支：aw\/([^\s]+)/)?.[1] ?? 'none';
+        const file = `${mod || 'src/'}/feature-${branch}.txt`;
         switch (toolRounds) {
           case 0:
             return calls([['read_file', { path: 'package.json' }]]);

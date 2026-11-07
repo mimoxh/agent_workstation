@@ -7,7 +7,10 @@ export interface ContextInput {
   stage: string | null;
   templateId: string | null;
   agents: { id: string; name: string; templateId: string | null }[];
-  task: { title: string; intent: string | null; inputJson: string | null; acceptanceJson: string | null; typeId: string | null };
+  task: { title: string; intent: string | null; inputJson: string | null; acceptanceJson: string | null; typeId: string | null; blockedReason?: string | null } | null;
+  threadTitle?: string | undefined;
+  trigger?: string | undefined;
+  dispatchTargets?: string | undefined;
   parentTask: { title: string; status: string; intent: string | null } | null;
   siblingTasks: { title: string; status: string }[];
   threadMessages: { senderId: string | null; senderType: string | null; content: string | null; kind: string | null }[];
@@ -22,6 +25,15 @@ export interface ContextInput {
 }
 
 const tokensToChars = (t: number) => t * 3;
+
+// 不同的唤醒原因要做不同的事：被 @ 是回话，不是重新开工
+const TRIGGER_RULES: Record<string, string> = {
+  mentioned: '你在会话里被 @ 到：针对最新消息简短回应，直接说结论；需要别人时 @ 对方名字；不要复述别人说过的话，不要开始实现工作',
+  moderated: '你是这场讨论的主持人：能答就答，需要专业意见时 @ 对应成员；已经有结论时调用 record_decision 收束',
+  conclude: '请调用 record_decision，把到目前为止的讨论压缩成结论，然后结束',
+  block_triage: '任务上报了阻塞：能在本台决定就调用 resolve_block 并说明怎么做；超出本台决策权就调用 escalate_block 交给人',
+  human_reply: '人刚发了消息：先读最新一条，按它调整后继续；只需回话时简短回复即可',
+};
 
 function clip(s: string, maxTokens: number): string {
   const max = tokensToChars(maxTokens);
@@ -41,6 +53,9 @@ export function buildContext(input: ContextInput): { system: string; messages: {
     `- 本台 Agent 名单（create_task 指派用）：${input.agents.map((a) => `${a.name}(${a.id})`).join('、')}`,
     `AGENTS_JSON:${JSON.stringify(input.agents)}`,
     `SELF_TEMPLATE:${input.templateId ?? ''}`,
+    `RUN_TRIGGER:${input.trigger ?? ''}`,
+    ...(input.trigger && TRIGGER_RULES[input.trigger] ? [`- 本次：${TRIGGER_RULES[input.trigger]}`] : []),
+    ...(input.dispatchTargets ? [`- 可派发的工作台：\n${input.dispatchTargets}`] : []),
   ].join('\n');
 
   const system = clip(
@@ -56,11 +71,12 @@ export function buildContext(input: ContextInput): { system: string; messages: {
 
   const taskText = clip(
     [
-      `任务：${input.task.title}`,
-      input.task.intent ? `intent：${input.task.intent}` : '',
-      input.task.typeId ? `type：${input.task.typeId}` : '',
-      input.task.inputJson ? `input：${input.task.inputJson}` : '',
-      input.task.acceptanceJson ? `验收：${input.task.acceptanceJson}` : '',
+      input.task ? `任务：${input.task.title}` : `会话：${input.threadTitle ?? ''}`,
+      input.task?.intent ? `intent：${input.task.intent}` : '',
+      input.task?.typeId ? `type：${input.task.typeId}` : '',
+      input.task?.inputJson ? `input：${input.task.inputJson}` : '',
+      input.task?.acceptanceJson ? `验收：${input.task.acceptanceJson}` : '',
+      input.task?.blockedReason ? `阻塞：${input.task.blockedReason}` : '',
       input.parentTask ? `父任务：${input.parentTask.title}（${input.parentTask.status}）${input.parentTask.intent ?? ''}` : '',
       input.siblingTasks.length > 0
         ? `兄弟子任务：${input.siblingTasks.map((s) => `${s.title}(${s.status})`).join('、')}`
@@ -76,9 +92,10 @@ export function buildContext(input: ContextInput): { system: string; messages: {
     taskBudget,
   );
 
-  // reviewer 隔离：上下文不含线程消息
-  const threadLines = input.isReviewer ? [] : input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.content ?? ''}`);
-  const threadText = input.isReviewer ? '' : clip(threadLines.join('\n'), threadBudget);
+  // reviewer 隔离：审查时不看实现过程，只有被人 @ 才读会话
+  const hideThread = input.isReviewer && input.trigger !== 'mentioned';
+  const threadLines = hideThread ? [] : input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.content ?? ''}`);
+  const threadText = hideThread ? '' : clip(threadLines.join('\n'), threadBudget);
 
   return {
     system,

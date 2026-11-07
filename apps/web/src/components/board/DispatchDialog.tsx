@@ -1,87 +1,109 @@
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { enumOf as enumOfShared } from './schemaForm';
+import { Dialog, DialogForm } from '@/components/ui/dialog';
+import { Field, Input, Select, Textarea } from '@/components/ui/input';
+import { api, unwrap } from '@/lib/api';
+import { parseJson } from '@/lib/format';
+import { useModels, type BoardTask, type DispatchTarget } from '@/lib/queries';
+import { FIELD_LABEL, fieldsOf, fromChecks, toChecks } from './schemaForm';
 
-export interface DispatchTarget {
-  id: string;
-  name: string;
-  taskTypes: { id: string; name: string; inputSchema: Record<string, unknown> }[];
-}
-
-// 派发对话框：目标工作台 + 任务类型 + inputSchema 的 enum 字段
-export function DispatchDialog({
-  task,
-  targets,
-  submitting,
-  error,
-  onSubmit,
-  onClose,
-}: {
-  task: { id: string; title: string; module?: string | undefined };
-  targets: DispatchTarget[];
-  submitting: boolean;
-  error: string | null;
-  onSubmit: (body: { targetWorkstationId: string; typeId: string; input: Record<string, unknown> }) => void;
-  onClose: () => void;
-}) {
+// 派发到子孙工作台：类型与字段取目标插件的 tasks 声明
+export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; targets: DispatchTarget[]; onClose: () => void }) {
+  const input = parseJson<Record<string, unknown>>(task.inputJson, {});
   const [targetId, setTargetId] = useState(targets[0]?.id ?? '');
   const target = targets.find((t) => t.id === targetId);
   const [typeId, setTypeId] = useState(target?.taskTypes[0]?.id ?? '');
-  const [kind, setKind] = useState('feature');
-  const [priority, setPriority] = useState('p1');
+  const [module, setModule] = useState(typeof input.module === 'string' ? input.module : '');
+  const [enums, setEnums] = useState<Record<string, string>>({});
+  const [acceptance, setAcceptance] = useState(fromChecks(task.acceptanceJson));
+  const [reason, setReason] = useState('');
+  const [budget, setBudget] = useState('');
+  const cloud = useModels().data?.models.filter((m) => !m.local).map((m) => m.id) ?? [];
 
-  const schema = target?.taskTypes.find((t) => t.id === typeId)?.inputSchema;
-  const enumOf = (prop: string): string[] => enumOfShared(schema, prop);
+  const type = target?.taskTypes.find((t) => t.id === typeId);
+  const fields = fieldsOf(type?.inputSchema).filter((f) => f.name !== 'title');
+  const enumFields = fields.filter((f) => f.enum);
+  const moduleRequired = fields.some((f) => f.name === 'module' && f.required);
+
+  const dispatch = useMutation({
+    meta: { silent: true },
+    mutationFn: async () => {
+      const checks = toChecks(acceptance);
+      return unwrap(
+        await api.tasks[':id'].dispatch.$post({
+          param: { id: task.id },
+          json: {
+            targetWorkstationId: targetId,
+            typeId,
+            input: {
+              ...input,
+              title: task.title,
+              ...Object.fromEntries(enumFields.map((f) => [f.name, enums[f.name] ?? f.enum![0]!])),
+              ...(module.trim() ? { module: module.trim() } : {}),
+            },
+            ...(checks.length > 0 ? { acceptance: checks } : {}),
+            ...(reason.trim() ? { reason: reason.trim() } : {}),
+            ...(Number(budget) > 0 ? { budget: { tokens: Number(budget) } } : {}),
+          },
+        }),
+      );
+    },
+    onSuccess: onClose,
+  });
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/30" data-testid="dispatch-dialog">
-      <div className="w-96 rounded bg-white p-4 shadow-lg">
-        <div className="pb-2 text-sm font-semibold">派发「{task.title}」</div>
-        <label className="block pb-2 text-xs">
-          目标工作台
-          <select className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-sm" value={targetId} data-testid="dispatch-target"
-            onChange={(e) => { setTargetId(e.target.value); const t = targets.find((x) => x.id === e.target.value); setTypeId(t?.taskTypes[0]?.id ?? ''); }}>
-            {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </label>
-        <label className="block pb-2 text-xs">
-          任务类型
-          <select className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-sm" value={typeId} data-testid="dispatch-type" onChange={(e) => setTypeId(e.target.value)}>
-            {(target?.taskTypes ?? []).map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
-          </select>
-        </label>
-        {enumOf('kind').length > 0 && (
-          <label className="block pb-2 text-xs">kind
-            <select className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-sm" value={kind} onChange={(e) => setKind(e.target.value)}>
-              {enumOf('kind').map((v) => <option key={v}>{v}</option>)}
-            </select>
-          </label>
-        )}
-        {enumOf('priority').length > 0 && (
-          <label className="block pb-2 text-xs">priority
-            <select className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-sm" value={priority} onChange={(e) => setPriority(e.target.value)}>
-              {enumOf('priority').map((v) => <option key={v}>{v}</option>)}
-            </select>
-          </label>
-        )}
-        <div className="pb-2 text-xs text-neutral-500">module：{task.module ?? '（未填）'}</div>
-        {error && <div className="pb-2 text-xs text-red-600">{error}</div>}
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button
-            disabled={submitting || !targetId || !typeId}
-            onClick={() =>
-              onSubmit({
-                targetWorkstationId: targetId,
-                typeId,
-                input: { title: task.title, kind, priority, module: task.module ?? '' },
-              })
-            }
-          >
-            {submitting ? '派发中…' : '派发'}
-          </Button>
+    <Dialog title={`派发「${task.title}」`} onClose={onClose} testId="dispatch-dialog">
+      <DialogForm
+        error={dispatch.error?.message}
+        submitting={dispatch.isPending}
+        submitLabel="派发"
+        canSubmit={!!targetId && !!typeId && (!moduleRequired || !!module.trim())}
+        onSubmit={() => dispatch.mutate()}
+        onCancel={onClose}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="目标工作台">
+            <Select
+              value={targetId}
+              data-testid="dispatch-target"
+              onChange={(e) => {
+                setTargetId(e.target.value);
+                setTypeId(targets.find((t) => t.id === e.target.value)?.taskTypes[0]?.id ?? '');
+                setEnums({});
+              }}
+            >
+              {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="任务类型">
+            <Select value={typeId} data-testid="dispatch-type" onChange={(e) => { setTypeId(e.target.value); setEnums({}); }}>
+              {(target?.taskTypes ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Select>
+          </Field>
+          {enumFields.map((f) => (
+            <Field key={f.name} label={FIELD_LABEL[f.name] ?? f.name} required={f.required}>
+              <Select value={enums[f.name] ?? f.enum![0]!} onChange={(e) => setEnums({ ...enums, [f.name]: e.target.value })}>
+                {f.enum!.map((v) => <option key={v}>{v}</option>)}
+              </Select>
+            </Field>
+          ))}
         </div>
-      </div>
-    </div>
+        <Field label={FIELD_LABEL.module!} required={moduleRequired}>
+          <Input className="measured" value={module} onChange={(e) => setModule(e.target.value)} data-testid="dispatch-module" />
+        </Field>
+        <Field label="验收命令" hint="每行一条；目标插件的默认验收会自动合并">
+          <Textarea className="measured" rows={2} value={acceptance} onChange={(e) => setAcceptance(e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-[minmax(0,1fr)_10rem] gap-3">
+          <Field label="派发说明">
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+          <Field label="任务预算（tokens）">
+            <Input className="measured" type="number" min={1} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="不限" data-testid="dispatch-budget" />
+          </Field>
+        </div>
+        {cloud.length > 0 && <p className="text-xs text-muted" data-testid="cloud-notice">任务内容和相关代码片段会发送给云端模型：{cloud.join('、')}</p>}
+      </DialogForm>
+    </Dialog>
   );
 }

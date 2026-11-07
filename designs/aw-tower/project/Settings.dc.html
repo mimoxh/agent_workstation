@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./aw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app">
+
+<header class="top">
+  <div class="top-l">
+    <a class="brand" href="Projects.dc.html" aria-label="全部项目">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6" stroke="currentColor" stroke-opacity="0.35"></rect><path d="M6 8.5h9M6 13h13M6 17.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="19" cy="8.5" r="2" style="fill: var(--accent)"></circle></svg>
+    </a>
+    <nav class="crumbs" aria-label="位置"><a href="Projects.dc.html">全部项目</a><span class="sep" aria-hidden="true">/</span><span class="here" aria-current="page">设置</span></nav>
+  </div>
+  <div class="top-r">
+    <span class="live hide-s"><i class="dot dot-ok"></i>实时</span>
+    <span class="me">本地用户</span>
+  </div>
+</header>
+
+<div class="shell shell-2">
+  <aside class="left" aria-label="设置分类">
+    <nav class="nav" aria-label="设置">
+      <a href="Settings.dc.html" aria-current="page">模型与密钥</a>
+      <a href="Settings.dc.html">智能体</a>
+      <a href="Settings.dc.html">插件</a>
+      <a href="Settings.dc.html">数据</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="pad">
+      <form class="pad-in" style="max-width: 760px; display: flex; flex-direction: column; gap: 28px">
+        <header class="stack" style="gap: 8px">
+          <div class="row-wrap" style="gap: 12px"><h1 class="headline">模型与密钥</h1><span class="tag tag-ok">3 个可用</span></div>
+          <p class="muted">环境变量（.env.local）里配置的 provider 优先于这里。调用云端模型时，任务内容和相关代码片段会发送给对应服务商。</p>
+        </header>
+
+        <section aria-label="Provider" class="stack">
+          <div class="card">
+            <div class="row" style="justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--rule)"><span class="row"><b style="font-weight: 500">anthropic</b><span class="tag tag-cool">云端</span></span><button class="btn btn-sm btn-quiet" type="button">移除</button></div>
+            <div class="provider">
+              <div><label class="flabel" for="p1-model">模型</label><input class="input measured" id="p1-model" value="claude-sonnet-5-5"></div>
+              <div><label class="flabel" for="p1-key">API Key</label><input class="input" id="p1-key" type="password" autocomplete="off" placeholder="已保存，留空不变"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="row" style="justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--rule)"><span class="row"><b style="font-weight: 500">ollama</b><span class="tag">本地</span></span><button class="btn btn-sm btn-quiet" type="button">移除</button></div>
+            <div class="provider">
+              <div><label class="flabel" for="p2-model">模型</label><input class="input measured" id="p2-model" value="qwen3:32b"></div>
+              <div><label class="flabel" for="p2-url">Base URL</label><input class="input measured" id="p2-url" value="http://localhost:11434/v1"></div>
+            </div>
+          </div>
+          <button class="btn" type="button" style="align-self: flex-start">添加 Provider</button>
+        </section>
+
+        <section aria-label="默认模型">
+          <label class="flabel" for="default-model">默认模型</label>
+          <input class="input measured" id="default-model" value="anthropic:claude-sonnet-5-5">
+          <p class="xs muted" style="margin-top: 4px">provider:model；留空取第一个 provider</p>
+        </section>
+
+        <section aria-label="降级链">
+          <div class="sec-h"><h2>降级链</h2><button class="btn btn-sm btn-quiet" type="button">编辑</button></div>
+          <ol class="chain">
+            <li class="node"><span class="measured muted">1</span>anthropic:claude-sonnet-5-5</li>
+            <li class="arrow" aria-hidden="true">→</li>
+            <li class="node"><span class="measured muted">2</span>anthropic:claude-haiku-5-5</li>
+            <li class="arrow" aria-hidden="true">→</li>
+            <li class="node"><span class="measured muted">3</span>ollama:qwen3:32b</li>
+          </ol>
+          <p class="xs muted" style="margin-top: 6px">主模型限流、超时或不可用时按序切换，运行记录会标注。</p>
+        </section>
+
+        <section aria-label="单价">
+          <label class="flabel" for="prices">单价（美元 / 百万 token，输入价 输出价）</label>
+          <textarea class="input measured" id="prices" rows="3" placeholder="anthropic:claude-sonnet-5-5 [输入价] [输出价]"></textarea>
+          <p class="xs muted" style="margin-top: 4px">没填单价的模型只统计 token。</p>
+        </section>
+
+        <div class="row-wrap"><button class="btn btn-primary" type="button">保存模型配置</button><span class="xs muted">全部数据在本地 SQLite，合并提案前自动留快照</span></div>
+      </form>
+    </div>
+  </main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

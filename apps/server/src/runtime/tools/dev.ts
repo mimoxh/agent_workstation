@@ -3,12 +3,14 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { submitChange, afterReview, runAcceptance } from '../dev_workflow.js';
 import { git, gitOk, devSettings } from '../git.js';
 import { runCommand, isDangerous, splitCommand, portEnv, type ExecResult } from '../exec.js';
-import { inboxItem, proposal, reviewComment } from '../../db/schema.js';
+import { inboxItem, project, proposal, reviewComment, workstation } from '../../db/schema.js';
 import type { ToolCtx, ToolDef } from './index.js';
 import { events } from '../../events.js';
-import { logEvent } from '../../usecases/index.js';
+import { captureScreenshot } from '../visual.js';
+import { logEvent } from '../../usecases/core.js';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -38,6 +40,12 @@ function safePath(wt: string, p: string): string | null {
   return abs;
 }
 
+// 一个任务一个 worktree：被 @ 来帮忙的成员只能看和说，只有 assignee 与测试阶段的测试工程师能写
+function writeDenied(ctx: ToolCtx): string | null {
+  if (ctx.task.assigneeId === ctx.agent.id || ctx.run.trigger === 'stage_enter') return null;
+  return ctx.task.assigneeId ? '这个任务的 worktree 归 assignee 所有，你不能写入' : null;
+}
+
 function moduleOf(ctx: ToolCtx): string {
   try { return String((JSON.parse(ctx.task.inputJson ?? '{}') as { module?: string }).module ?? ''); } catch { return ''; }
 }
@@ -48,9 +56,9 @@ function inModule(p: string, mod: string): boolean {
   return norm(p).startsWith(norm(mod));
 }
 
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 const FILE_LIMIT = 8 * 1024;
 const DIFF_LIMIT = 32 * 1024;
-const PATCH_DIFF_LIMIT = 200 * 1024;
 
 export const devTools: Record<string, ToolDef> = {
   read_file: {
@@ -107,6 +115,8 @@ export const devTools: Record<string, ToolDef> = {
     execute: async (ctx, a) => {
       const ref = requireWt(ctx);
       if (!ref) return { error: '任务没有 worktree' };
+      const denied = writeDenied(ctx);
+      if (denied) return { error: denied };
       const mod = moduleOf(ctx);
       const edits = (a.edits ?? []) as { path: string; oldText: string; newText: string }[];
       const creates = (a.creates ?? []) as { path: string; content: string }[];
@@ -144,6 +154,8 @@ export const devTools: Record<string, ToolDef> = {
     execute: async (ctx, a) => {
       const ref = requireWt(ctx);
       if (!ref) return { error: '任务没有 worktree' };
+      const denied = writeDenied(ctx);
+      if (denied) return { error: denied };
       const mod = moduleOf(ctx);
       const r = await git(ref.worktree, ['diff', '--name-only', ref.base_sha]);
       const untracked = await git(ref.worktree, ['ls-files', '--others', '--exclude-standard']);
@@ -163,29 +175,8 @@ export const devTools: Record<string, ToolDef> = {
     right: 'propose',
     parameters: z.object({ summary: z.string() }),
     execute: async (ctx, a) => {
-      const ref = requireWt(ctx);
-      if (!ref) return { error: '任务没有 worktree' };
-      const status = await git(ref.worktree, ['status', '--porcelain']);
-      if (status.stdout.trim()) return { error: '存在未提交改动' };
-      const count = await git(ref.worktree, ['rev-list', '--count', `${ref.base_sha}..HEAD`]);
-      if (Number(count.stdout.trim()) < 1) return { error: '分支未领先 base' };
-      const head = (await gitOk(ref.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
-      const diff = await git(ref.worktree, ['diff', `${ref.base_sha}..HEAD`]);
-      const d = diff.stdout;
-      const pid = uid();
-      const { supersedePending } = await import('../dev_workflow.js');
-      await supersedePending(ctx.db, ctx.task.id);
-      await ctx.db.insert(proposal).values({
-        id: pid, taskId: ctx.task.id, targetType: 'code', baseVersion: 0,
-        patchJson: d.length > PATCH_DIFF_LIMIT ? `${d.slice(0, PATCH_DIFF_LIMIT)}\n…[truncated]` : d,
-        reason: String(a.summary), authorType: 'agent', authorId: ctx.agent.id,
-        status: 'pending', createdAt: now(),
-      });
-      await ctx.db.update((await import('../../db/schema.js')).task).set({ codeRefJson: JSON.stringify({ ...ref, head_sha: head }) }).where(eq((await import('../../db/schema.js')).task.id, ctx.task.id));
-      await logEvent(ctx.db, ctx.actor, 'proposal_created', 'proposal', pid, { kind: 'code' });
-      const { afterSubmit } = await import('../dev_workflow.js');
-      await afterSubmit(ctx, pid);
-      return { proposalId: pid, head_sha: head };
+      const denied = writeDenied(ctx);
+      return denied ? { error: denied } : submitChange(ctx, String(a.summary));
     },
   },
   review_change: {
@@ -204,9 +195,36 @@ export const devTools: Record<string, ToolDef> = {
       }
       await ctx.db.update(proposal).set({ status: a.decision === 'approve' ? 'approved' : 'changes_requested' }).where(eq(proposal.id, p.id));
       await logEvent(ctx.db, ctx.actor, a.decision === 'approve' ? 'proposal_approved' : 'proposal_changes_requested', 'proposal', p.id, { summary: a.summary });
-      const { afterReview } = await import('../dev_workflow.js');
       await afterReview(ctx, p.id, a.decision as 'approve' | 'request_changes');
       return { proposalId: p.id };
+    },
+  },
+  run_tests: {
+    description: '在任务 worktree 里跑任务声明的验收，结果记为 TestRun',
+    right: 'invoke',
+    parameters: z.object({}),
+    execute: async (ctx) => {
+      const ref = requireWt(ctx);
+      if (!ref) return { error: '任务没有 worktree' };
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      const checks = JSON.parse(ctx.task.acceptanceJson ?? '[]') as { kind: string }[];
+      const { allPassed, results } = await runAcceptance(ctx.db, ctx.agent.workstationId, ref.worktree, checks, devSettings(ws?.settingsJson ?? null).commandTimeoutSec, ctx.task.id);
+      return { allPassed, results: results.map((r) => ({ command: r.command, status: r.status, output: r.output.slice(-2000) })) };
+    },
+  },
+  capture_screenshot: {
+    description: '给页面截图，保存到 worktree 的路径下，可作为 visual 验收的基线',
+    right: 'invoke',
+    parameters: z.object({ url: z.string(), path: z.string() }),
+    execute: async (ctx, a) => {
+      const ref = requireWt(ctx);
+      if (!ref) return { error: '任务没有 worktree' };
+      const url = new URL(String(a.url));
+      if (!LOCAL_HOSTS.includes(url.hostname)) return { error: '只能截本地页面' };
+      const abs = safePath(ref.worktree, String(a.path));
+      if (!abs) return { error: '路径非法' };
+      await captureScreenshot(url.href, abs);
+      return { path: String(a.path) };
     },
   },
   run_command: {
@@ -218,11 +236,11 @@ export const devTools: Record<string, ToolDef> = {
       if (!ref) return { error: '任务没有 worktree' };
       const cmd = String(a.command);
       const argv = splitCommand(cmd);
-      const ws = (await ctx.db.select().from((await import('../../db/schema.js')).workstation).where(eq((await import('../../db/schema.js')).workstation.id, ctx.agent.workstationId)))[0];
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
       const s = devSettings(ws?.settingsJson ?? null);
       if (argv && isDangerous(argv)) {
         // 生成 inbox command_confirm 并原地等待
-        const p = await ctx.db.select().from((await import('../../db/schema.js')).project).where(eq((await import('../../db/schema.js')).project.id, ctx.task.projectId));
+        const p = await ctx.db.select().from(project).where(eq(project.id, ctx.task.projectId));
         const iid = uid();
         await ctx.db.insert(inboxItem).values({
           id: iid, workspaceId: p[0]?.workspaceId ?? 'default', projectId: ctx.task.projectId, kind: 'command_confirm',

@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { createDb, migrateDb } from './client.js';
 import { execSync } from 'node:child_process';
 import { loadPlugins, pluginRegistry } from '../plugins.js';
-import { addAgentInstance, mountWorkstation } from '../usecases/index.js';
+import { addAgentInstance, mountWorkstation } from '../usecases/workstations.js';
 import type { Actor } from '@aw/domain';
 
 const now = () => new Date().toISOString();

@@ -55,7 +55,7 @@ export const stageDefSchema = z.object({
   activeAgents: z.array(z.string()).optional(),
 });
 
-export const PANEL_TYPES = ['table', 'board', 'tree', 'doc', 'graph', 'timeline', 'form', 'detail', 'diff', 'preview'] as const;
+export const PANEL_TYPES = ['table', 'board', 'tree', 'doc', 'graph', 'timeline', 'form', 'detail', 'diff', 'preview', 'knowledge'] as const;
 
 export const panelDefSchema = z.object({
   id: z.string(),
@@ -118,7 +118,7 @@ export const modulesConfigSchema = z.object({
     .object({
       defaultMode: z.enum(['free', 'moderated', 'bidding', 'relay']),
       threadOverrides: z
-        .record(z.enum(['task', 'review', 'discussion', 'dm']), z.enum(['free', 'moderated', 'bidding', 'relay']))
+        .partialRecord(z.enum(['task', 'review', 'discussion', 'dm']), z.enum(['free', 'moderated', 'bidding', 'relay']))
         .optional(),
       moderator: z.string().optional(),
       maxTurns: z.number().optional(),

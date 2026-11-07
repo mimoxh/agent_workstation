@@ -11,3 +11,7 @@ export {
   allowedEvents,
 } from './task-state.js';
 export type { TaskStatus, TaskEvent, TransitionResult } from './task-state.js';
+export { extractMentions } from './mention.js';
+export type { Mentionable } from './mention.js';
+export { costMicros, firstBreach } from './budget.js';
+export type { Budget, BudgetBreach, BudgetLevel, BudgetScope, Usage } from './budget.js';

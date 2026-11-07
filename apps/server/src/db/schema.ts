@@ -35,7 +35,6 @@ export const project = sqliteTable('project', {
   name: text('name').notNull(),
   goal: text('goal'),
   status: text('status'),
-  trigger: text('trigger'),
   budgetJson: text('budget_json'),
   createdAt: text('created_at').notNull(),
 });
@@ -54,7 +53,6 @@ export const workstation = sqliteTable(
     pluginVersion: text('plugin_version'),
     name: text('name').notNull(),
     status: text('status'),
-  trigger: text('trigger'),
     settingsJson: text('settings_json'),
     sort: integer('sort'),
     createdAt: text('created_at').notNull(),
@@ -75,6 +73,7 @@ export const task = sqliteTable(
       .notNull()
       .references(() => workstation.id),
     parentId: text('parent_id').references((): AnySQLiteColumn => task.id),
+    takeoverFrom: text('takeover_from'),
     typeId: text('type_id'),
     stage: text('stage'),
     codeRefJson: text('code_ref_json'),
@@ -83,7 +82,6 @@ export const task = sqliteTable(
     inputJson: text('input_json'),
     acceptanceJson: text('acceptance_json'),
     status: text('status').notNull().default('draft'),
-  trigger: text('trigger'),
     assigneeType: text('assignee_type'),
     assigneeId: text('assignee_id'),
     dispatchReason: text('dispatch_reason'),
@@ -110,7 +108,6 @@ export const agent = sqliteTable('agent', {
   budgetJson: text('budget_json'),
   isSteward: integer('is_steward').notNull().default(0),
   status: text('status'),
-  trigger: text('trigger'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -160,6 +157,7 @@ export const entityVersion = sqliteTable(
 export const proposal = sqliteTable('proposal', {
   id: text('id').primaryKey(),
   taskId: text('task_id').references(() => task.id),
+  workstationId: text('workstation_id'),
   targetType: text('target_type'),
   entityId: text('entity_id'),
   baseVersion: integer('base_version'),
@@ -169,7 +167,6 @@ export const proposal = sqliteTable('proposal', {
   authorType: text('author_type'),
   authorId: text('author_id'),
   status: text('status').notNull().default('pending'),
-  trigger: text('trigger'),
   decidedByType: text('decided_by_type'),
   decidedById: text('decided_by_id'),
   decidedAt: text('decided_at'),
@@ -194,6 +191,8 @@ export const thread = sqliteTable('thread', {
   scopeId: text('scope_id'),
   kind: text('kind'),
   mode: text('mode'),
+  state: text('state').notNull().default('active'),
+  turnCount: integer('turn_count').notNull().default(0),
   title: text('title'),
   createdAt: text('created_at').notNull(),
 });
@@ -230,6 +229,7 @@ export const run = sqliteTable(
     id: text('id').primaryKey(),
     agentId: text('agent_id').references(() => agent.id),
     taskId: text('task_id').references(() => task.id),
+    threadId: text('thread_id'),
     status: text('status'),
     trigger: text('trigger'),
     provider: text('provider'),
@@ -258,7 +258,7 @@ export const artifact = sqliteTable('artifact', {
   createdAt: text('created_at').notNull(),
 });
 
-// M0��kind �� command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered��M1 ���� budget ��
+// kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request
 export const inboxItem = sqliteTable('inbox_item', {
   id: text('id').primaryKey(),
   workspaceId: text('workspace_id').notNull(),
@@ -268,9 +268,8 @@ export const inboxItem = sqliteTable('inbox_item', {
   refId: text('ref_id'),
   severity: text('severity'),
   status: text('status').notNull().default('open'),
-  trigger: text('trigger'),
-   payloadJson: text('payload_json'),
-   resolutionJson: text('resolution_json'),
+  payloadJson: text('payload_json'),
+  resolutionJson: text('resolution_json'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -303,3 +302,34 @@ export const pluginInstall = sqliteTable('plugin_install', {
   enabled: integer('enabled').notNull().default(1),
   createdAt: text('created_at').notNull(),
 });
+
+// ARCHITECTURE §3.1：知识库与实体是两条独立通路；全文索引 knowledge_fts 是迁移里建的虚拟表
+export const knowledgeSource = sqliteTable('knowledge_source', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull(),
+  scopeType: text('scope_type').notNull(),
+  scopeId: text('scope_id').notNull(),
+  name: text('name').notNull(),
+  kind: text('kind').notNull(),
+  uri: text('uri'),
+  mime: text('mime'),
+  sha256: text('sha256'),
+  size: integer('size'),
+  status: text('status'),
+  metaJson: text('meta_json'),
+  createdAt: text('created_at').notNull(),
+});
+
+export const knowledgeChunk = sqliteTable(
+  'knowledge_chunk',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id').notNull().references(() => knowledgeSource.id),
+    ordinal: integer('ordinal').notNull(),
+    text: text('text').notNull(),
+    tokenCount: integer('token_count'),
+    anchorJson: text('anchor_json'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('idx_chunk_source').on(t.sourceId, t.ordinal)],
+);

@@ -1,6 +1,6 @@
 import { manifestSchema, type WorkbenchManifest } from './schema.js';
 
-// ARCHITECTURE §6.3 内置 9 个 + respond_task + DEV §6 的 10 个
+// ARCHITECTURE §6.3 内置工具 + 协作工具 + DEV §6 的 10 个
 export const BUILTIN_TOOLS = [
   'read_entity',
   'list_entities',
@@ -12,6 +12,12 @@ export const BUILTIN_TOOLS = [
   'request_human',
   'search_knowledge',
   'respond_task',
+  'dispatch_task',
+  'record_decision',
+  'resolve_block',
+  'escalate_block',
+  'advance_stage',
+  'search_knowledge',
   'read_file',
   'search_code',
   'git_diff',
@@ -24,7 +30,7 @@ export const BUILTIN_TOOLS = [
   'capture_screenshot',
 ] as const;
 
-export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files'] as const;
+export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:knowledge'] as const;
 
 export type ValidateResult =
   | { ok: true; manifest: WorkbenchManifest }

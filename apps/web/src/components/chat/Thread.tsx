@@ -1,104 +1,73 @@
-import { useEffect, useRef, useState } from 'react';
-import { apiClient } from '@/lib/api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
+import { DecisionCard, MessageItem, type MessageLike } from '@/components/timeline/cards';
+import { foldByDecision } from '@/components/timeline/fold';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Dialog } from '@/components/ui/dialog';
+import { api, unwrap } from '@/lib/api';
+import { useThreadMessages } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { Composer } from './Composer';
 
-export interface Msg {
-  id: string;
-  senderType: string | null;
-  senderId: string | null;
-  kind: string | null;
-  content: string | null;
-  createdAt: string;
-}
+interface ThreadInfo { id: string; state: string; turnCount: number }
 
-const KIND_STYLE: Record<string, string> = {
-  chat: 'bg-white',
-  status: 'bg-blue-50 text-blue-800 italic',
-  handoff: 'bg-amber-50',
-};
-
-// 线程视图：SSE 实时更新 + 底部输入（人发送）
-export function ThreadView({ threadId }: { threadId: string }) {
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+function ThreadView({ thread, projectId, names, hint, placeholder, wide }: { thread: ThreadInfo; projectId: string; names: Record<string, string>; hint: string; placeholder?: string; wide?: boolean | undefined }) {
+  const q = useThreadMessages(thread.id);
+  const logRef = useRef<HTMLDivElement>(null);
+  const messages = useMemo<MessageLike[]>(() => (q.data ?? []).map((m) => ({ ...m, at: m.createdAt })), [q.data]);
+  const rows = useMemo(() => foldByDecision(messages, (m) => m.kind === 'chat', (m) => m.kind === 'decision'), [messages]);
+  const silenced = thread.state === 'silenced';
+  const toggle = useMutation({
+    mutationFn: async () => unwrap(await api.threads[':id'].silence.$post({ param: { id: thread.id }, json: { silenced: !silenced } })),
+  });
 
   useEffect(() => {
-    setMessages([]);
-    const es = new EventSource(`/api/threads/${threadId}/stream`);
-    es.addEventListener('message', (ev) => {
-      const m = JSON.parse((ev as MessageEvent).data) as Msg;
-      setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    });
-    return () => es.close();
-  }, [threadId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
-  const send = async () => {
-    if (!input.trim() || sending) return;
-    setSending(true);
-    try {
-      await apiClient.threads[':id'].messages.$post({ param: { id: threadId }, json: { content: input.trim() } });
-      setInput('');
-    } finally {
-      setSending(false);
-    }
-  };
-
   return (
-    <div className="flex h-full flex-col" data-testid="thread-view">
-      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
-        {messages.length === 0 && <div className="p-2 text-xs text-neutral-400">暂无消息</div>}
-        {messages.map((m) => (
-          <div key={m.id} className={cn('rounded border border-neutral-100 px-2 py-1 text-xs', KIND_STYLE[m.kind ?? 'chat'] ?? 'bg-white')}>
-            <div className="text-[10px] text-neutral-400">
-              {m.senderType}:{m.senderId === 'local' ? '本地用户' : (m.senderId ?? '').slice(0, 8)} · {m.createdAt.slice(11, 19)}
-            </div>
-            <div className="whitespace-pre-wrap">{m.content}</div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="thread-view">
+      <div ref={logRef} className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', wide ? 'px-5 py-6 md:px-10 lg:px-14' : 'px-3.5 py-3')}>
+        <div className={cn('flex flex-col', wide ? 'mx-auto w-full max-w-[54rem] gap-5' : 'gap-4')}>
+        {messages.length === 0 && <p className="text-sm text-muted">还没有消息</p>}
+        {rows.map(({ item, folded }) =>
+          item.kind === 'decision' ? (
+            <DecisionCard key={item.id} m={item} foldedCount={folded.length}>
+              {folded.map((f) => <MessageItem key={f.id} m={f} names={names} projectId={projectId} />)}
+            </DecisionCard>
+          ) : (
+            <MessageItem key={item.id} m={item} names={names} projectId={projectId} />
+          ),
+        )}
+        </div>
       </div>
-      <div className="flex gap-1 border-t border-neutral-200 p-2">
-        <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="@Agent名称 或消息" className="h-7 text-xs"
-          onKeyDown={(e) => { if (e.key === 'Enter') void send(); }} data-testid="thread-input" />
-        <Button size="sm" className="shrink-0 whitespace-nowrap" disabled={sending || !input.trim()} onClick={() => void send()}>发送</Button>
-      </div>
+      <Composer
+        wide={wide}
+        threadId={thread.id}
+        hint={silenced ? '已静默，发话后恢复' : hint}
+        placeholder={placeholder}
+        actions={<Button size="sm" variant="quiet" aria-pressed={silenced} disabled={toggle.isPending} onClick={() => toggle.mutate()} data-testid="thread-silence">{silenced ? '恢复' : '静默'}</Button>}
+      />
     </div>
   );
 }
 
-// 任务线程：懒获取 threadId 后渲染
-export function TaskThread({ taskId }: { taskId: string }) {
-  const [threadId, setThreadId] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      const res = await apiClient.tasks[':id'].thread.$get({ param: { id: taskId } });
-      if (res.ok) {
-        const d = (await res.json()) as { thread: { id: string } };
-        setThreadId(d.thread.id);
-      }
-    })();
-  }, [taskId]);
-  return threadId ? <ThreadView threadId={threadId} /> : <div className="p-2 text-xs text-neutral-400">加载会话…</div>;
+export function WsThread({ wsId, projectId, names, root, wide }: { wsId: string; projectId: string; names: Record<string, string>; root: boolean; wide?: boolean }) {
+  const th = useQuery({ queryKey: ['thread', 'ws', wsId], queryFn: async () => unwrap(await api.workstations[':id'].thread.$get({ param: { id: wsId } })) });
+  if (!th.data) return <p className="p-3 text-sm text-muted">加载会话…</p>;
+  return root
+    ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint="项目经理会起草任务，确认后派发" placeholder="说目标，比如：给任务看板加状态筛选" />
+    : <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint="steward 主持讨论，@ 可以直接点名成员" />;
 }
 
-export function WsThread({ wsId }: { wsId: string }) {
-  const [threadId, setThreadId] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      const res = await apiClient.workstations[':id'].thread.$get({ param: { id: wsId } });
-      if (res.ok) {
-        const d = (await res.json()) as { thread: { id: string } };
-        setThreadId(d.thread.id);
-      }
-    })();
-  }, [wsId]);
-  return threadId ? <ThreadView threadId={threadId} /> : <div className="p-2 text-xs text-neutral-400">加载会话…</div>;
+export function DmDialog({ agentId, agentName, projectId, names, onClose }: { agentId: string; agentName: string; projectId: string; names: Record<string, string>; onClose: () => void }) {
+  const th = useQuery({ queryKey: ['thread', 'dm', agentId], queryFn: async () => unwrap(await api.agents[':id'].thread.$get({ param: { id: agentId } })) });
+  return (
+    <Dialog title={`私聊 ${agentName}`} onClose={onClose} testId="dm-dialog" className="w-[34rem]">
+      <div className="flex h-[60dvh] min-h-0 flex-col">
+        {th.data ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} hint="只有你和它能看到" /> : <p className="text-sm text-muted">加载会话…</p>}
+      </div>
+    </Dialog>
+  );
 }

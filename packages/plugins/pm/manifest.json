@@ -1,7 +1,7 @@
 {
   "id": "pm",
   "name": "项目管理",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "根工作台：任务立项、派发、依赖与验收",
   "entities": {
     "Milestone": {
@@ -17,16 +17,22 @@
   },
   "panels": [
     { "id": "board", "type": "board", "entity": "system:task", "title": "任务看板", "editableBy": ["human", "agent"], "config": { "field": "status" } },
-    { "id": "miles", "type": "timeline", "entity": "Milestone", "title": "里程碑", "editableBy": ["human"] }
+    { "id": "miles", "type": "timeline", "entity": "Milestone", "title": "里程碑", "editableBy": ["human"] },
+    { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }
   ],
   "agents": [
     {
       "id": "pm",
       "name": "项目经理",
-      "role": "拆解目标、分派任务、跟踪阻塞",
-      "tools": ["read_entity", "list_entities", "create_task", "send_message", "request_human", "respond_task"]
+      "role": "拆解目标、起草任务契约、分派任务、跟踪阻塞",
+      "promptFile": "pm.md",
+      "tools": ["read_entity", "list_entities", "search_workstation", "search_knowledge", "create_task", "dispatch_task", "send_message", "record_decision", "request_human", "respond_task"],
+      "triggers": ["mentioned", "task_assigned"]
     }
   ],
+  "modules": {
+    "conversation": { "defaultMode": "moderated", "maxTurns": 12, "summaryEvery": 6 }
+  },
   "steward": "pm",
   "tasks": []
 }

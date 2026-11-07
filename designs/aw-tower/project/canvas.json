@@ -1,0 +1,90 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-07T10:30:00Z"
+  },
+  "title": "Agent Workstation 界面设计",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1233,
+      "title": "指挥台",
+      "expand": "fill"
+    },
+    "Task.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 1301,
+      "title": "任务协作室",
+      "expand": "fill"
+    },
+    "Board.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "工作台 · 任务看板",
+      "expand": "fill"
+    },
+    "Review.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "工作台 · 改动审阅",
+      "expand": "fill"
+    },
+    "Inbox.dc.html": {
+      "x": 0,
+      "y": 1440,
+      "w": 1440,
+      "h": 1082,
+      "title": "收件箱",
+      "expand": "fill"
+    },
+    "Ledger.dc.html": {
+      "x": 1520,
+      "y": 1440,
+      "w": 1440,
+      "h": 979,
+      "title": "账本",
+      "expand": "fill"
+    },
+    "Projects.dc.html": {
+      "x": 3040,
+      "y": 1440,
+      "w": 1440,
+      "h": 900,
+      "title": "项目",
+      "expand": "fill"
+    },
+    "Settings.dc.html": {
+      "x": 4560,
+      "y": 1440,
+      "w": 1440,
+      "h": 1000,
+      "title": "设置",
+      "expand": "fill"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Task.dc.html",
+    "Board.dc.html",
+    "Review.dc.html",
+    "Inbox.dc.html",
+    "Ledger.dc.html",
+    "Projects.dc.html",
+    "Settings.dc.html"
+  ],
+  "notes": {},
+  "designSystems": []
+}

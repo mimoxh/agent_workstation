@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>账本</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./aw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app">
+
+<header class="top">
+  <div class="top-l">
+    <a class="brand" href="Projects.dc.html" aria-label="全部项目">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6" stroke="currentColor" stroke-opacity="0.35"></rect><path d="M6 8.5h9M6 13h13M6 17.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="19" cy="8.5" r="2" style="fill: var(--accent)"></circle></svg>
+    </a>
+    <nav class="crumbs" aria-label="位置"><a href="Main.dc.html">Agent Workstation</a><span class="sep" aria-hidden="true">/</span><span class="here" aria-current="page">账本</span></nav>
+  </div>
+  <div class="top-r">
+    <a class="measured xs t-cool hide-s" href="Ledger.dc.html">3 个 run 在跑</a>
+    <a class="measured xs muted hide-s" href="Ledger.dc.html">预算余 760k</a>
+    <span class="live hide-s"><i class="dot dot-ok"></i>实时</span>
+    <a class="btn" href="Inbox.dc.html">待处理 <span class="measured t-amber">4</span></a>
+    <button class="btn hide-s" type="button">跳转 <kbd>Ctrl K</kbd></button>
+    <a class="me" href="Settings.dc.html">本地用户</a>
+  </div>
+</header>
+
+<div class="shell shell-2">
+  <aside class="left" aria-label="导航">
+    <nav class="nav" aria-label="页面">
+      <a href="Main.dc.html">指挥台</a>
+      <a href="Inbox.dc.html">收件箱 <span class="measured xs t-amber">4</span></a>
+      <a href="Ledger.dc.html" aria-current="page">账本</a>
+    </nav>
+    <nav class="nav tree" aria-label="活跃任务">
+      <h2 class="nav-h" style="font-weight: 400">活跃任务</h2>
+      <a class="sub" href="Task.dc.html"><span class="truncate">看板状态筛选</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">验收断言写入契约</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="w"></i><i></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">改动审阅空态</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">TaskCard 阶段徽标</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i></span></a>
+    </nav>
+    <nav class="nav tree" aria-label="工作台树">
+      <h2 class="nav-h" style="font-weight: 400">工作台</h2>
+      <a class="sub" href="Main.dc.html"><span>根</span><span class="measured xs muted">pm</span></a>
+      <a class="sub indent" href="Board.dc.html"><span>开发</span><span class="measured xs t-cool">3 在跑</span></a>
+    </nav>
+    <p class="left-foot measured">sqlite 本地</p>
+  </aside>
+
+  <main class="main">
+    <div class="pad">
+      <div class="pad-in" style="max-width: 1120px; display: flex; flex-direction: column; gap: 32px">
+        <header class="stack" style="gap: 18px">
+          <h1 class="headline">已用 <span class="measured" style="font-size: 0.92em">1.24M</span> tokens，预算还剩 38%。</h1>
+          <dl class="readings">
+            <div><dt>预估成本</dt><dd>$23.40</dd></div>
+            <div><dt>运行次数</dt><dd>214</dd></div>
+            <div><dt>运行耗时</dt><dd>6.8<small>h</small></dd></div>
+            <div><dt>失败 run</dt><dd class="t-bad">1</dd></div>
+          </dl>
+          <dl><div class="gauge"><dt>项目预算</dt><dd>1.24M / 2.00M</dd><span class="meter" aria-hidden="true"><i style="width: 62%"></i></span></div></dl>
+        </header>
+
+        <div class="split">
+          <section aria-label="每天的 token 用量">
+            <div class="sec-h"><h2>最近 14 天</h2><span class="aside measured">tokens / 天，峰值 142k</span></div>
+            <figure>
+              <div class="bars" role="img" aria-label="每天的 token 用量柱状图，最近 14 天从 32k 起伏上升，今天 118k，最高是 11 月 4 日的 142k。">
+                <i style="height: 23%" title="10-25 · 32k"></i><i style="height: 34%" title="10-26 · 48k"></i><i style="height: 29%" title="10-27 · 41k"></i><i style="height: 45%" title="10-28 · 64k"></i><i style="height: 52%" title="10-29 · 74k"></i><i style="height: 17%" title="10-30 · 24k"></i><i style="height: 13%" title="10-31 · 18k"></i><i style="height: 58%" title="11-01 · 82k"></i><i style="height: 67%" title="11-02 · 95k"></i><i style="height: 76%" title="11-03 · 108k"></i><i style="height: 100%" title="11-04 · 142k"></i><i style="height: 83%" title="11-05 · 118k"></i><i style="height: 72%" title="11-06 · 102k"></i><i class="today" style="height: 83%" title="今天 · 118k"></i>
+              </div>
+              <p class="bars-x measured"><span>10-25</span><span>11-01</span><span>今天</span></p>
+            </figure>
+          </section>
+
+          <section aria-label="按 Agent 分">
+            <div class="sec-h"><h2>按 Agent</h2><span class="aside">tokens · 成本</span></div>
+            <ul>
+              <li class="hbar"><span>前端开发</span><div class="m" style="width: 100%"></div><span>482k</span><span>$9.10</span></li>
+              <li class="hbar"><span>后端开发</span><div class="m" style="width: 56%"></div><span>271k</span><span>$5.12</span></li>
+              <li class="hbar"><span>架构师</span><div class="m" style="width: 40%"></div><span>194k</span><span>$3.66</span></li>
+              <li class="hbar"><span>审查</span><div class="m" style="width: 30%"></div><span>143k</span><span>$2.70</span></li>
+              <li class="hbar"><span>测试工程师</span><div class="m" style="width: 21%"></div><span>102k</span><span>$1.93</span></li>
+              <li class="hbar"><span>项目经理</span><div class="m" style="width: 10%"></div><span>48k</span><span>$0.89</span></li>
+            </ul>
+          </section>
+        </div>
+
+        <section aria-label="运行记录">
+          <div class="sec-h"><h2>运行记录</h2>
+            <div class="seg-ctl" aria-label="按状态筛选"><a href="Ledger.dc.html" aria-current="true">全部</a><a href="Ledger.dc.html">运行中</a><a href="Ledger.dc.html">失败</a></div>
+          </div>
+          <div class="tablebox">
+            <table>
+              <thead><tr><th>Agent</th><th>任务</th><th>触发</th><th>状态</th><th>模型</th><th class="num">tokens</th><th class="num">耗时</th><th class="num">开始</th></tr></thead>
+              <tbody>
+                <tr><td>前端开发 #1</td><td><a class="link" href="Task.dc.html">改动审阅空态</a></td><td>阶段进入</td><td><span class="tag tag-cool"><i class="dot dot-cool"></i>运行中</span></td><td class="measured xs">sonnet-5-5</td><td class="num">18,204</td><td class="num">12:04</td><td class="num">10:10</td></tr>
+                <tr><td>审查</td><td><a class="link" href="Task.dc.html">状态筛选组件</a></td><td>派发</td><td><span class="tag tag-cool"><i class="dot dot-cool"></i>运行中</span></td><td class="measured xs">opus-5-5</td><td class="num">9,842</td><td class="num">06:40</td><td class="num">10:15</td></tr>
+                <tr><td>测试工程师</td><td><a class="link" href="Task.dc.html">看板状态同步</a></td><td>阶段进入</td><td><span class="tag tag-amber">等批准</span></td><td class="measured xs">sonnet-5-5</td><td class="num">6,113</td><td class="num">09:12</td><td class="num">10:12</td></tr>
+                <tr><td>后端开发</td><td><a class="link" href="Task.dc.html">账本按阶段聚合</a></td><td>重试</td><td><span class="tag tag-bad">失败</span></td><td class="measured xs">sonnet-5-5 → haiku-5-5</td><td class="num">3,020</td><td class="num">04:00</td><td class="num">10:10</td></tr>
+                <tr><td colspan="8" style="padding: 0; background: var(--paper-3)"><div class="trace" aria-label="失败运行的轨迹">
+              <span class="muted">10:10:02</span><span class="t-cool">read_file</span><span class="truncate">apps/server/src/repositories/index.ts</span><span class="muted" style="text-align: right">1.2k</span>
+              <span class="muted">10:10:41</span><span class="t-cool">search_code</span><span class="truncate">ledger group by stage</span><span class="muted" style="text-align: right">0.8k</span>
+              <span class="muted">10:12:41</span><span class="t-amber">降级</span><span class="truncate">sonnet-5-5 超时，切到 haiku-5-5</span><span class="muted" style="text-align: right">—</span>
+              <span class="muted">10:14:41</span><span class="t-bad">失败</span><span class="truncate">ModelTimeout after 120s，降级链已走到底</span><span class="muted" style="text-align: right">—</span>
+            </div></td></tr>
+                <tr><td>前端开发 #2</td><td><a class="link" href="Task.dc.html">状态筛选组件</a></td><td>反馈</td><td><span class="tag tag-ok">完成</span></td><td class="measured xs">sonnet-5-5</td><td class="num">12,310</td><td class="num">05:36</td><td class="num">09:58</td></tr>
+                <tr><td>架构师</td><td><a class="link" href="Task.dc.html">看板状态筛选</a></td><td>收束</td><td><span class="tag tag-ok">完成</span></td><td class="measured xs">opus-5-5</td><td class="num">7,044</td><td class="num">02:12</td><td class="num">09:47</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":979}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

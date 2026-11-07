@@ -9,27 +9,83 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as ConsoleRouteImport } from './routes/_console'
+import { Route as ConsoleIndexRouteImport } from './routes/_console.index'
+import { Route as ConsoleAgentsRouteImport } from './routes/_console.agents'
+import { Route as ConsoleInboxRouteImport } from './routes/_console.inbox'
+import { Route as ConsolePluginsRouteImport } from './routes/_console.plugins'
+import { Route as ConsoleSettingsRouteImport } from './routes/_console.settings'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects.$projectId'
-import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
+import { Route as ConsolePmProjectIdRouteImport } from './routes/_console.pm.$projectId'
+import { Route as ProjectsProjectIdIndexRouteImport } from './routes/projects.$projectId.index'
+import { Route as ProjectsProjectIdInboxRouteImport } from './routes/projects.$projectId.inbox'
+import { Route as ProjectsProjectIdRunsIndexRouteImport } from './routes/projects.$projectId.runs.index'
+import { Route as ProjectsProjectIdRunsRunIdRouteImport } from './routes/projects.$projectId.runs.$runId'
 import { Route as ProjectsProjectIdTasksTaskIdRouteImport } from './routes/projects.$projectId.tasks.$taskId'
 import { Route as ProjectsProjectIdWsWsIdRouteImport } from './routes/projects.$projectId.ws.$wsId'
+import { Route as ProjectsProjectIdWsWsIdPanelIdRouteImport } from './routes/projects.$projectId.ws.$wsId_.$panelId'
 
-const IndexRoute = IndexRouteImport.update({
+const ConsoleRoute = ConsoleRouteImport.update({
+  id: '/_console',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConsoleIndexRoute = ConsoleIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsoleAgentsRoute = ConsoleAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsoleInboxRoute = ConsoleInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsolePluginsRoute = ConsolePluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsoleSettingsRoute = ConsoleSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => ConsoleRoute,
 } as any)
 const ProjectsProjectIdRoute = ProjectsProjectIdRouteImport.update({
   id: '/projects/$projectId',
   path: '/projects/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RunsRunIdRoute = RunsRunIdRouteImport.update({
-  id: '/runs/$runId',
-  path: '/runs/$runId',
-  getParentRoute: () => rootRouteImport,
+const ConsolePmProjectIdRoute = ConsolePmProjectIdRouteImport.update({
+  id: '/pm/$projectId',
+  path: '/pm/$projectId',
+  getParentRoute: () => ConsoleRoute,
 } as any)
+const ProjectsProjectIdIndexRoute = ProjectsProjectIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ProjectsProjectIdRoute,
+} as any)
+const ProjectsProjectIdInboxRoute = ProjectsProjectIdInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => ProjectsProjectIdRoute,
+} as any)
+const ProjectsProjectIdRunsIndexRoute =
+  ProjectsProjectIdRunsIndexRouteImport.update({
+    id: '/runs/',
+    path: '/runs/',
+    getParentRoute: () => ProjectsProjectIdRoute,
+  } as any)
+const ProjectsProjectIdRunsRunIdRoute =
+  ProjectsProjectIdRunsRunIdRouteImport.update({
+    id: '/runs/$runId',
+    path: '/runs/$runId',
+    getParentRoute: () => ProjectsProjectIdRoute,
+  } as any)
 const ProjectsProjectIdTasksTaskIdRoute =
   ProjectsProjectIdTasksTaskIdRouteImport.update({
     id: '/tasks/$taskId',
@@ -41,67 +97,161 @@ const ProjectsProjectIdWsWsIdRoute = ProjectsProjectIdWsWsIdRouteImport.update({
   path: '/ws/$wsId',
   getParentRoute: () => ProjectsProjectIdRoute,
 } as any)
+const ProjectsProjectIdWsWsIdPanelIdRoute =
+  ProjectsProjectIdWsWsIdPanelIdRouteImport.update({
+    id: '/ws/$wsId_/$panelId',
+    path: '/ws/$wsId/$panelId',
+    getParentRoute: () => ProjectsProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof ConsoleIndexRoute
+  '/agents': typeof ConsoleAgentsRoute
+  '/inbox': typeof ConsoleInboxRoute
+  '/plugins': typeof ConsolePluginsRoute
+  '/settings': typeof ConsoleSettingsRoute
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
-  '/runs/$runId': typeof RunsRunIdRoute
+  '/pm/$projectId': typeof ConsolePmProjectIdRoute
+  '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
+  '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
   '/projects/$projectId/ws/$wsId': typeof ProjectsProjectIdWsWsIdRoute
+  '/projects/$projectId/runs/': typeof ProjectsProjectIdRunsIndexRoute
+  '/projects/$projectId/ws/$wsId/$panelId': typeof ProjectsProjectIdWsWsIdPanelIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
-  '/runs/$runId': typeof RunsRunIdRoute
+  '/agents': typeof ConsoleAgentsRoute
+  '/inbox': typeof ConsoleInboxRoute
+  '/plugins': typeof ConsolePluginsRoute
+  '/settings': typeof ConsoleSettingsRoute
+  '/': typeof ConsoleIndexRoute
+  '/pm/$projectId': typeof ConsolePmProjectIdRoute
+  '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId': typeof ProjectsProjectIdIndexRoute
+  '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
   '/projects/$projectId/ws/$wsId': typeof ProjectsProjectIdWsWsIdRoute
+  '/projects/$projectId/runs': typeof ProjectsProjectIdRunsIndexRoute
+  '/projects/$projectId/ws/$wsId/$panelId': typeof ProjectsProjectIdWsWsIdPanelIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_console': typeof ConsoleRouteWithChildren
+  '/_console/agents': typeof ConsoleAgentsRoute
+  '/_console/inbox': typeof ConsoleInboxRoute
+  '/_console/plugins': typeof ConsolePluginsRoute
+  '/_console/settings': typeof ConsoleSettingsRoute
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
-  '/runs/$runId': typeof RunsRunIdRoute
+  '/_console/': typeof ConsoleIndexRoute
+  '/_console/pm/$projectId': typeof ConsolePmProjectIdRoute
+  '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
+  '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
   '/projects/$projectId/ws/$wsId': typeof ProjectsProjectIdWsWsIdRoute
+  '/projects/$projectId/runs/': typeof ProjectsProjectIdRunsIndexRoute
+  '/projects/$projectId/ws/$wsId_/$panelId': typeof ProjectsProjectIdWsWsIdPanelIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agents'
+    | '/inbox'
+    | '/plugins'
+    | '/settings'
     | '/projects/$projectId'
-    | '/runs/$runId'
+    | '/pm/$projectId'
+    | '/projects/$projectId/inbox'
+    | '/projects/$projectId/'
+    | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
     | '/projects/$projectId/ws/$wsId'
+    | '/projects/$projectId/runs/'
+    | '/projects/$projectId/ws/$wsId/$panelId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/agents'
+    | '/inbox'
+    | '/plugins'
+    | '/settings'
     | '/'
+    | '/pm/$projectId'
+    | '/projects/$projectId/inbox'
     | '/projects/$projectId'
-    | '/runs/$runId'
+    | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
     | '/projects/$projectId/ws/$wsId'
+    | '/projects/$projectId/runs'
+    | '/projects/$projectId/ws/$wsId/$panelId'
   id:
     | '__root__'
-    | '/'
+    | '/_console'
+    | '/_console/agents'
+    | '/_console/inbox'
+    | '/_console/plugins'
+    | '/_console/settings'
     | '/projects/$projectId'
-    | '/runs/$runId'
+    | '/_console/'
+    | '/_console/pm/$projectId'
+    | '/projects/$projectId/inbox'
+    | '/projects/$projectId/'
+    | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
     | '/projects/$projectId/ws/$wsId'
+    | '/projects/$projectId/runs/'
+    | '/projects/$projectId/ws/$wsId_/$panelId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  ConsoleRoute: typeof ConsoleRouteWithChildren
   ProjectsProjectIdRoute: typeof ProjectsProjectIdRouteWithChildren
-  RunsRunIdRoute: typeof RunsRunIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_console': {
+      id: '/_console'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof ConsoleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_console/': {
+      id: '/_console/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof ConsoleIndexRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/_console/agents': {
+      id: '/_console/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof ConsoleAgentsRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/_console/inbox': {
+      id: '/_console/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof ConsoleInboxRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/_console/plugins': {
+      id: '/_console/plugins'
+      path: '/plugins'
+      fullPath: '/plugins'
+      preLoaderRoute: typeof ConsolePluginsRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/_console/settings': {
+      id: '/_console/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof ConsoleSettingsRouteImport
+      parentRoute: typeof ConsoleRoute
     }
     '/projects/$projectId': {
       id: '/projects/$projectId'
@@ -110,12 +260,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/runs/$runId': {
-      id: '/runs/$runId'
+    '/_console/pm/$projectId': {
+      id: '/_console/pm/$projectId'
+      path: '/pm/$projectId'
+      fullPath: '/pm/$projectId'
+      preLoaderRoute: typeof ConsolePmProjectIdRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/projects/$projectId/': {
+      id: '/projects/$projectId/'
+      path: '/'
+      fullPath: '/projects/$projectId/'
+      preLoaderRoute: typeof ProjectsProjectIdIndexRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
+    }
+    '/projects/$projectId/inbox': {
+      id: '/projects/$projectId/inbox'
+      path: '/inbox'
+      fullPath: '/projects/$projectId/inbox'
+      preLoaderRoute: typeof ProjectsProjectIdInboxRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
+    }
+    '/projects/$projectId/runs/': {
+      id: '/projects/$projectId/runs/'
+      path: '/runs'
+      fullPath: '/projects/$projectId/runs/'
+      preLoaderRoute: typeof ProjectsProjectIdRunsIndexRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
+    }
+    '/projects/$projectId/runs/$runId': {
+      id: '/projects/$projectId/runs/$runId'
       path: '/runs/$runId'
-      fullPath: '/runs/$runId'
-      preLoaderRoute: typeof RunsRunIdRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/projects/$projectId/runs/$runId'
+      preLoaderRoute: typeof ProjectsProjectIdRunsRunIdRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
     }
     '/projects/$projectId/tasks/$taskId': {
       id: '/projects/$projectId/tasks/$taskId'
@@ -131,26 +309,63 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdWsWsIdRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
     }
+    '/projects/$projectId/ws/$wsId_/$panelId': {
+      id: '/projects/$projectId/ws/$wsId_/$panelId'
+      path: '/ws/$wsId/$panelId'
+      fullPath: '/projects/$projectId/ws/$wsId/$panelId'
+      preLoaderRoute: typeof ProjectsProjectIdWsWsIdPanelIdRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
+    }
   }
 }
 
+interface ConsoleRouteChildren {
+  ConsoleAgentsRoute: typeof ConsoleAgentsRoute
+  ConsoleInboxRoute: typeof ConsoleInboxRoute
+  ConsolePluginsRoute: typeof ConsolePluginsRoute
+  ConsoleSettingsRoute: typeof ConsoleSettingsRoute
+  ConsoleIndexRoute: typeof ConsoleIndexRoute
+  ConsolePmProjectIdRoute: typeof ConsolePmProjectIdRoute
+}
+
+const ConsoleRouteChildren: ConsoleRouteChildren = {
+  ConsoleAgentsRoute: ConsoleAgentsRoute,
+  ConsoleInboxRoute: ConsoleInboxRoute,
+  ConsolePluginsRoute: ConsolePluginsRoute,
+  ConsoleSettingsRoute: ConsoleSettingsRoute,
+  ConsoleIndexRoute: ConsoleIndexRoute,
+  ConsolePmProjectIdRoute: ConsolePmProjectIdRoute,
+}
+
+const ConsoleRouteWithChildren =
+  ConsoleRoute._addFileChildren(ConsoleRouteChildren)
+
 interface ProjectsProjectIdRouteChildren {
+  ProjectsProjectIdInboxRoute: typeof ProjectsProjectIdInboxRoute
+  ProjectsProjectIdIndexRoute: typeof ProjectsProjectIdIndexRoute
+  ProjectsProjectIdRunsRunIdRoute: typeof ProjectsProjectIdRunsRunIdRoute
   ProjectsProjectIdTasksTaskIdRoute: typeof ProjectsProjectIdTasksTaskIdRoute
   ProjectsProjectIdWsWsIdRoute: typeof ProjectsProjectIdWsWsIdRoute
+  ProjectsProjectIdRunsIndexRoute: typeof ProjectsProjectIdRunsIndexRoute
+  ProjectsProjectIdWsWsIdPanelIdRoute: typeof ProjectsProjectIdWsWsIdPanelIdRoute
 }
 
 const ProjectsProjectIdRouteChildren: ProjectsProjectIdRouteChildren = {
+  ProjectsProjectIdInboxRoute: ProjectsProjectIdInboxRoute,
+  ProjectsProjectIdIndexRoute: ProjectsProjectIdIndexRoute,
+  ProjectsProjectIdRunsRunIdRoute: ProjectsProjectIdRunsRunIdRoute,
   ProjectsProjectIdTasksTaskIdRoute: ProjectsProjectIdTasksTaskIdRoute,
   ProjectsProjectIdWsWsIdRoute: ProjectsProjectIdWsWsIdRoute,
+  ProjectsProjectIdRunsIndexRoute: ProjectsProjectIdRunsIndexRoute,
+  ProjectsProjectIdWsWsIdPanelIdRoute: ProjectsProjectIdWsWsIdPanelIdRoute,
 }
 
 const ProjectsProjectIdRouteWithChildren =
   ProjectsProjectIdRoute._addFileChildren(ProjectsProjectIdRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  ConsoleRoute: ConsoleRouteWithChildren,
   ProjectsProjectIdRoute: ProjectsProjectIdRouteWithChildren,
-  RunsRunIdRoute: RunsRunIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

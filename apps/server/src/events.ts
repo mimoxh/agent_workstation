@@ -2,7 +2,10 @@ import { sanitizeError } from './runtime/models.js';
 
 type Handler = (payload: Record<string, unknown>) => void | Promise<void>;
 
+type AnyHandler = (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+
 const handlers = new Map<string, Set<Handler>>();
+const anyHandlers = new Set<AnyHandler>();
 
 const report = (action: string, e: unknown) => console.error(`[events] ${action} 处理器异常`, sanitizeError(String(e)));
 
@@ -17,6 +20,17 @@ export const events = {
         report(action, e);
       }
     }
+    for (const h of anyHandlers) {
+      try {
+        Promise.resolve(h(action, payload)).catch((e: unknown) => report(action, e));
+      } catch (e) {
+        report(action, e);
+      }
+    }
+  },
+  onAny(handler: AnyHandler) {
+    anyHandlers.add(handler);
+    return () => { anyHandlers.delete(handler); };
   },
   on(action: string, handler: Handler) {
     if (!handlers.has(action)) handlers.set(action, new Set());

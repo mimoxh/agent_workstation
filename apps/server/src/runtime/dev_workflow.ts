@@ -1,35 +1,34 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import PQueue from 'p-queue';
-import type { Actor } from '@aw/domain';
+import type { Actor, TaskStatus } from '@aw/domain';
 import { transition } from '@aw/domain';
 import type { DB } from '../db/client.js';
-import { artifact, entity, inboxItem, message, proposal, project, reviewComment, run, task, workstation } from '../db/schema.js';
+import { agent, artifact, entity, proposal, reviewComment, run, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, type DevSettings } from './git.js';
 import { runCommand, portEnv, type ExecResult } from './exec.js';
-import { logEvent, manifestOf } from '../usecases/index.js';
-import { taskThreadOf } from '../usecases/threads.js';
+import { snapshotDb } from '../usecases/backup.js';
+import { logEvent, manifestOf } from '../usecases/core.js';
+import { pushInbox } from '../usecases/inbox.js';
+import { rollupStage } from '../usecases/tasks.js';
+import { postHandoff, postStatus } from '../usecases/threads.js';
 import { triggerRun } from './scheduler.js';
-import type { ToolCtx } from './tools/index.js';
+import { runVisualCheck } from './visual.js';
+import type { TaskRow } from './types.js';
 import path from 'node:path';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 // 连续退回超过此次数就转人工
 const MAX_SEND_BACKS = 3;
+const PATCH_DIFF_LIMIT = 200 * 1024;
 
-export async function pushInbox(db: DB, projectId: string, item: { kind: string; refType: string; refId: string; payload?: Record<string, unknown> }) {
-  const p = await db.select().from(project).where(eq(project.id, projectId));
-  await db.insert(inboxItem).values({
-    id: uid(), workspaceId: p[0]?.workspaceId ?? 'default', projectId, kind: item.kind, refType: item.refType, refId: item.refId, status: 'open',
-    payloadJson: item.payload ? JSON.stringify(item.payload) : null, createdAt: now(),
-  });
-}
+type WorkflowCtx = { db: DB; actor: Actor; task: TaskRow };
 
 export async function condTransition(db: DB, actor: Actor, taskId: string, ev: Parameters<typeof transition>[1], extra: Record<string, unknown> = {}) {
   const cur = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!cur) return null;
-  const r = transition(cur.status as never, ev);
+  const r = transition(cur.status as TaskStatus, ev);
   if (!r.ok) return null;
   const changed = await db.update(task).set({ status: r.to, ...extra }).where(and(eq(task.id, taskId), eq(task.status, cur.status)));
   if (changed.changes === 0) return null;
@@ -40,15 +39,8 @@ export async function condTransition(db: DB, actor: Actor, taskId: string, ev: P
 async function setStage(db: DB, actor: Actor, taskId: string, stage: string) {
   await db.update(task).set({ stage }).where(eq(task.id, taskId));
   await logEvent(db, actor, 'task_stage_changed', 'task', taskId, { stage });
-  events.emit('task_stage_changed', { targetId: taskId, stage });
-}
-
-async function threadMsg(db: DB, taskId: string, senderId: string, content: string, kind = 'status') {
-  const th = await taskThreadOf(db, taskId);
-  if (!th) return;
-  const m = { id: uid(), threadId: th.id, senderType: 'agent', senderId, kind, content, createdAt: now() };
-  await db.insert(message).values(m);
-  events.emit('message_created', m as unknown as Record<string, unknown>);
+  const parentId = (await db.select({ parentId: task.parentId }).from(task).where(eq(task.id, taskId)))[0]?.parentId;
+  if (parentId) await rollupStage(db, actor, parentId);
 }
 
 export async function supersedePending(db: DB, taskId: string) {
@@ -59,7 +51,6 @@ export async function supersedePending(db: DB, taskId: string) {
 }
 
 async function triggerTemplate(db: DB, wsId: string, taskId: string, templateId: string, trigger: string) {
-  const { agent } = await import('../db/schema.js');
   const a = (await db.select().from(agent).where(and(eq(agent.workstationId, wsId), eq(agent.templateId, templateId))))[0];
   if (a) await triggerRun(db, a.id, taskId, trigger);
 }
@@ -69,53 +60,83 @@ async function wsSettings(db: DB, wsId: string): Promise<DevSettings> {
   return devSettings(ws?.settingsJson ?? null);
 }
 
-// 触发 stage 的 activeAgents（跳过 assignee 本身的模板）
+const actorName = async (db: DB, actor: Actor) =>
+  actor.type === 'human' ? '本地用户' : ((await db.select().from(agent).where(eq(agent.id, actor.id)))[0]?.name ?? 'Agent');
+
+const assigneeName = async (db: DB, t: TaskRow) => {
+  if (t.assigneeType === 'human') return '本地用户';
+  return (t.assigneeId ? (await db.select().from(agent).where(eq(agent.id, t.assigneeId)))[0]?.name : undefined) ?? '实现者';
+};
+
+// 进入 stage 时唤醒声明了 stage_enter 的 activeAgents；activeAgents 只表示本阶段可参与，实现者由指派驱动
 export async function triggerStageAgents(db: DB, taskId: string, stage: string) {
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!t) return;
   const ws = (await db.select().from(workstation).where(eq(workstation.id, t.workstationId)))[0];
   const manifest = ws ? manifestOf(ws) : null;
   const st = manifest?.stages?.find((s) => s.id === stage);
-  const { agent } = await import('../db/schema.js');
-  const assigneeTpl = t.assigneeId
-    ? (await db.select().from(agent).where(eq(agent.id, t.assigneeId)))[0]?.templateId
-    : null;
-  for (const tpl of st?.activeAgents ?? []) {
-    if (tpl === assigneeTpl) continue;
-    await triggerTemplate(db, t.workstationId, taskId, tpl, 'stage_enter');
+  for (const id of st?.activeAgents ?? []) {
+    if (manifest?.agents.find((a) => a.id === id)?.triggers?.includes('stage_enter')) {
+      await triggerTemplate(db, t.workstationId, taskId, id, 'stage_enter');
+    }
   }
 }
 
 export async function sendBack(db: DB, ctx: { actor: Actor }, taskId: string, note: string) {
   const row = (await db.update(task).set({ feedbackCount: sql`${task.feedbackCount} + 1` }).where(eq(task.id, taskId)).returning({ n: task.feedbackCount, projectId: task.projectId }))[0];
   if (!row) return;
+  const cur = (await db.select().from(task).where(eq(task.id, taskId)))[0]!;
+  const to = await assigneeName(db, cur);
   if (row.n > MAX_SEND_BACKS) {
     // 次数用尽：退回实现后转 blocked 等人处理；计数清零，人解除阻塞后重新计
     const reason = `连续退回超过 ${MAX_SEND_BACKS} 次，需要人工介入。最后一次：${note.slice(0, 500)}`;
     await condTransition(db, ctx.actor, taskId, 'send_back', { stage: 'implement' });
     await condTransition(db, ctx.actor, taskId, 'block', { blockedReason: reason, feedbackCount: 0 });
     await pushInbox(db, row.projectId, { kind: 'blocked', refType: 'task', refId: taskId, payload: { reason } });
-    events.emit('inbox_created', { kind: 'blocked', refId: taskId });
-    await threadMsg(db, taskId, 'platform', reason);
+    await postStatus(db, taskId, reason);
     return;
   }
   await condTransition(db, ctx.actor, taskId, 'send_back');
   await setStage(db, ctx.actor, taskId, 'implement');
-  await threadMsg(db, taskId, 'platform', note);
+  await postHandoff(db, taskId, note, { from: await actorName(db, ctx.actor), to, next: '修订后重新提交' });
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (t?.assigneeType === 'agent' && t.assigneeId) await triggerRun(db, t.assigneeId, taskId, 'feedback');
 }
 
-// submit_change → submitted + stage=test + 触发 test-engineer
-export async function afterSubmit(ctx: ToolCtx, proposalId: string) {
-  void proposalId;
+// 提交 = 分支快照成代码提案；Agent 工具和人工接管共用
+export async function submitChange(ctx: WorkflowCtx, summary: string): Promise<{ error: string } | { proposalId: string; head_sha: string }> {
+  const { db, actor } = ctx;
+  const ref = ctx.task.codeRefJson ? (JSON.parse(ctx.task.codeRefJson) as { worktree: string; base_sha: string }) : null;
+  if (!ref?.worktree) return { error: '任务没有 worktree' };
+  const status = await git(ref.worktree, ['status', '--porcelain']);
+  if (status.stdout.trim()) return { error: '存在未提交改动' };
+  const count = await git(ref.worktree, ['rev-list', '--count', `${ref.base_sha}..HEAD`]);
+  if (Number(count.stdout.trim()) < 1) return { error: '分支未领先 base' };
+  const head = (await gitOk(ref.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
+  const d = (await git(ref.worktree, ['diff', `${ref.base_sha}..HEAD`])).stdout;
+  const pid = uid();
+  await supersedePending(db, ctx.task.id);
+  await db.insert(proposal).values({
+    id: pid, taskId: ctx.task.id, workstationId: ctx.task.workstationId, targetType: 'code', baseVersion: 0,
+    patchJson: d.length > PATCH_DIFF_LIMIT ? `${d.slice(0, PATCH_DIFF_LIMIT)}\n…[truncated]` : d,
+    reason: summary, authorType: actor.type, authorId: actor.id,
+    status: 'pending', createdAt: now(),
+  });
+  await db.update(task).set({ codeRefJson: JSON.stringify({ ...ref, head_sha: head }) }).where(eq(task.id, ctx.task.id));
+  await logEvent(db, actor, 'proposal_created', 'proposal', pid, { kind: 'code' });
+  await afterSubmit(ctx, pid, summary);
+  return { proposalId: pid, head_sha: head };
+}
+
+// submit_change → submitted + stage=test；test-engineer 由 stage 事件唤醒
+async function afterSubmit(ctx: WorkflowCtx, proposalId: string, summary: string) {
   await condTransition(ctx.db, ctx.actor, ctx.task.id, 'submit');
+  await postHandoff(ctx.db, ctx.task.id, `提交改动：${summary}`, { from: await actorName(ctx.db, ctx.actor), to: '测试工程师', next: '跑验收', refs: { proposalId } });
   await setStage(ctx.db, ctx.actor, ctx.task.id, 'test');
-  await triggerTemplate(ctx.db, ctx.agent.workstationId, ctx.task.id, 'test-engineer', 'stage_enter');
 }
 
 // review_change → approve: stage=merge 或 requireHuman；request_changes → send_back
-export async function afterReview(ctx: ToolCtx, proposalId: string, decision: 'approve' | 'request_changes') {
+export async function afterReview(ctx: Pick<WorkflowCtx, 'db' | 'actor' | 'task'> & { agent: { workstationId: string } }, proposalId: string, decision: 'approve' | 'request_changes') {
   if (decision === 'request_changes') {
     await sendBack(ctx.db, ctx, ctx.task.id, '审查要求修改，回退到实现阶段');
     return;
@@ -124,8 +145,10 @@ export async function afterReview(ctx: ToolCtx, proposalId: string, decision: 'a
   const ids = (await ctx.db.select({ id: proposal.id }).from(proposal).where(eq(proposal.taskId, ctx.task.id))).map((p) => p.id);
   if (ids.length > 0) await ctx.db.update(reviewComment).set({ resolved: 1 }).where(inArray(reviewComment.proposalId, ids));
   const s = await wsSettings(ctx.db, ctx.agent.workstationId);
+  const needHuman = s.requireHumanFor.includes('merge');
+  await postHandoff(ctx.db, ctx.task.id, needHuman ? '审查通过，等你确认入队合并' : '审查通过，进入串行合并队列', { from: await actorName(ctx.db, ctx.actor), to: needHuman ? '本地用户' : '合并队列', next: '合并', refs: { proposalId } });
   await setStage(ctx.db, ctx.actor, ctx.task.id, 'merge');
-  if (s.requireHumanFor.includes('merge')) {
+  if (needHuman) {
     await pushInbox(ctx.db, ctx.task.projectId, { kind: 'proposal_review', refType: 'proposal', refId: proposalId });
     return;
   }
@@ -133,7 +156,7 @@ export async function afterReview(ctx: ToolCtx, proposalId: string, decision: 'a
 }
 
 // ===== 验收 =====
-interface Check { kind: string; run?: string }
+interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number }
 
 export async function runAcceptance(db: DB, wsId: string, worktree: string, checks: Check[], timeoutSec: number, taskId?: string): Promise<{ allPassed: boolean; results: { command: string; status: string; duration: number; output: string }[] }> {
   const head = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
@@ -151,10 +174,24 @@ export async function runAcceptance(db: DB, wsId: string, worktree: string, chec
     await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'test_output', ref: res.output.slice(0, 32000), createdAt: now() });
     await db.insert(entity).values({
       id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
-      dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId }),
+      dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
       createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
     });
     results.push({ command: c.run!, status, duration: res.durationMs / 1000, output: res.output });
+  }
+  for (const c of checks.filter((x) => x.kind === 'visual' && x.url && x.baseline)) {
+    const started = Date.now();
+    const v = await runVisualCheck(worktree, { url: c.url!, baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
+    const command = `visual ${c.url}`;
+    const duration = (Date.now() - started) / 1000;
+    const aid = uid();
+    await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'visual', ref: v.output, metaJson: JSON.stringify({ shot: v.shot, ratio: v.ratio }), createdAt: now() });
+    await db.insert(entity).values({
+      id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
+      dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
+      createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
+    });
+    results.push({ command, status: v.status, duration, output: v.output });
   }
   const allPassed = results.every((r) => r.status === 'passed');
   if (taskId) {
@@ -195,11 +232,11 @@ export async function afterTestRun(db: DB, taskId: string, runId?: string) {
   const ref = t.codeRefJson ? JSON.parse(t.codeRefJson) as { worktree: string } : null;
   if (!ref?.worktree) return;
   const actor: Actor = { type: 'human', id: 'local' };
-  const { allPassed, results } = await runAcceptance(db, t.workstationId!, ref.worktree, checks, s.commandTimeoutSec, taskId);
+  const { allPassed, results } = await runAcceptance(db, t.workstationId, ref.worktree, checks, s.commandTimeoutSec, taskId);
   await condTransition(db, actor, taskId, 'begin_review');
   if (allPassed) {
+    await postHandoff(db, taskId, `验收通过（${results.length} 项），交给审查`, { from: '测试工程师', to: '审查', next: '独立审阅 diff' });
     await setStage(db, actor, taskId, 'review');
-    await triggerTemplate(db, t.workstationId, taskId, 'reviewer', 'stage_enter');
   } else {
     const fails = results.filter((r) => r.status !== 'passed').map((r) => `${r.command}: ${r.status}\n${r.output.slice(0, 300)}`).join('\n');
     await sendBack(db, { actor }, taskId, `验收未通过，回退到实现阶段：\n${fails}`);
@@ -224,7 +261,7 @@ export function enqueueMerge(db: DB, actor: Actor, taskId: string) {
 
 async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
-  if (!t?.codeRefJson) return;
+  if (!t?.codeRefJson || t.status === 'done') return;
   const ref = JSON.parse(t.codeRefJson) as { worktree: string; branch: string; base_sha: string };
   const integ = await ensureIntegration(s, t.workstationId);
   const p = (await db.select().from(proposal).where(and(eq(proposal.taskId, taskId), eq(proposal.status, 'approved')))).pop();
@@ -233,17 +270,20 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   const cur = (await git(integ, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
   const dirty = (await git(integ, ['status', '--porcelain'])).stdout.trim();
   if (cur !== s.targetBranch || dirty) {
-    await threadMsg(db, taskId, 'platform', `integration worktree 不干净（branch=${cur}），合并中止`);
+    await postStatus(db, taskId, `integration worktree 不干净（branch=${cur}），合并中止`);
     await sendBack(db, { actor }, taskId, '合并中止：integration worktree 状态异常');
     return;
   }
+  await snapshotDb(db, taskId);
   // 2. merge --no-commit
   const m = await git(integ, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'merge', '--no-ff', '--no-commit', ref.branch]);
   if (m.code !== 0) {
+    // 必须在 abort 之前取：abort 后索引已干净；git 的冲突说明也写在 stdout
+    const conflicted = (await git(integ, ['diff', '--name-only', '--diff-filter=U'])).stdout.trim().split('\n').filter(Boolean);
     await git(integ, ['merge', '--abort']);
     if (p) await db.update(proposal).set({ status: 'conflicted' }).where(eq(proposal.id, p.id));
-    const conflicted = (await git(integ, ['diff', '--name-only', '--diff-filter=U'])).stdout.trim();
-    await sendBack(db, { actor }, taskId, `合并冲突，回退到实现阶段。冲突文件：${conflicted || '未知'}。stderr: ${m.stderr.slice(0, 300)}`);
+    const detail = (m.stderr.trim() || m.stdout.trim()).slice(0, 300);
+    await sendBack(db, { actor }, taskId, `合并冲突，回退到实现阶段。冲突文件：${conflicted.join('、') || '未知'}。${detail}`);
     return;
   }
   // 3. setup + 验收
@@ -256,7 +296,7 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
     }
   }
   const checks = JSON.parse(t.acceptanceJson ?? '[]') as Check[];
-  const { allPassed, results } = await runAcceptance(db, t.workstationId!, integ, checks, s.commandTimeoutSec, taskId);
+  const { allPassed, results } = await runAcceptance(db, t.workstationId, integ, checks, s.commandTimeoutSec, taskId);
   if (!allPassed) {
     await git(integ, ['merge', '--abort']);
     const fails = results.filter((r) => r.status !== 'passed').map((r) => `${r.command}: ${r.output.slice(0, 300)}`).join('\n');
@@ -274,6 +314,7 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   }
   await db.update(task).set({ codeRefJson: JSON.stringify({ ...ref, merge_sha: mergeSha }) }).where(eq(task.id, taskId));
   await logEvent(db, actor, 'proposal_merged', 'proposal', p?.id ?? '', { merge_sha: mergeSha });
+  await postHandoff(db, taskId, `已合并到 ${s.targetBranch}（${mergeSha.slice(0, 8)}）`, { from: '合并队列', to: 'steward', refs: { merge_sha: mergeSha } });
   await condTransition(db, actor, taskId, 'approve');
   await removeTaskWorktree(s, t.workstationId, taskId);
   events.emit('inbox_created', { kind: 'merged', refId: taskId });
@@ -283,29 +324,29 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
 // ===== 父任务收口 =====
 export async function maybeCloseParent(db: DB, parentId: string | null) {
   if (!parentId) return;
+  const actor: Actor = { type: 'human', id: 'local' };
+  await rollupStage(db, actor, parentId);
   const children = await db.select().from(task).where(eq(task.parentId, parentId));
   const terminal = ['done', 'cancelled', 'rejected'];
   if (children.length === 0 || !children.every((c) => terminal.includes(c.status))) return;
   if (!children.some((c) => c.status === 'done')) return;
   const parent = (await db.select().from(task).where(eq(task.id, parentId)))[0];
   if (!parent) return;
-  const actor: Actor = { type: 'human', id: 'local' };
   const sub = await condTransition(db, actor, parentId, 'submit');
   if (!sub) return;
   await condTransition(db, actor, parentId, 'begin_review');
   // 父任务 acceptance 在 integration worktree（targetBranch HEAD）
-  const s = await wsSettings(db, parent.workstationId === parent.assigneeId ? parent.assigneeId! : parent.workstationId);
   const targetWs = parent.assigneeType === 'workstation' ? parent.assigneeId! : parent.workstationId;
-  const integ = await ensureIntegration(await wsSettings(db, targetWs), targetWs);
+  const s = await wsSettings(db, targetWs);
+  const integ = await ensureIntegration(s, targetWs);
   const checks = JSON.parse(parent.acceptanceJson ?? '[]') as Check[];
   const { allPassed } = await runAcceptance(db, targetWs, integ, checks, s.commandTimeoutSec, parentId);
+  const steward = (await db.select().from(agent).where(and(eq(agent.workstationId, targetWs), eq(agent.isSteward, 1))))[0];
   if (allPassed) {
     await condTransition(db, actor, parentId, 'approve');
-    const steward = (await db.select().from((await import('../db/schema.js')).agent).where(and(eq((await import('../db/schema.js')).agent.workstationId, targetWs), eq((await import('../db/schema.js')).agent.isSteward, 1))))[0];
-    await threadMsg(db, parentId, steward?.id ?? 'platform', '全部子任务完成，父任务验收通过，已收尾。');
+    await postHandoff(db, parentId, '全部子任务完成，主任务验收通过，已收尾。', { from: steward?.name ?? '工作台', to: '根工作台' });
   } else {
-    const p = await db.select().from(project).where(eq(project.id, parent.projectId));
-    await db.insert(inboxItem).values({ id: uid(), workspaceId: p[0]?.workspaceId ?? 'default', projectId: parent.projectId, kind: 'blocked', refType: 'task', refId: parentId, status: 'open', createdAt: now() });
+    await pushInbox(db, parent.projectId, { kind: 'blocked', refType: 'task', refId: parentId, payload: { reason: '全部子任务已完成，但主任务验收未通过' } });
   }
 }
 

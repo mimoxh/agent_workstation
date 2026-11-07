@@ -24,7 +24,7 @@
 | [docs/PLUGIN-SPEC.md](docs/PLUGIN-SPEC.md) | 工作台插件协议 v0.2：schema / 板块 / 阶段 / Agent 模板 / 模块声明 |
 | [docs/MARKETPLACE.md](docs/MARKETPLACE.md) | 市场与分发：Bundle 格式、信任分级、兼容与迁移、冷启动 |
 | [docs/PLUGINS/DEV.md](docs/PLUGINS/DEV.md) | 首个垂直插件 `dev`：全栈开发工作台的实体、板块、阶段与执行边界 |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 决策记录：19 条已定、10 条待定（Q1–Q3 已收敛） |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | 决策记录：24 条已定、10 条待定（Q1–Q3 已收敛） |
 
 ## 技术栈
 
@@ -36,8 +36,11 @@ Hono 4.13（本地常驻服务）· SQLite + better-sqlite3 · Drizzle ORM · Zo
 
 - [x] 需求澄清与建模
 - [x] 架构与插件协议草案
-- [ ] M0.1 手工骨架（进行中）
-- [ ] M0.2 pm 根台 + dev 工作台（全栈开发工作台）
+- [x] M0.1 手工骨架
+- [x] M0.2 pm 根台 + dev 工作台（全栈开发工作台）
+- [x] 协作内核：讨论调度、Agent 互相点名、结构化交接、steward 分诊、人工打断与接管
+- [x] 协作界面：指挥台、任务协作室（时间线）、工作台（团队脉搏 + 讨论）
+- [x] M1：三级预算、完整收件箱、Ollama 与降级链、知识库、visual 验收
 - [ ] M2 novel 插件
 
 ## 开发
@@ -52,3 +55,9 @@ pnpm test:e2e     # 端到端测试（Playwright，独立端口 8877/5273）
 pnpm lint         # ESLint
 pnpm db:migrate   # 生成并执行数据库迁移
 ```
+
+## 模型
+
+到「设置」页添加 provider，或复制 `.env.example` 为 `.env.local` 填写（环境变量优先）。不想调用真实模型时设 `AW_ENABLE_MOCK=1`，用脚本化 mock 试用全流程。
+
+默认验收命令是 `pnpm build`，服务进程的 `PATH` 上要能找到 pnpm。

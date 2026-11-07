@@ -2,34 +2,46 @@ import { can, type Actor, type PermCtx } from '@aw/domain';
 import { and, eq, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DB } from '../../db/client.js';
-import { entity, inboxItem, project, task, thread, threadMember, message } from '../../db/schema.js';
+import { entity, project, proposal, task, workstation } from '../../db/schema.js';
+import { logEvent, manifestOf } from '../../usecases/core.js';
+import { createEntity } from '../../usecases/entities.js';
+import { pushInbox } from '../../usecases/inbox.js';
+import { searchKnowledge } from '../../usecases/knowledge.js';
+import { createTaskUc, dispatchTask, respondTask, setStage, transitionTaskUc } from '../../usecases/tasks.js';
+import { postHandoff, postMessage, taskThreadOf } from '../../usecases/threads.js';
+import { escalateTask, reportBlocked } from '../coordination.js';
+import type { AgentRow, RunRow, TaskRow, ThreadRow } from '../types.js';
 import { devTools } from './dev.js';
-import { createTaskUc, logEvent, respondTask } from '../../usecases/index.js';
-import { manifestOf } from '../../usecases/index.js';
-import type { AgentRow, TaskRow, RunRow } from '../types.js';
 
-export interface ToolCtx {
+// 讨论线程里的 run 没有任务；依赖任务的工具统一由 executeTool 拦下
+export interface RunCtx {
   db: DB;
   actor: Actor;
   permCtx: PermCtx;
   agent: AgentRow;
-  task: TaskRow;
+  task: TaskRow | null;
+  thread?: ThreadRow | null | undefined;
   run: RunRow;
 }
 
+export type ToolCtx = RunCtx & { task: TaskRow };
+
 export type Right = 'observe' | 'propose' | 'speak' | 'invoke' | 'always' | 'steward';
 
-export interface ToolDef {
+interface ToolBase {
   description: string;
   right: Right;
   parameters: z.ZodType;
-  execute: (ctx: ToolCtx, args: Record<string, unknown>) => Promise<unknown>;
 }
+
+export type ToolDef =
+  | (ToolBase & { taskless?: false; execute: (ctx: ToolCtx, args: Record<string, unknown>) => Promise<unknown> })
+  | (ToolBase & { taskless: true; execute: (ctx: RunCtx, args: Record<string, unknown>) => Promise<unknown> });
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 
-function guard(ctx: ToolCtx, right: Right): string | null {
+function guard(ctx: RunCtx, right: Right): string | null {
   if (right === 'always') return null;
   if (right === 'steward') {
     return ctx.agent.isSteward === 1 ? null : '仅 steward 可用';
@@ -38,30 +50,13 @@ function guard(ctx: ToolCtx, right: Right): string | null {
   return ok ? null : `无 ${right} 权`;
 }
 
-// 任务线程懒创建
-export async function taskThread(db: DB, t: TaskRow) {
-  const rows = await db.select().from(thread).where(and(eq(thread.kind, 'task'), eq(thread.scopeId, t.id)));
-  if (rows[0]) return rows[0];
-  const id = uid();
-  await db.insert(thread).values({ id, scopeType: 'task', scopeId: t.id, kind: 'task', mode: 'relay', title: t.title, createdAt: now() });
-  await db.insert(threadMember).values([
-    { threadId: id, participantType: 'human', participantId: 'local' },
-    ...(t.assigneeId ? [{ threadId: id, participantType: t.assigneeType ?? 'agent', participantId: t.assigneeId }] : []),
-  ]);
-  const r = await db.select().from(thread).where(eq(thread.id, id));
-  return r[0]!;
-}
+const threadOf = async (ctx: RunCtx) => ctx.thread ?? (ctx.task ? await taskThreadOf(ctx.db, ctx.task.id) : null);
 
-async function postMessage(db: DB, threadId: string, sender: { type: string; id: string }, content: string, kind = 'chat') {
-  const m = { id: uid(), threadId, senderType: sender.type, senderId: sender.id, kind, content, createdAt: now() };
-  await db.insert(message).values(m);
-  const { events } = await import('../../events.js');
-  events.emit('message_created', m as unknown as Record<string, unknown>);
-  return m;
-}
+const speaker = (ctx: RunCtx) => ({ type: 'agent', id: ctx.agent.id });
 
 const tools: Record<string, ToolDef> = {
   read_entity: {
+    taskless: true,
     description: '读取可见工作台的实体',
     right: 'observe',
     parameters: z.object({ id: z.string() }),
@@ -74,6 +69,7 @@ const tools: Record<string, ToolDef> = {
     },
   },
   list_entities: {
+    taskless: true,
     description: '列出可见工作台的实体',
     right: 'observe',
     parameters: z.object({ entityType: z.string(), limit: z.number().optional() }),
@@ -83,17 +79,24 @@ const tools: Record<string, ToolDef> = {
     },
   },
   propose_entity: {
-    description: '提交实体变更提案',
+    taskless: true,
+    description: '提交实体变更提案；插件把实体设为 direct 时直接写入并留版本',
     right: 'propose',
     parameters: z.object({ entityType: z.string(), entityId: z.string().optional(), data: z.record(z.string(), z.unknown()), reason: z.string().optional() }),
     execute: async (ctx, a) => {
-      const ws = (await ctx.db.select().from((await import('../../db/schema.js')).workstation).where(eq((await import('../../db/schema.js')).workstation.id, ctx.agent.workstationId)))[0];
+      const wsId = ctx.agent.workstationId;
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
       const manifest = ws ? manifestOf(ws) : null;
       const def = manifest?.entities[String(a.entityType)];
-      if (!def) return { error: `实体类型 ${String(a.entityType)} 不存在` };
+      if (!def || !ws) return { error: `实体类型 ${String(a.entityType)} 不存在` };
+      const data = a.data as Record<string, unknown>;
       for (const [fid, f] of Object.entries(def.fields)) {
-        const d = a.data as Record<string, unknown>;
-        if (f.required && d[fid] === undefined) return { error: `缺少必填字段 ${fid}` };
+        if (f.required && data[fid] === undefined) return { error: `缺少必填字段 ${fid}` };
+      }
+      const reason = a.reason as string | undefined;
+      if (!a.entityId && (def.writeMode ?? manifest?.defaults?.writeMode) === 'direct') {
+        const r = await createEntity(ctx.actor, ctx.db, wsId, { entityType: String(a.entityType), data, reason });
+        return r.kind === 'ok' ? { entityId: r.id } : { error: r.error };
       }
       let baseVersion = 0;
       if (a.entityId) {
@@ -101,19 +104,22 @@ const tools: Record<string, ToolDef> = {
         if (!e) return { error: '目标实体不存在' };
         baseVersion = e.version;
       }
-      const { proposal } = await import('../../db/schema.js');
       const id = uid();
       await ctx.db.insert(proposal).values({
-        id, taskId: ctx.task.id, targetType: 'entity',
+        id, taskId: ctx.task?.id ?? null, workstationId: wsId, targetType: String(a.entityType),
         entityId: (a.entityId as string | undefined) ?? null,
-        baseVersion, patchJson: JSON.stringify(a.data), reason: (a.reason as string | undefined) ?? null,
+        baseVersion, patchJson: JSON.stringify(data), reason: reason ?? null,
         authorType: 'agent', authorId: ctx.agent.id, status: 'pending', createdAt: now(),
       });
       await logEvent(ctx.db, ctx.actor, 'proposal_created', 'proposal', id, { entityType: a.entityType });
+      await pushInbox(ctx.db, ws.projectId, { kind: 'proposal_review', refType: 'proposal', refId: id });
+      const th = await threadOf(ctx);
+      if (th) await postMessage(ctx.db, th.id, speaker(ctx), `提交${def.label}提案${reason ? `：${reason}` : ''}`, 'proposal_notice', { proposalId: id });
       return { proposalId: id };
     },
   },
   search_workstation: {
+    taskless: true,
     description: '在本台任务与实体中搜索',
     right: 'observe',
     parameters: z.object({ query: z.string() }),
@@ -125,54 +131,124 @@ const tools: Record<string, ToolDef> = {
     },
   },
   create_task: {
-    description: '在本台建子任务并指派给 Agent',
+    taskless: true,
+    description: '在本台建任务：指派给 Agent 时作为子任务开工；不指派时留作草稿等人派发',
     right: 'invoke',
-    parameters: z.object({ title: z.string(), intent: z.string().optional(), input: z.record(z.string(), z.unknown()).optional(), acceptance: z.array(z.unknown()).optional(), assigneeAgentId: z.string(), typeId: z.string().optional(), stage: z.string().optional() }),
+    parameters: z.object({ title: z.string(), intent: z.string().optional(), input: z.record(z.string(), z.unknown()).optional(), acceptance: z.array(z.unknown()).optional(), assigneeAgentId: z.string().optional(), typeId: z.string().optional(), stage: z.string().optional() }),
     execute: async (ctx, a) => {
       const r = await createTaskUc(ctx.actor, ctx.db, ctx.agent.workstationId, {
         title: String(a.title), intent: a.intent as string | undefined, input: a.input as Record<string, unknown> | undefined,
         acceptance: a.acceptance as unknown[] | undefined, typeId: a.typeId as string | undefined,
-        parentId: ctx.task.id, assigneeAgentId: String(a.assigneeAgentId), stage: a.stage as string | undefined,
+        parentId: ctx.task?.id, assigneeAgentId: a.assigneeAgentId as string | undefined, stage: a.stage as string | undefined,
       });
-      return r.kind === 'ok' ? { taskId: r.task!.id, status: r.task!.status } : { error: (r as { error?: string }).error };
+      if (r.kind !== 'ok') return { error: (r as { error?: string }).error };
+      if (!a.assigneeAgentId) {
+        const th = await threadOf(ctx);
+        if (th) await postMessage(ctx.db, th.id, speaker(ctx), `起草了任务「${String(a.title)}」，等你确认派发`, 'status', { draftTaskId: r.task!.id });
+      }
+      return { taskId: r.task!.id, status: r.task!.status };
+    },
+  },
+  dispatch_task: {
+    taskless: true,
+    description: '把本台任务派发给子孙工作台（只在人明确要求派发时调用）',
+    right: 'invoke',
+    parameters: z.object({ taskId: z.string().optional(), targetWorkstationId: z.string(), typeId: z.string(), input: z.record(z.string(), z.unknown()), acceptance: z.array(z.record(z.string(), z.unknown())).optional(), reason: z.string().optional() }),
+    execute: async (ctx, a) => {
+      const taskId = (a.taskId as string | undefined) ?? ctx.task?.id;
+      if (!taskId) return { error: '缺少 taskId' };
+      const r = await dispatchTask(ctx.actor, ctx.db, taskId, {
+        targetWorkstationId: String(a.targetWorkstationId), typeId: String(a.typeId), input: a.input as Record<string, unknown>,
+        acceptance: a.acceptance as unknown[] | undefined, reason: a.reason as string | undefined,
+      });
+      return r.kind === 'ok' ? { status: r.task!.status } : { error: r.error };
     },
   },
   send_message: {
-    description: '在当前任务线程发消息',
+    taskless: true,
+    description: '在当前会话发消息；需要别人回应时在内容里 @ 对方名字',
     right: 'speak',
-    parameters: z.object({ content: z.string(), kind: z.string().optional() }),
+    parameters: z.object({ content: z.string(), kind: z.enum(['chat', 'status']).optional() }),
     execute: async (ctx, a) => {
-      const th = await taskThread(ctx.db, ctx.task);
-      const m = await postMessage(ctx.db, th.id, { type: 'agent', id: ctx.agent.id }, String(a.content), (a.kind as string | undefined) ?? 'chat');
+      const th = await threadOf(ctx);
+      if (!th) return { error: '当前没有会话' };
+      const m = await postMessage(ctx.db, th.id, speaker(ctx), String(a.content), (a.kind as string | undefined) ?? 'chat');
+      return { messageId: m.id };
+    },
+  },
+  record_decision: {
+    taskless: true,
+    description: '把讨论压缩成一张结论卡：结论、依据、遗留问题',
+    right: 'speak',
+    parameters: z.object({ summary: z.string(), openQuestions: z.string().optional() }),
+    execute: async (ctx, a) => {
+      const th = await threadOf(ctx);
+      if (!th) return { error: '当前没有会话' };
+      const m = await postMessage(ctx.db, th.id, speaker(ctx), String(a.summary), 'decision', { openQuestions: (a.openQuestions as string | undefined) ?? null });
       return { messageId: m.id };
     },
   },
   report_blocked: {
-    description: '上报阻塞',
+    description: '上报阻塞：说清缺什么、试过什么、需要谁决策，不要用猜测填充',
     right: 'always',
-    parameters: z.object({ reason: z.string() }),
+    parameters: z.object({ reason: z.string(), missing: z.string().optional(), tried: z.string().optional(), decider: z.enum(['steward', 'human']).optional() }),
+    execute: async (ctx, a) =>
+      reportBlocked(ctx.db, ctx.actor, ctx.agent, ctx.task, {
+        reason: String(a.reason), missing: a.missing as string | undefined, tried: a.tried as string | undefined, decider: a.decider as 'steward' | 'human' | undefined,
+      }),
+  },
+  resolve_block: {
+    description: 'steward 在本台解除子任务阻塞，并告诉执行者怎么继续',
+    right: 'steward',
+    parameters: z.object({ note: z.string() }),
     execute: async (ctx, a) => {
-      const { transition } = await import('@aw/domain');
-      const r = transition(ctx.task.status as never, 'block');
-      if (!r.ok) return { error: r.error };
-      const changed = await ctx.db.update(task).set({ status: r.to, blockedReason: String(a.reason) }).where(and(eq(task.id, ctx.task.id), eq(task.status, ctx.task.status)));
-      if (changed.changes === 0) return { error: '任务状态已变化' };
-      await ctx.db.insert(inboxItem).values({ id: uid(), workspaceId: 'default', projectId: ctx.task.projectId, kind: 'blocked', refType: 'task', refId: ctx.task.id, status: 'open', createdAt: now() });
-      await logEvent(ctx.db, ctx.actor, 'task_status_changed', 'task', ctx.task.id, { to: r.to });
-      return { ok: true };
+      await postHandoff(ctx.db, ctx.task.id, `${ctx.agent.name} 解除阻塞：${String(a.note)}`, { from: ctx.agent.name, to: '执行者', next: '继续实现' });
+      const r = await transitionTaskUc(ctx.actor, ctx.db, ctx.task.id, 'unblock');
+      return r.kind === 'ok' ? { status: r.task?.status } : { error: r.error };
+    },
+  },
+  escalate_block: {
+    description: 'steward 把超出本台决策权的阻塞上送给人',
+    right: 'steward',
+    parameters: z.object({ reason: z.string() }),
+    execute: async (ctx, a) => ({ status: await escalateTask(ctx.db, ctx.actor, ctx.task.id, String(a.reason)) }),
+  },
+  advance_stage: {
+    description: 'steward 推进任务到下一阶段',
+    right: 'steward',
+    parameters: z.object({ stage: z.string() }),
+    execute: async (ctx, a) => {
+      const r = await setStage(ctx.actor, ctx.db, ctx.task.id, String(a.stage));
+      return r.kind === 'ok' ? { stage: r.task?.stage } : { error: r.error };
+    },
+  },
+  search_knowledge: {
+    taskless: true,
+    description: '检索知识库。结论用到检索结果时必须带上返回的 citation',
+    right: 'observe',
+    parameters: z.object({ query: z.string(), topK: z.number().optional() }),
+    execute: async (ctx, a) => {
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      if (!ws) return { error: '工作台不存在' };
+      const hits = await searchKnowledge(ctx.db, { projectId: ws.projectId, workstationId: ws.id }, String(a.query), Number(a.topK ?? 5));
+      return { hits: hits.map((h) => ({ citation: h.citation, source: h.sourceName, anchor: h.anchor, text: h.text })) };
     },
   },
   request_human: {
+    taskless: true,
     description: '请求人工决策',
     right: 'always',
     parameters: z.object({ question: z.string() }),
     execute: async (ctx, a) => {
-      const p = await ctx.db.select().from(project).where(eq(project.id, ctx.task.projectId));
-      const iid = uid();
-      await ctx.db.insert(inboxItem).values({ id: iid, workspaceId: p[0]?.workspaceId ?? 'default', projectId: ctx.task.projectId, kind: 'human_request', refType: 'task', refId: ctx.task.id, status: 'open', createdAt: now() });
-      const th = await taskThread(ctx.db, ctx.task);
-      await postMessage(ctx.db, th.id, { type: 'agent', id: ctx.agent.id }, `🙋 ${String(a.question)}`, 'status');
-      return { inboxId: iid };
+      const th = await threadOf(ctx);
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      const projectId = ctx.task?.projectId ?? ws?.projectId;
+      if (!projectId) return { error: '项目不存在' };
+      const proj = (await ctx.db.select().from(project).where(eq(project.id, projectId)))[0];
+      const ref = ctx.task ? { refType: 'task', refId: ctx.task.id } : { refType: 'thread', refId: th?.id ?? '' };
+      const inboxId = await pushInbox(ctx.db, proj?.id ?? projectId, { kind: 'human_request', ...ref, payload: { question: String(a.question), agentId: ctx.agent.id } });
+      if (th) await postMessage(ctx.db, th.id, speaker(ctx), `🙋 ${String(a.question)}`, 'status');
+      return { inboxId };
     },
   },
   respond_task: {
@@ -198,13 +274,15 @@ export function toolSchemasFor(agentTools: string[]): { name: string; descriptio
   return agentTools.filter((n) => allTools()[n]).map((n) => ({ name: n, description: allTools()[n]!.description, parameters: allTools()[n]!.parameters }));
 }
 
-export async function executeTool(ctx: ToolCtx, name: string, args: Record<string, unknown>): Promise<unknown> {
+export async function executeTool(ctx: RunCtx, name: string, args: Record<string, unknown>): Promise<unknown> {
   const def = allTools()[name];
   if (!def) return { error: `工具 ${name} 未实现` };
   const denied = guard(ctx, def.right);
   if (denied) return { error: denied };
   try {
-    return await def.execute(ctx, args);
+    if (def.taskless) return await def.execute(ctx, args);
+    if (!ctx.task) return { error: `工具 ${name} 只能在任务上下文里使用` };
+    return await def.execute(ctx as ToolCtx, args);
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }

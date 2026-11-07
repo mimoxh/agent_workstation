@@ -65,7 +65,8 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 | `tests` | table | TestRun | 测试结果，可点开原始输出 |
 | `decisions` | table | ADR | 架构决策 |
 | `files` | tree | `system:files` | 只读文件树（git 工作树），点开看代码 |
-| `preview` | preview | Page | 页面预览 + 截图对比（M1） |
+| `preview` | preview | Page | 页面预览 + 截图对比 |
+| `knowledge` | knowledge | `system:knowledge` | 知识库：规范、资料、笔记 |
 
 `diff` 是 M0 新增的 panel 类型，`preview` 于 M1。
 
@@ -92,11 +93,13 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 
 | Agent | 职责 | 工具 |
 |---|---|---|
-| `architect`（steward） | 拆模块、定接口、写 ADR、对外代表 | `read_entity` `list_entities` `propose_entity` `create_task` `send_message` `search_code` `git_diff` `report_blocked` `request_human` `respond_task` |
+| `architect`（steward） | 拆模块、定接口、写 ADR、主持讨论、分诊阻塞、对外代表 | `read_entity` `list_entities` `propose_entity` `create_task` `send_message` `record_decision` `search_knowledge` `search_code` `git_diff` `report_blocked` `request_human` `respond_task` `resolve_block` `escalate_block` `advance_stage` |
 | `frontend-dev` | 页面、组件、样式、交互 | `read_file` `search_code` `git_diff` `apply_patch` `git_commit` `submit_change` `run_command` `send_message` `report_blocked` |
 | `backend-dev` | API、数据层、任务编排 | 同 `frontend-dev` |
 | `test-engineer` | 写测试、跑测试、出报告 | `read_file` `search_code` `git_diff` `apply_patch` `git_commit` `run_command` `run_tests`（M1）`capture_screenshot`（M1）`send_message` |
-| `reviewer` | **只读 diff，独立上下文** | `git_diff` `read_file` `read_entity` `list_entities` `review_change` `send_message` |
+| `reviewer` | **只读 diff，独立上下文** | `git_diff` `read_file` `read_entity` `list_entities` `search_knowledge` `review_change` `send_message` |
+
+成员之间用 @ 互相询问，被 @ 的成员只回应问题，不能写 assignee 的 worktree；预设「快速接力」关闭任务内讨论（见 DECISIONS D22）。
 
 **reviewer 的价值来自「不看实现过程」**：它不共享实现者的对话上下文，只看最终 diff 与验收结果。这比单 Agent 自审强得多，也是多 Agent 唯一不可替代的地方之一。
 

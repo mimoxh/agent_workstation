@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 · 改动审阅</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./aw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app">
+
+<header class="top">
+  <div class="top-l">
+    <a class="brand" href="Projects.dc.html" aria-label="全部项目">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6" stroke="currentColor" stroke-opacity="0.35"></rect><path d="M6 8.5h9M6 13h13M6 17.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="19" cy="8.5" r="2" style="fill: var(--accent)"></circle></svg>
+    </a>
+    <nav class="crumbs" aria-label="位置"><a href="Main.dc.html">Agent Workstation</a><span class="sep" aria-hidden="true">/</span><a href="Board.dc.html">开发</a><span class="sep" aria-hidden="true">/</span><span class="here" aria-current="page">改动审阅</span></nav>
+  </div>
+  <div class="top-r">
+    <a class="measured xs t-cool hide-s" href="Ledger.dc.html">3 个 run 在跑</a>
+    <a class="measured xs muted hide-s" href="Ledger.dc.html">预算余 760k</a>
+    <span class="live hide-s"><i class="dot dot-ok"></i>实时</span>
+    <a class="btn" href="Inbox.dc.html">待处理 <span class="measured t-amber">4</span></a>
+    <button class="btn hide-s" type="button">跳转 <kbd>Ctrl K</kbd></button>
+    <a class="me" href="Settings.dc.html">本地用户</a>
+  </div>
+</header>
+
+<div class="shell shell-2">
+  <aside class="left" aria-label="导航">
+    <nav class="nav" aria-label="页面">
+      <a href="Main.dc.html">指挥台</a>
+      <a href="Inbox.dc.html">收件箱 <span class="measured xs t-amber">4</span></a>
+      <a href="Ledger.dc.html">账本</a>
+    </nav>
+    <nav class="nav tree" aria-label="活跃任务">
+      <h2 class="nav-h" style="font-weight: 400">活跃任务</h2>
+      <a class="sub" href="Task.dc.html"><span class="truncate">看板状态筛选</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">验收断言写入契约</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="w"></i><i></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">改动审阅空态</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">TaskCard 阶段徽标</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i></span></a>
+    </nav>
+    <nav class="nav tree" aria-label="工作台树">
+      <h2 class="nav-h" style="font-weight: 400">工作台</h2>
+      <a class="sub" href="Main.dc.html"><span>根</span><span class="measured xs muted">pm</span></a>
+      <a class="sub indent" href="Board.dc.html" aria-current="page"><span>开发</span><span class="measured xs t-cool">3 在跑</span></a>
+    </nav>
+    <p class="left-foot measured">plugin dev@1.1.0<br>sqlite 本地</p>
+  </aside>
+
+  <main class="main">
+    <header class="ws-head">
+      <h1 class="title">开发</h1>
+      <p>多 Agent 分工 + 可执行验收的软件开发工作台</p>
+      <div class="ws-stat"><span>进行中 <b>5</b></span><span>待审 <b>2</b></span><span>在跑 <b>3</b></span></div>
+    </header>
+    <nav class="tabs" aria-label="板块">
+      <a href="Board.dc.html">任务看板</a>
+      <a href="Review.dc.html" aria-current="page">改动审阅 <span class="measured xs t-amber">2</span></a>
+      <a href="Board.dc.html">测试结果</a>
+      <a href="Board.dc.html">架构决策</a>
+      <a href="Board.dc.html">文件树</a>
+      <a href="Board.dc.html">页面预览</a>
+      <a href="Board.dc.html">知识库</a>
+      <span class="gap"></span>
+      <a href="Board.dc.html">编制</a>
+      <a href="Board.dc.html">设置</a>
+    </nav>
+
+    <div class="review">
+      <nav class="plist" aria-label="提案">
+        <p class="xs muted" style="padding: 0 4px 4px">提案 4</p>
+        <a class="pitem" href="Review.dc.html" aria-current="true"><b class="truncate">pr-104 状态筛选组件 rev 2</b><span class="row" style="justify-content: space-between; margin-top: 5px"><span class="tag tag-amber">待审</span><span class="measured xs muted">10:03</span></span></a>
+        <a class="pitem" href="Review.dc.html"><b class="truncate">pr-101 TaskCard 阶段徽标</b><span class="row" style="justify-content: space-between; margin-top: 5px"><span class="tag tag-cool">已通过</span><span class="measured xs muted">09:31</span></span></a>
+        <a class="pitem" href="Review.dc.html"><b class="truncate">pr-102 筛选计数徽标</b><span class="row" style="justify-content: space-between; margin-top: 5px"><span class="tag tag-ok">已合并</span><span class="measured xs muted">08:47</span></span></a>
+        <a class="pitem" href="Review.dc.html"><b class="truncate">pr-099 列计数徽标</b><span class="row" style="justify-content: space-between; margin-top: 5px"><span class="tag tag-ok">已合并</span><span class="measured xs muted">昨天</span></span></a>
+      </nav>
+
+      <div class="diffcol">
+        <div class="row-wrap" style="justify-content: space-between">
+          <h2 style="font-size: 16px; font-weight: 500">状态筛选组件 <span class="measured xs muted">rev 2</span></h2>
+          <span class="measured xs muted"><span class="t-ok">+7</span> <span class="t-bad">−3</span> · 2 个文件</span>
+        </div>
+
+        <section class="diff" aria-label="apps/web/src/components/board/TaskBoard.tsx 的改动">
+          <p class="diff-h"><code class="truncate">apps/web/src/components/board/TaskBoard.tsx</code><span class="measured muted">v4 → v5</span></p>
+          <div class="diff-b">
+            <div class="dl hunk"><span></span><span></span><span class="s"></span><code>@@ -18,9 +18,12 @@ export function TaskBoard</code></div>
+            <div class="dl"><span>18</span><span>18</span><span class="s"></span><code>  const tasks = useTasks();</code></div>
+            <div class="dl del"><span>19</span><span></span><span class="s">−</span><code>  const [tab, setTab] = useState&lt;GroupBy&gt;('status');</code></div>
+            <div class="dl add"><span></span><span>19</span><span class="s">+</span><code>  const [params] = useSearchParams();</code></div>
+            <div class="dl add"><span></span><span>20</span><span class="s">+</span><code>  const filter = params.get('filter') ?? 'all';</code></div>
+            <div class="dl add"><span></span><span>21</span><span class="s">+</span><code>  const shown = filterTasks(tasks, filter);</code></div>
+            <div class="dnote"><p class="row-wrap xs muted"><span class="t-cool" style="font-weight: 500">审查</span><span class="measured">09:46</span><span class="tag tag-ok">rev 2 已修订</span></p><p>订阅缺失时刷新不回填，这里要跟着 URL 变化重算。</p></div>
+            <div class="dl"><span>20</span><span>22</span><span class="s"></span><code>  return (</code></div>
+            <div class="dl del"><span>21</span><span></span><span class="s">−</span><code>    &lt;Board group={tab} tasks={tasks} /&gt;</code></div>
+            <div class="dl add"><span></span><span>23</span><span class="s">+</span><code>    &lt;Board group="stage" tasks={shown} filter={filter} /&gt;</code></div>
+            <div class="dl"><span>22</span><span>24</span><span class="s"></span><code>  );</code></div>
+          </div>
+        </section>
+
+        <section class="diff" aria-label="apps/web/src/components/board/filter.ts 的改动">
+          <p class="diff-h"><code class="truncate">apps/web/src/components/board/filter.ts</code><span class="measured muted">v1 → v2</span></p>
+          <div class="diff-b">
+            <div class="dl hunk"><span></span><span></span><span class="s"></span><code>@@ -7,3 +7,5 @@ export function toSearch</code></div>
+            <div class="dl"><span>7</span><span>7</span><span class="s"></span><code>export function toSearch(f: BoardFilter) {</code></div>
+            <div class="dl del"><span>8</span><span></span><span class="s">−</span><code>  return { filter: f.status };</code></div>
+            <div class="dl add"><span></span><span>8</span><span class="s">+</span><code>  // 空筛选不序列化，避免 ?filter= 空值</code></div>
+            <div class="dl add"><span></span><span>9</span><span class="s">+</span><code>  if (!f.status || f.status === 'all') return {};</code></div>
+            <div class="dl add"><span></span><span>10</span><span class="s">+</span><code>  return { filter: f.status };</code></div>
+            <div class="dl"><span>9</span><span>11</span><span class="s"></span><code>}</code></div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="rpane" aria-label="审阅">
+        <div class="stack" style="gap: 4px">
+          <p class="xs muted">代码提案</p>
+          <p class="ink2" style="font-size: 13px">过滤状态以 URL 承载，可分享，不落库。</p>
+          <p class="measured xs muted">前端开发 #2 · 10:03</p>
+          <a class="xs link truncate" href="Task.dc.html">看板状态筛选</a>
+        </div>
+        <div class="stack" style="gap: 6px">
+          <p class="xs muted">验收</p>
+          <ul class="checks">
+            <li><span class="measured t-ok" aria-hidden="true">✓</span><code class="truncate ink2">pnpm build</code><span class="measured xs muted">48.1s</span></li>
+            <li><span class="measured t-ok" aria-hidden="true">✓</span><code class="truncate ink2">pnpm test</code><span class="measured xs muted">53.6s</span></li>
+            <li><span class="measured t-amber" aria-hidden="true">·</span><code class="truncate ink2">e2e board-filter</code><span class="xs t-amber">等批准</span></li>
+          </ul>
+        </div>
+        <div class="stack" style="gap: 6px">
+          <p class="xs muted">审查意见 2</p>
+          <p class="xs ink2"><span class="t-ok measured">✓</span> <code>filter.ts:8</code> 空数组不要序列化</p>
+          <p class="xs ink2"><span class="t-ok measured">✓</span> <code>TaskBoard.tsx:19</code> 补上 URL 订阅</p>
+        </div>
+        <span class="grow"></span>
+        <p class="xs muted">e2e 跑完后任务才进入评审，现在可以先留意见。</p>
+        <div>
+          <label class="flabel" for="review-note">审查结论（可选）</label>
+          <textarea class="input" id="review-note" rows="2" placeholder="写给前端开发 #2"></textarea>
+        </div>
+        <div class="stack" style="gap: 8px">
+          <button class="btn btn-primary" type="button">通过</button>
+          <button class="btn" type="button">要求修改</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

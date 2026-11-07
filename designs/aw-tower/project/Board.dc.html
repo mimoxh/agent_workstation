@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 · 任务看板</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./aw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app">
+
+<header class="top">
+  <div class="top-l">
+    <a class="brand" href="Projects.dc.html" aria-label="全部项目">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6" stroke="currentColor" stroke-opacity="0.35"></rect><path d="M6 8.5h9M6 13h13M6 17.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="19" cy="8.5" r="2" style="fill: var(--accent)"></circle></svg>
+    </a>
+    <nav class="crumbs" aria-label="位置"><a href="Main.dc.html">Agent Workstation</a><span class="sep" aria-hidden="true">/</span><span class="here" aria-current="page">开发</span></nav>
+  </div>
+  <div class="top-r">
+    <a class="measured xs t-cool hide-s" href="Ledger.dc.html">3 个 run 在跑</a>
+    <a class="measured xs muted hide-s" href="Ledger.dc.html">预算余 760k</a>
+    <span class="live hide-s"><i class="dot dot-ok"></i>实时</span>
+    <a class="btn" href="Inbox.dc.html">待处理 <span class="measured t-amber">4</span></a>
+    <button class="btn hide-s" type="button">跳转 <kbd>Ctrl K</kbd></button>
+    <a class="me" href="Settings.dc.html">本地用户</a>
+  </div>
+</header>
+
+<div class="shell shell-2">
+  <aside class="left" aria-label="导航">
+    <nav class="nav" aria-label="页面">
+      <a href="Main.dc.html">指挥台</a>
+      <a href="Inbox.dc.html">收件箱 <span class="measured xs t-amber">4</span></a>
+      <a href="Ledger.dc.html">账本</a>
+    </nav>
+    <nav class="nav tree" aria-label="活跃任务">
+      <h2 class="nav-h" style="font-weight: 400">活跃任务</h2>
+      <a class="sub" href="Task.dc.html"><span class="truncate">看板状态筛选</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">验收断言写入契约</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="w"></i><i></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">改动审阅空态</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">TaskCard 阶段徽标</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i></span></a>
+    </nav>
+    <nav class="nav tree" aria-label="工作台树">
+      <h2 class="nav-h" style="font-weight: 400">工作台</h2>
+      <a class="sub" href="Main.dc.html"><span>根</span><span class="measured xs muted">pm</span></a>
+      <a class="sub indent" href="Board.dc.html" aria-current="page"><span>开发</span><span class="measured xs t-cool">3 在跑</span></a>
+    </nav>
+    <button class="btn btn-quiet" type="button" style="align-self: flex-start">挂载工作台</button>
+    <p class="left-foot measured">plugin dev@1.1.0<br>sqlite 本地</p>
+  </aside>
+
+  <main class="main">
+    <header class="ws-head">
+      <h1 class="title">开发</h1>
+      <p>多 Agent 分工 + 可执行验收的软件开发工作台</p>
+      <div class="ws-stat"><span>进行中 <b>5</b></span><span>待审 <b>2</b></span><span>在跑 <b>3</b></span><span class="measured">run ≤ 200k tok / 30 min</span></div>
+    </header>
+    <nav class="tabs" aria-label="板块">
+      <a href="Board.dc.html" aria-current="page">任务看板</a>
+      <a href="Review.dc.html">改动审阅 <span class="measured xs t-amber">2</span></a>
+      <a href="Board.dc.html">测试结果</a>
+      <a href="Board.dc.html">架构决策</a>
+      <a href="Board.dc.html">文件树</a>
+      <a href="Board.dc.html">页面预览</a>
+      <a href="Board.dc.html">知识库</a>
+      <span class="gap"></span>
+      <a href="Board.dc.html">编制</a>
+      <a href="Board.dc.html">设置</a>
+    </nav>
+
+    <div class="toolbar">
+      <label class="field"><input type="search" placeholder="搜索任务" aria-label="搜索任务"></label>
+      <div class="seg-ctl" aria-label="状态筛选"><a href="Board.dc.html" aria-current="true">全部</a><a href="Board.dc.html">进行中</a><a href="Board.dc.html">需要关注 <span class="measured t-amber">3</span></a><a href="Board.dc.html">已完成</a></div>
+      <span class="grow"></span>
+      <button class="btn" type="button" aria-pressed="false">团队与讨论</button>
+      <button class="btn btn-primary" type="button">新建任务</button>
+    </div>
+
+    <p class="pulse" aria-label="团队脉搏"><span><i class="dot dot-cool"></i><b>架构师</b> 写结论</span><span><i class="dot dot-cool"></i><b>前端开发 #1</b> 改文件</span><span><i class="dot dot-cool"></i><b>审查</b> 读 pr-104</span><span class="t-amber"><i class="dot dot-amber"></i><b>测试工程师</b> 等你批准</span><span>前端开发 #2、后端开发待命</span></p>
+
+    <div class="board-wrap">
+      <div class="board">
+        <section class="col" aria-label="草稿">
+          <h2 class="col-h" style="font-weight: 400">草稿 <span class="measured xs muted">1</span></h2>
+          <a class="tcard" href="Task.dc.html"><h3>验收报告导出为 Markdown</h3><span class="mod measured">panels/TestRuns.tsx</span><span class="meta"><span>未指派</span><span class="tag">草稿</span></span></a>
+        </section>
+
+        <section class="col" aria-label="已派发">
+          <h2 class="col-h" style="font-weight: 400">已派发 <span class="measured xs muted">1</span></h2>
+          <a class="tcard" href="Task.dc.html"><h3>文件树懒加载大目录</h3><span class="mod measured">panels/FilesPanel.tsx</span><span class="meta"><span>等前端开发接单</span><span class="tag tag-cool">已派发</span></span></a>
+        </section>
+
+        <section class="col" aria-label="进行中">
+          <h2 class="col-h" style="font-weight: 400">进行中 <span class="measured xs muted">3</span></h2>
+          <a class="tcard wait" href="Task.dc.html"><h3>看板状态筛选</h3><span class="mod measured">board/TaskBoard.tsx</span><span class="meta"><span class="t-amber">等你批准命令</span><span class="ticks" aria-label="阶段 4/6"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></span></a>
+          <a class="tcard live" href="Task.dc.html"><h3>改动审阅面板：空态与骨架行</h3><span class="mod measured">panels/ProposalReview.tsx</span><span class="meta"><span class="row t-cool" style="gap: 5px"><i class="dot dot-cool"></i>前端开发 #1</span><span class="ticks" aria-label="阶段 3/6"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i><i></i></span></span></a>
+          <a class="tcard live" href="Task.dc.html"><h3>板块首屏 300ms 性能基线</h3><span class="mod measured">bench/panels</span><span class="meta"><span class="row t-cool" style="gap: 5px"><i class="dot dot-cool"></i>架构师</span><span class="ticks" aria-label="阶段 1/6"><i class="c"></i><i></i><i></i><i></i><i></i><i></i></span></span></a>
+        </section>
+
+        <section class="col" aria-label="阻塞">
+          <h2 class="col-h" style="font-weight: 400">阻塞 <span class="measured xs t-amber">1</span></h2>
+          <a class="tcard wait" href="Inbox.dc.html"><h3>验收断言写入任务契约</h3><span class="mod measured">domain/task</span><span class="meta"><span class="t-amber">缺字段，需你决定</span><span class="tag tag-amber">已上报</span></span></a>
+        </section>
+
+        <section class="col" aria-label="评审中">
+          <h2 class="col-h" style="font-weight: 400">评审中 <span class="measured xs muted">2</span></h2>
+          <a class="tcard wait" href="Review.dc.html"><h3>TaskCard 阶段徽标</h3><span class="mod measured">pr-101 · TaskCard.tsx</span><span class="meta"><span class="t-amber">等你入队合并</span><span class="tag tag-amber">评审中</span></span></a>
+          <a class="tcard live" href="Review.dc.html"><h3>状态筛选组件</h3><span class="mod measured">pr-104 rev 2</span><span class="meta"><span class="row t-cool" style="gap: 5px"><i class="dot dot-cool"></i>审查</span><span class="tag tag-cool">已提交</span></span></a>
+        </section>
+
+        <section class="col" aria-label="完成">
+          <h2 class="col-h" style="font-weight: 400">完成 <span class="measured xs muted">18</span></h2>
+          <a class="tcard" href="Task.dc.html"><h3>看板列计数徽标</h3><span class="mod measured">pr-099 · BoardColumn.tsx</span><span class="meta"><span>09:12 合入</span><span class="tag tag-ok">完成</span></span></a>
+          <a class="tcard" href="Task.dc.html"><h3>筛选计数徽标</h3><span class="mod measured">pr-102 · TaskCard.tsx</span><span class="meta"><span>08:47 合入</span><span class="tag tag-ok">完成</span></span></a>
+          <a class="btn btn-sm btn-quiet" href="Board.dc.html">查看全部 18 条</a>
+        </section>
+      </div>
+    </div>
+  </main>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

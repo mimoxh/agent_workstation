@@ -20,7 +20,7 @@
 | 校验 | Zod | manifest / 任务契约 / 工具参数统一校验 | — |
 | 流式 | SSE（Hono `streamSSE`） | 简单、可穿透代理 | 后续可换 WebSocket |
 | 队列 | 进程内 p-queue（M0–M2） | 无需额外依赖 | 换 BullMQ + Redis |
-| 模型 | Vercel AI SDK v7：`@ai-sdk/anthropic` + `@ai-sdk/openai-compatible`（M0）；Ollama 社区 provider（M1） | provider 适配、tool calling、streaming 交给 SDK；降级链 / 熔断 / trace / 预算自己做 | 新增厂商只需加 provider 包 |
+| 模型 | Vercel AI SDK v7：`@ai-sdk/anthropic` + `@ai-sdk/openai-compatible`；Ollama 走其 OpenAI 兼容端点（D21） | provider 适配、tool calling、streaming 交给 SDK；降级链 / 熔断 / trace / 预算自己做 | 新增厂商只需加 provider 包 |
 | 测试 | Vitest（domain）+ Playwright（关键流程） | 领域逻辑必须纯函数可测 | — |
 
 选型对比与未选方案见 DECISIONS D19。
@@ -78,7 +78,7 @@ entity_version(id, entity_id, version, data_json,
                author_type, author_id, reason, created_at)
 
 -- 泛化提案：既可改实体，也可改代码（code_ref_json 存分支与 sha）
-proposal(id, task_id, target_type /* entity | code */,
+proposal(id, task_id, workstation_id, target_type /* code 或实体类型名 */,
          entity_id /* 可空 */, base_version, patch_json,
          code_ref_json /* {worktree, branch, base_sha, head_sha, merge_sha} */,
          reason, author_type, author_id,
@@ -91,7 +91,8 @@ review_comment(id, proposal_id, author_type, author_id,
 
 -- stage = 插件定义的工作流位置（任务级），status = 平台通用生命周期
 -- module 等字段放 input_json，按任务类型的 schema 校验
-task(id, project_id, workstation_id, parent_id, type_id, stage,
+-- assignee_type ∈ workstation | agent | human；takeover_from 记录接管前的 Agent
+task(id, project_id, workstation_id, parent_id, takeover_from, type_id, stage,
      title, intent, input_json, acceptance_json /* 结构化验收：command|visual|manual|text */,
      status, assignee_type, assignee_id /* 人或 Agent */, dispatch_reason,
      budget_json, usage_json, result_json, blocked_reason,
@@ -99,21 +100,24 @@ task(id, project_id, workstation_id, parent_id, type_id, stage,
      due_at, created_at)
 
 -- kind ∈ task | review | discussion | dm；mode 为发言调度模式
-thread(id, scope_type, scope_id, kind, mode, title, created_at)
+-- state ∈ active | concluding | silenced；turn_count 是本轮发言回合数
+thread(id, scope_type, scope_id, kind, mode, state, turn_count, title, created_at)
 
 thread_member(thread_id, participant_type, participant_id, role)
 
 message(id, thread_id, sender_type, sender_id, kind,
         content, meta_json, created_at)
 
-run(id, agent_id, task_id, status, provider, model, fallback_from,
+-- task_id 可空：讨论线程里的发言只挂 thread_id；cost 单位微美元
+run(id, agent_id, task_id, thread_id, status, provider, model, fallback_from,
     stop_reason /* max_turns|no_progress|budget|timeout|error|interrupted|completed */,
     started_at, ended_at, tokens_in, tokens_out, cost, trace_json, error)
 
 artifact(id, workstation_id, task_id, type, name, ref,
          meta_json, created_at)
 
--- M0：kind ∈ command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered|human_request|task_rejected|task_countered|human_request；M1 增加 budget 等
+-- kind ∈ command_confirm|blocked|proposal_review|run_failed|task_rejected|task_countered|human_request|budget
+-- severity ∈ critical|high|normal；同一 Agent 同一任务的失败聚合成一条
 inbox_item(id, workspace_id, project_id, kind, ref_type, ref_id,
            severity, status, created_at)
 
@@ -161,7 +165,7 @@ knowledge_chunk(id, source_id, ordinal, text, token_count,
                 created_at)
 
 -- v0.1：全文检索（SQLite FTS5）
-knowledge_fts(text)               -- 虚拟表，content = knowledge_chunk
+knowledge_fts(text, chunk_id)     -- 虚拟表，tokenize = trigram；不足 3 字的查询退回子串扫描
 
 -- v0.2：向量召回
 -- knowledge_embedding(chunk_id, model, vector, dim)
@@ -234,6 +238,8 @@ repo.entities.list({ actor, blockId })   // 内部自动追加 scope 过滤
 
 转移条件与副作用写在 `packages/domain/src/task-state.ts`，纯函数 `transition(task, event) → Result`。
 
+派发后任务由目标台执行：`taskFlow()` 从**执行工作台**取 stage、编制与预算，派发时写入第一阶段。父任务的 stage 由子任务汇总，取最落后的未完成阶段（`rollupStage`）。
+
 ### 5.2 数据面：版本化
 
 ```
@@ -255,7 +261,25 @@ Entity v1 ──proposal──► Proposal(pending) ──merge──► Entity 
 | `status` | 进度播报 |
 | `artifact` | 产物通知 |
 
-Agent 之间的实际交接一律用 `handoff`，自然语言只用于人和 Agent 之间的讨论。这是控制成本的关键。
+Agent 之间的实际交接一律用 `handoff`，由平台在派发、接单、拆分、提交、验收、评审、合并时写入，不靠模型自述。这是控制成本的关键。
+
+### 5.4 发言调度
+
+`runtime/conversation.ts` 订阅 `chat` 消息，同一线程同时只有一个发言者：
+
+| 来源 | 行为 |
+|---|---|
+| 人 | 清空队列、重置轮次、恢复静默。点名的成员排队发言；没点名时任务线程找 assignee，讨论线程找 steward |
+| Agent（发言回合内） | 计一轮。点名的成员排队；讨论里没人被点名时回到主持人；每 `summaryEvery` 轮收束一次；到 `maxTurns` 收束后静默 |
+| Agent（工作 run 内） | 不计轮次，点名仍然有效 |
+
+`relay` 下 Agent 消息不接力；`dm` 直达。预算耗尽时线程静默。被 @ 来帮忙的成员不能写 assignee 的 worktree。
+
+### 5.5 协调链
+
+`report_blocked` → steward 分诊（`block_triage`）→ `resolve_block` 本台解除，或 `escalate_block` 进收件箱。上报者要人决策、steward 就是上报者、调度器未运行时直接上送；steward 没给结果时平台兜底上送（D23）。
+
+人可以打断在跑的 run、接管任务（`assignee_type = human`，继续用同一 worktree）、提交改动或交还给原 Agent。
 
 ## 6. Agent 运行时
 
@@ -272,15 +296,16 @@ Agent 之间的实际交接一律用 `handoff`，自然语言只用于人和 Age
 | 条件 | 动作 |
 |---|---|
 | 工具轮次 > 8 | 终止，标记 `max_turns` |
+| 任务 / 工作台 / 项目预算超限 | 终止，标记 `budget`，收件箱 `budget`；运行前也检查 |
 | 连续两次相同工具+参数 | 终止，标记 `no_progress` |
 | token 超任务预算 | 终止，标记 `budget` |
 | wall-clock 超时 | 终止，标记 `timeout` |
 | 连续失败 3 次 | 加入收件箱，人工介入 |
 
-> M0 中所有非 completed 的 run 都进入待处理（宁可多报）；「连续失败 3 次」的聚合在 M1 收件箱分级时实现。
+> 所有非 completed 的 run 都进入待处理；同一 Agent 同一任务的失败聚合成一条，连续 3 次升为 critical。
 | 进程重启时状态为 running | 标记 `interrupted` 并进入待处理 |
 
-> M0 全部实现；token 上限取 Agent 或任务预算字段，仅 run 级（三级预算 M1）。
+> 单 run 上限取 Agent 或任务预算字段；三级预算在 `packages/domain/src/budget.ts`，用量按 Agent 所属统计，讨论的花费也算在内。
 
 ### 6.3 工具集（v0.1）
 
@@ -295,7 +320,11 @@ Agent 之间的实际交接一律用 `handoff`，自然语言只用于人和 Age
 | `report_blocked` | 上报阻塞 | 总是允许 |
 | `request_human` | 请求人工决策 | 总是允许 |
 | `respond_task` | steward 对派发到本台的任务接单 / 拒绝 / 反提案 | 仅 steward |
-| `search_knowledge` | 检索知识库（M1） | observe |
+| `dispatch_task` | 把任务派发给子孙工作台 | invoke |
+| `record_decision` | 把讨论压缩成结论卡 | speak |
+| `resolve_block` / `escalate_block` | 分诊阻塞：本台解除 / 上送人 | 仅 steward |
+| `advance_stage` | 推进任务阶段 | 仅 steward |
+| `search_knowledge` | 检索知识库，结果带 citation | observe |
 
 工具返回结果必须按 token 预算裁剪；超长结果截断并标注 `truncated: true`。
 
@@ -337,7 +366,8 @@ routing: {
 - 降级会改变输出风格与 tool-use 能力，必须写入 `run.trace_json`，并在 UI 标注「本次由备用模型完成」。
 - Ollama 通常不支持并行 tool call，运行时需串行化。
 - 密钥只存在本地 keychain 或加密文件，不进入数据库明文、不进日志。
-- **M0 / M1 分界**：M0 只接 `@ai-sdk/openai-compatible` 与 `@ai-sdk/anthropic`，失败即报错并进入待处理，不做降级链；Ollama（社区 provider）与降级链在 M1 实现。
+- 密钥优先取环境变量，否则存本地 AES-GCM 加密文件（`data/models.enc`），密钥文件放在用户目录，不随数据目录拷走。
+- 只有限流、超时、服务不可用才降级；参数错误换模型没有意义。
 
 ### 6.5 代码执行与 Git 集成
 
@@ -430,16 +460,19 @@ apps/
 │  └ src/
 │     ├ routes/                TanStack Router 文件路由
 │     │  ├ index.tsx                         项目总览
-│     │  ├ projects.$projectId.tsx           根工作台
-│     │  ├ projects.$projectId.ws.$wsId.tsx  领域工作台
-│     │  ├ projects.$projectId.tasks.$taskId.tsx  任务详情
-│     │  ├ agents.tsx                        Agent 模板库
-│     │  ├ plugins.tsx                       插件管理
-│     │  └ runs.$runId.tsx                   运行详情
+│     │  ├ projects.$projectId.index.tsx     指挥台（根工作台）
+│     │  ├ projects.$projectId.ws.$wsId.tsx  工作台
+│     │  ├ projects.$projectId.tasks.$taskId.tsx  任务协作室
+│     │  ├ projects.$projectId.runs.*.tsx    账本与运行详情
+│     │  └ agents.tsx / plugins.tsx / settings.tsx  全局页
 │     ├ components/
-│     │  ├ board/              面板渲染器：board / table / tree / diff（M0），preview（M1），doc / graph（M2）
-│     │  ├ chat/               消息流、输入、成员
-│     │  └ layout/             工作台外壳、导航、面包屑
+│     │  ├ workstation/        工作台外壳、板块注册表、指挥台
+│     │  ├ timeline/           协作时间线、交接 / 结论卡
+│     │  ├ team/               团队脉搏
+│     │  ├ task/               任务头、右栏
+│     │  ├ chat/               会话、输入、@ 候选
+│     │  ├ board/ panels/      板块渲染器
+│     │  └ layout/             外壳、导航、面包屑
 │     └ lib/api.ts             类型化 API 客户端（Hono RPC）+ SSE 订阅
 └ server/                      Hono 本地常驻服务
    └ src/
@@ -462,8 +495,8 @@ packages/
 │     ├ permission.ts          can() / scope 解析
 │     ├ scope.ts               visibleSet / speakSet / invokeSet
 │     ├ task-state.ts          状态机
-│     ├ proposal.ts            patch 应用与校验
-│     └ budget.ts              预算
+│     ├ mention.ts             @ 解析（前后端共用）
+│     └ budget.ts              三级预算与成本
 ├ plugin-spec/                 manifest 的 Zod schema 与类型（前后端共享）
 └ plugins/
    ├ pm/manifest.json

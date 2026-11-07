@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务协作室</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./aw.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app">
+
+<header class="top">
+  <div class="top-l">
+    <a class="brand" href="Projects.dc.html" aria-label="全部项目">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="0.5" y="0.5" width="25" height="25" rx="6" stroke="currentColor" stroke-opacity="0.35"></rect><path d="M6 8.5h9M6 13h13M6 17.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="19" cy="8.5" r="2" style="fill: var(--accent)"></circle></svg>
+    </a>
+    <nav class="crumbs" aria-label="位置"><a href="Main.dc.html">Agent Workstation</a><span class="sep" aria-hidden="true">/</span><a href="Board.dc.html">开发</a><span class="sep" aria-hidden="true">/</span><span class="here truncate" aria-current="page">看板状态筛选</span></nav>
+  </div>
+  <div class="top-r">
+    <a class="measured xs t-cool hide-s" href="Ledger.dc.html">3 个 run 在跑</a>
+    <a class="measured xs muted hide-s" href="Ledger.dc.html">预算余 760k</a>
+    <span class="live hide-s"><i class="dot dot-ok"></i>实时</span>
+    <a class="btn" href="Inbox.dc.html">待处理 <span class="measured t-amber">4</span></a>
+    <button class="btn hide-s" type="button">跳转 <kbd>Ctrl K</kbd></button>
+    <a class="me" href="Settings.dc.html">本地用户</a>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="left" aria-label="导航">
+    <nav class="nav" aria-label="页面">
+      <a href="Main.dc.html">指挥台</a>
+      <a href="Inbox.dc.html">收件箱 <span class="measured xs t-amber">4</span></a>
+      <a href="Ledger.dc.html">账本</a>
+    </nav>
+    <nav class="nav tree" aria-label="活跃任务">
+      <h2 class="nav-h" style="font-weight: 400">活跃任务</h2>
+      <a class="sub" href="Task.dc.html" aria-current="page"><span class="truncate">看板状态筛选</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">验收断言写入契约</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="w"></i><i></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">改动审阅空态</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i><i></i></span></a>
+      <a class="sub" href="Task.dc.html"><span class="truncate">TaskCard 阶段徽标</span><span class="ticks" aria-hidden="true"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i></span></a>
+    </nav>
+    <nav class="nav tree" aria-label="工作台树">
+      <h2 class="nav-h" style="font-weight: 400">工作台</h2>
+      <a class="sub" href="Main.dc.html"><span>根</span><span class="measured xs muted">pm</span></a>
+      <a class="sub indent" href="Board.dc.html"><span>开发</span><span class="measured xs t-cool">3 在跑</span></a>
+    </nav>
+    <p class="left-foot measured">plugin dev@1.1.0<br>sqlite 本地</p>
+  </aside>
+
+  <main class="main">
+    <section class="task-head" aria-label="任务头">
+      <div class="row-wrap" style="justify-content: space-between; gap: 12px">
+        <div class="row-wrap" style="gap: 10px">
+          <h1 class="title">看板状态筛选</h1>
+          <span class="tag tag-cool">进行中</span>
+          <span class="measured xs muted">T-41 · 派发给开发</span>
+        </div>
+        <div class="row-wrap">
+          <a class="btn btn-sm" href="Review.dc.html">改动 <span class="measured t-amber">1</span></a>
+          <button class="btn btn-sm" type="button">上报</button>
+          <button class="btn btn-sm btn-quiet" type="button">取消任务</button>
+        </div>
+      </div>
+      <ol class="stagebar" aria-label="任务阶段">
+        <li class="stage d">需求<time>09:41</time></li>
+        <li class="stage d">设计<time>09:44</time></li>
+        <li class="stage d">实现<time>09:52</time></li>
+        <li class="stage w" aria-current="step">测试<time>10:12 等你</time></li>
+        <li class="stage">评审</li>
+        <li class="stage">合并</li>
+      </ol>
+      <dl class="gauges">
+        <div class="gauge"><dt>Tokens</dt><dd>46,310 / 200,000</dd><span class="meter" aria-hidden="true"><i style="width: 23%"></i></span></div>
+        <div class="gauge"><dt>耗时</dt><dd>18:12 / 30:00</dd><span class="meter" aria-hidden="true"><i style="width: 61%"></i></span></div>
+        <div class="gauge"><dt>验收</dt><dd>2 / 3</dd><span class="meter" aria-hidden="true"><i class="warn" style="width: 67%"></i></span></div>
+      </dl>
+    </section>
+
+    <section aria-label="协作航迹" style="padding: 14px 24px 0">
+      <figure class="lanes" role="img" aria-label="这个任务的四个参与者在 40 分钟内的运行时段和交接，测试工程师此刻在等你批准命令。">
+        <ul class="lane-names" aria-hidden="true"><li>架构师</li><li>前端开发 #2</li><li>测试工程师</li><li>审查</li></ul>
+        <div class="lane-plot" aria-hidden="true">
+          <div class="lane-axis measured"><span style="left: 0%">09:40</span><span style="left: 25%">09:50</span><span style="left: 50%">10:00</span><span style="left: 75%">10:10</span></div>
+          <i class="lane-grid" style="left: 25%"></i><i class="lane-grid" style="left: 50%"></i><i class="lane-grid" style="left: 75%"></i>
+          <div class="lane-track"><i class="seg" style="left: 2%; width: 8%"></i><i class="seg" style="left: 19%; width: 4%"></i></div>
+          <div class="lane-track"><i class="seg" style="left: 10.5%; width: 21%"></i><i class="seg" style="left: 48%; width: 13%"></i><i class="seg" style="left: 67%; width: 13%"></i></div>
+          <div class="lane-track"><i class="seg" style="left: 23%; width: 7%"></i><i class="seg" style="left: 80.5%; width: 12%"></i><i class="seg seg-wait" style="left: 92.8%; width: 6.8%"></i></div>
+          <div class="lane-track"><i class="seg" style="left: 32%; width: 15%"></i><i class="seg" style="left: 61.5%; width: 5%"></i></div>
+          <i class="hand" style="left: 10.2%; top: 41px; height: 30px"></i>
+          <i class="hand" style="left: 31.7%; top: 71px; height: 60px"></i>
+          <i class="hand" style="left: 47.6%; top: 71px; height: 60px"></i>
+          <i class="hand" style="left: 80.2%; top: 71px; height: 30px"></i>
+          <i class="now" style="left: 99.7%"><span class="measured">现在</span></i>
+        </div>
+      </figure>
+    </section>
+
+    <section class="tl" aria-label="协作时间线">
+      <div class="tl-i"><span class="tl-t"></span><span class="tl-n"><i></i></span><button class="btn btn-sm btn-quiet" type="button" style="justify-self: start; padding-left: 0">显示全部过程（14 条）</button></div>
+
+      <article class="tl-i"><time class="tl-t">09:44</time><span class="tl-n"><i class="cool"></i></span>
+        <div class="note note-handoff">
+          <p class="note-h"><span class="t-cool" style="font-weight: 500">交接</span><span>架构师 → 前端开发 #2</span></p>
+          <p>状态字段按 labels.ts 的分组走，筛选组件落在 board/TaskBoard.tsx，契约里的 3 条验收不变。</p>
+          <p class="note-next">下一步：先做 URL 同步，再做筛选组件</p>
+        </div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">09:49</time><span class="tl-n"><i class="ok"></i></span>
+        <div class="note note-decision">
+          <p class="note-h"><span class="t-ok" style="font-weight: 500">结论</span><span>架构师</span></p>
+          <p>过滤状态以 URL 参数承载，可分享、不落库；空筛选不序列化，避免出现 <code>?filter=</code> 空值。</p>
+          <p class="note-next">遗留：多选状态的 URL 形态留到下一轮</p>
+          <div class="row-wrap" style="margin-top: 8px"><button class="btn btn-sm" type="button">展开 4 条讨论</button><button class="btn btn-sm btn-quiet" type="button">沉淀为 ADR 提案</button></div>
+        </div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">09:49</time><span class="tl-n"><i class="bad"></i></span>
+        <div class="row-wrap note"><span class="tag tag-bad">验收失败</span><span class="measured xs muted">1/3</span><code class="grow truncate xs">e2e board-filter: 刷新后筛选未回填</code></div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">09:58</time><span class="tl-n"><i></i></span>
+        <div class="msg"><p class="msg-who"><b>审查</b><span class="measured xs muted">子任务 1c</span></p><p><span class="mention">@前端开发 #2</span> <code>useSearchParams</code> 没订阅变化，所以刷新后不回填。修掉再提 rev 2。</p></div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">10:03</time><span class="tl-n"><i class="cool"></i></span>
+        <div class="row-wrap note"><span class="tag tag-amber">待审</span><span class="grow truncate">pr-104 状态筛选组件 rev 2：两条意见都已修订</span><span class="xs muted">前端开发 #2</span><a class="link xs" href="Review.dc.html">审阅</a></div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">10:08</time><span class="tl-n"><i class="ok"></i></span>
+        <div class="row-wrap note"><span class="tag tag-ok">验收通过</span><span class="measured xs muted">2/2</span><code class="grow truncate xs">pnpm build &amp;&amp; pnpm test</code><span class="measured xs muted">53.6s</span></div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">10:12</time><span class="tl-n"><i class="cool"></i></span>
+        <div class="note note-handoff">
+          <p class="note-h"><span class="t-cool" style="font-weight: 500">交接</span><span>前端开发 #2 → 测试工程师</span></p>
+          <p>实现已提交，worktree 已同步到 rev 2。e2e 用例在 apps/web/e2e/board.spec.ts。</p>
+          <p class="note-next">下一步：跑 board-filter e2e，出验收报告</p>
+        </div>
+      </article>
+
+      <article class="tl-i"><time class="tl-t">10:19</time><span class="tl-n"><i class="amber"></i></span>
+        <div class="note note-need">
+          <p class="note-h"><span class="tag tag-amber">等你批准</span><span>测试工程师</span></p>
+          <p>这条命令不在白名单里，批准后继续验收：</p>
+          <p class="cmd" style="margin: 6px 0 10px">pnpm test:e2e --grep board-filter</p>
+          <div class="row-wrap"><button class="btn btn-primary btn-sm" type="button">批准执行</button><button class="btn btn-sm" type="button">拒绝</button><span class="measured xs muted">cwd wt-test-1</span></div>
+        </div>
+      </article>
+    </section>
+
+    <form class="composer" style="margin: 0 24px 16px">
+      <label><textarea placeholder="在任务里发话，@ 点名 Agent；发话不会打断正在跑的 run" aria-label="在任务里发话"></textarea></label>
+      <div class="composer-bar"><span class="xs muted">@ 点名 · Enter 发送</span><div class="row"><button class="btn btn-sm btn-quiet" type="button">打断运行</button><button class="btn btn-sm" type="button">发送</button></div></div>
+    </form>
+  </main>
+
+  <aside class="right" aria-label="参与者与子任务">
+    <h2 class="rail-h" style="font-weight: 400">成员 <span class="measured xs">7</span> <span class="measured xs t-cool">3 在跑</span></h2>
+    <ul>
+      <li class="member"><span class="grow"><span class="n t-amber">本地用户</span><span class="a">全权</span></span><span class="tag tag-amber">人</span></li>
+      <li class="member"><span class="grow"><span class="n">测试工程师</span><span class="a warm">等批准 · 跑命令</span></span><span class="tag tag-amber">等你</span></li>
+      <li class="member"><span class="grow"><span class="n">审查</span><span class="a on">审查 · 状态筛选组件</span></span><span class="tag tag-cool"><i class="dot dot-cool"></i>运行中</span></li>
+      <li class="member"><span class="grow"><span class="n">前端开发 #1</span><span class="a on">改文件 · 改动审阅空态</span></span><span class="tag tag-cool"><i class="dot dot-cool"></i>运行中</span></li>
+      <li class="member"><span class="grow"><span class="n">架构师 <span class="measured xs t-cool">steward</span></span><span class="a on">写结论 · 性能基线</span></span><span class="tag tag-cool"><i class="dot dot-cool"></i>运行中</span></li>
+      <li class="member idle"><span class="grow"><span class="n">前端开发 #2</span><span class="a">页面、组件、样式、交互</span></span><span class="tag">待命</span></li>
+      <li class="member idle"><span class="grow"><span class="n">后端开发</span><span class="a">API、数据层、任务编排</span></span><span class="tag">待命</span></li>
+    </ul>
+
+    <section class="rail-sec" aria-label="子任务">
+      <h2 class="rail-h" style="font-weight: 400">子任务 <span class="measured xs">3</span></h2>
+      <ul>
+        <li class="member" style="min-height: 40px"><a class="grow truncate ink2" href="Task.dc.html" style="font-size: 13px">看板状态同步（URL 参数）</a><span class="ticks" aria-label="阶段 4/6"><i class="d"></i><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></span></li>
+        <li class="member" style="min-height: 40px"><a class="grow truncate ink2" href="Task.dc.html" style="font-size: 13px">状态筛选组件</a><span class="ticks" aria-label="阶段 5/6"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="c"></i><i></i></span></li>
+        <li class="member" style="min-height: 40px"><a class="grow truncate ink2" href="Task.dc.html" style="font-size: 13px">筛选计数徽标</a><span class="ticks" aria-label="全部完成"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></span></li>
+      </ul>
+    </section>
+
+    <section class="rail-sec" aria-label="验收">
+      <h2 class="rail-h" style="font-weight: 400">验收</h2>
+      <ul class="checks" style="padding: 0 14px 12px">
+        <li><span class="measured t-ok" aria-hidden="true">✓</span><code class="truncate ink2">pnpm build</code><span class="measured xs muted">48.1s</span></li>
+        <li><span class="measured t-ok" aria-hidden="true">✓</span><code class="truncate ink2">pnpm test</code><span class="measured xs muted">53.6s</span></li>
+        <li><span class="measured t-amber" aria-hidden="true">·</span><code class="truncate ink2">e2e board-filter</code><span class="xs t-amber">等批准</span></li>
+      </ul>
+    </section>
+
+    <section class="rail-sec" aria-label="契约与代码">
+      <h2 class="rail-h" style="font-weight: 400">契约与代码</h2>
+      <dl class="kv">
+        <dt>目标</dt><dd>看板可按状态筛选，筛选条件可通过 URL 分享</dd>
+        <dt>分支</dt><dd><code>task/t41-board-filter</code></dd>
+        <dt>worktree</dt><dd><code>wt-test-1</code></dd>
+      </dl>
+    </section>
+  </aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1301}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

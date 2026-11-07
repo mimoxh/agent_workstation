@@ -1,7 +1,7 @@
 {
   "id": "dev",
   "name": "全栈开发工作台",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "多 Agent 分工 + 可执行验收的软件开发工作台",
   "steward": "architect",
   "entities": {
@@ -84,28 +84,29 @@
     { "id": "tests", "type": "table", "entity": "TestRun", "title": "测试结果", "editableBy": ["human"] },
     { "id": "decisions", "type": "table", "entity": "ADR", "title": "架构决策", "editableBy": ["human", "agent"] },
     { "id": "files", "type": "tree", "entity": "system:files", "title": "文件树", "editableBy": ["human"] },
-    { "id": "preview", "type": "preview", "entity": "Page", "title": "页面预览", "editableBy": ["human"], "config": { "urlField": "route", "baselineField": "screenshot_ref" } }
+    { "id": "preview", "type": "preview", "entity": "Page", "title": "页面预览", "editableBy": ["human"], "config": { "urlField": "route", "baselineField": "screenshot_ref" } },
+    { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }
   ],
   "agents": [
     {
       "id": "architect", "promptFile": "architect.md",
       "name": "架构师",
       "role": "拆模块、定接口、写 ADR、对外代表",
-      "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "search_code", "git_diff", "report_blocked", "request_human", "respond_task"],
+      "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "record_decision", "search_knowledge", "search_code", "git_diff", "report_blocked", "request_human", "respond_task", "resolve_block", "escalate_block", "advance_stage"],
       "triggers": ["task_assigned", "mentioned", "stage_enter"]
     },
     {
       "id": "frontend-dev", "promptFile": "implementer.md",
       "name": "前端开发",
       "role": "页面、组件、样式、交互",
-      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
+      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
       "id": "backend-dev", "promptFile": "implementer.md",
       "name": "后端开发",
       "role": "API、数据层、任务编排",
-      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "send_message", "report_blocked"],
+      "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
@@ -113,14 +114,14 @@
       "name": "测试工程师",
       "role": "写测试、跑测试、出报告",
       "tools": ["read_file", "search_code", "git_diff", "apply_patch", "git_commit", "run_command", "run_tests", "capture_screenshot", "send_message"],
-      "triggers": ["task_assigned"]
+      "triggers": ["task_assigned", "mentioned", "stage_enter"]
     },
     {
       "id": "reviewer", "promptFile": "reviewer.md",
       "name": "审查",
       "role": "只读 diff，独立上下文：逐行评论并给出 approve / request_changes",
-      "tools": ["git_diff", "read_file", "review_change", "send_message"],
-      "triggers": ["task_assigned"]
+      "tools": ["git_diff", "read_file", "read_entity", "list_entities", "search_knowledge", "review_change", "send_message"],
+      "triggers": ["task_assigned", "mentioned", "stage_enter"]
     }
   ],
   "tasks": [
@@ -140,6 +141,19 @@
         }
       },
       "acceptance": [{ "kind": "command", "run": "pnpm build", "expect": { "exitCode": 0 } }]
+    }
+  ],
+  "modules": {
+    "conversation": { "defaultMode": "moderated", "threadOverrides": { "task": "moderated" }, "maxTurns": 12, "summaryEvery": 6 },
+    "knowledge": { "scope": "project", "acceptedTypes": ["md", "txt"], "retrieval": { "strategy": "fts", "topK": 5, "maxTokens": 3000 }, "citation": "required" }
+  },
+  "presets": [
+    { "id": "dev-standard", "name": "标准协作", "description": "成员可以互相点名讨论，主持人定期收束成结论", "patch": {} },
+    {
+      "id": "dev-relay",
+      "name": "快速接力",
+      "description": "任务里只按流程交接，不展开讨论，成本最低",
+      "patch": { "modules": { "conversation": { "defaultMode": "moderated", "threadOverrides": { "task": "relay" } } } }
     }
   ],
   "defaults": {

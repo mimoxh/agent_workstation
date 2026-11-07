@@ -1,38 +1,99 @@
 import type { Actor } from '@aw/domain';
 import { TASK_EVENTS } from '@aw/domain';
+import fs from 'node:fs';
 import { zValidator } from '@hono/zod-validator';
-import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { eq } from 'drizzle-orm';
-import { agent, entity, message, proposal, reviewComment, run, task, workstation } from './db/schema.js';
-import { listProposals } from './repositories/index.js';
-import { events } from './events.js';
-import { devSettings } from './runtime/git.js';
-import { decideProposal } from './usecases/proposals.js';
-import { postThreadMessage, taskThreadOf, wsThreadOf } from './usecases/threads.js';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { z } from 'zod';
 import type { DB } from './db/client.js';
+import { agent, run, thread } from './db/schema.js';
+import { events } from './events.js';
 import {
+  agentStatus,
+  getArtifact,
+  getLedger,
   getProjectDetail,
+  getProjectOverview,
+  getRun,
   getTaskDetail,
+  getTaskTimeline,
+  getTeamPulse,
   getWorkstationDetail,
+  listEntities,
   listInbox,
+  listPlugins,
   listProjects,
+  listProjectTasks,
+  listProposals,
+  listRuns,
+  listTaskProposals,
   listTasks,
+  listTestRuns,
 } from './repositories/index.js';
+import { mergeProviders, publicModelConfig, readModelConfig, writeModelConfig } from './runtime/config.js';
+import { cancelRun } from './runtime/loop.js';
+import { defaultModelRef, loadModels, modelRegistry, reloadModels, sanitizeError } from './runtime/models.js';
+import { scheduler, triggerRun } from './runtime/scheduler.js';
+import { exportMarkdown, exportProject } from './usecases/backup.js';
+import { createEntity, entityHistory, rollbackEntity, updateEntity } from './usecases/entities.js';
 import {
   addAgentInstance,
+  assignTask,
   createTaskUc,
   dispatchTask,
+  interruptTask,
+  releaseTask,
   respondTask,
-  resolveInbox,
   setStage,
+  submitHumanChange,
+  takeoverTask,
   transitionTaskUc,
+  updateTask,
 } from './usecases/index.js';
+import { actOnInbox } from './usecases/inbox.js';
+import { deleteSource, getChunk, importSource, listSources, searchKnowledge } from './usecases/knowledge.js';
+import { createProject, mountChildWorkstation, setPluginEnabled, takeScreenshot, updateAgent, updateProject, updateWorkstation } from './usecases/projects.js';
+import { decideProposal, mergeProposal, reviewProposal } from './usecases/proposals.js';
+import { listRepoFiles, readRepoFile, repoStatus } from './usecases/repo.js';
+import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
 
 const jsonRecord = z.record(z.string(), z.unknown());
+
+const modelConfigBody = z.object({
+  providers: z.array(z.object({
+    name: z.string().trim().min(1, 'provider 名称不能为空'),
+    kind: z.enum(['anthropic', 'openai-compatible', 'ollama']),
+    model: z.string().trim().min(1, '模型名不能为空'),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+  })),
+  defaultModel: z.string().optional(),
+  chain: z.array(z.string()),
+  prices: z.record(z.string(), z.object({ input: z.number().min(0), output: z.number().min(0) })),
+});
+
+// 校验失败也返回 { error: string }，前端只需要处理一种错误形状
+const body = <T extends z.ZodType>(schema: T) =>
+  zValidator('json', schema, (r, c) => {
+    if (!r.success) return c.json({ error: r.error.issues[0]?.message ?? '请求参数不合法' }, 400);
+    return undefined;
+  });
+
+const pathQuery = zValidator('query', z.object({ path: z.string().optional() }), (r, c) => {
+  if (!r.success) return c.json({ error: '路径参数不合法' }, 400);
+  return undefined;
+});
+
+const knowledgeQuery = zValidator('query', z.object({ q: z.string().optional(), workstationId: z.string().optional() }), (r, c) => {
+  if (!r.success) return c.json({ error: '查询参数不合法' }, 400);
+  return undefined;
+});
+
+// status 收窄成字面量是为了让 RPC 客户端推导出 { error: string } 分支
+const fail = (c: Context, r: { status?: number; error?: string }) => c.json({ error: r.error ?? '操作失败' }, (r.status ?? 400) as 400);
 
 // 挂住 SSE 连接直到客户端断开或主动 close，退出时摘掉本连接的全部监听器
 async function holdSSE(stream: SSEStreamingApi, subscribe: (close: () => void) => (() => void)[]) {
@@ -45,9 +106,16 @@ async function holdSSE(stream: SSEStreamingApi, subscribe: (close: () => void) =
   for (const off of offs) off();
 }
 
+const LIVE_PREFIXES = ['task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_'];
+
 export function createApp(db: DB) {
   const app = new Hono<Env>();
   const api = app.basePath('/api');
+
+  app.onError((e, c) => {
+    console.error('[api]', sanitizeError(e instanceof Error ? (e.stack ?? e.message) : String(e)));
+    return c.json({ error: '服务内部错误' }, 500);
+  });
 
   api.use('*', async (c, next) => {
     c.set('actor', { type: 'human', id: 'local' });
@@ -55,39 +123,148 @@ export function createApp(db: DB) {
     await next();
   });
 
-  const err = (c: { json: (o: unknown, s?: number) => Response }, status: number, error: string) =>
-    c.json({ error }, status as never);
-
   const routes = api
     .get('/health', (c) => c.json({ ok: true }))
+
+    // ---- 实时变更：只推动作名，前端据此失效缓存 ----
+    .get('/stream', (c) =>
+      streamSSE(c, async (stream) => {
+        await stream.writeSSE({ event: 'ready', data: '{}' });
+        await holdSSE(stream, () => [
+          events.onAny(async (action, p) => {
+            if (!LIVE_PREFIXES.some((x) => action.startsWith(x))) return;
+            await stream.writeSSE({ event: 'change', data: JSON.stringify({ action, targetId: p.targetId ?? p.runId ?? p.refId ?? null }) });
+          }),
+        ]);
+      }),
+    )
+
+    // ---- 项目 ----
+    .get('/plugins', async (c) => c.json(await listPlugins(c.get('actor'), c.get('db'))))
+    .patch('/plugins/:id', body(z.object({ enabled: z.boolean() })), async (c) => {
+      const r = await setPluginEnabled(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').enabled);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .get('/settings/models', (c) => c.json(publicModelConfig(readModelConfig())))
+    .put('/settings/models', body(modelConfigBody), async (c) => {
+      const next = c.req.valid('json');
+      const prev = readModelConfig();
+      writeModelConfig({ ...next, providers: mergeProviders(next.providers, prev.providers) });
+      await reloadModels();
+      return c.json({ ok: true });
+    })
+    .get('/models', async (c) => {
+      await loadModels();
+      const models = [...modelRegistry.values()].map((m) => ({ id: m.id, local: m.local ?? false }));
+      return c.json({ default: defaultModelRef() || models[0]?.id || null, ready: models.length > 0, models });
+    })
     .get('/projects', async (c) => c.json(await listProjects(c.get('actor'), c.get('db'))))
+    .post('/projects', body(z.object({
+      name: z.string().trim().min(1, '项目名不能为空'),
+      goal: z.string().optional(),
+      template: z.object({ repoPath: z.string().trim().min(1, '仓库路径不能为空'), targetBranch: z.string().optional(), baseBranch: z.string().optional(), commands: z.record(z.string(), z.string()).optional() }).optional(),
+    })), async (c) => {
+      const r = await createProject(c.get('actor'), c.get('db'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, rootWorkstationId: r.rootWorkstationId }, 201) : fail(c, r);
+    })
     .get('/projects/:id', async (c) => {
       const d = await getProjectDetail(c.get('actor'), c.get('db'), c.req.param('id'));
-      return d ? c.json(d) : c.json({ error: '项目不存在' }, 404);
+      return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
     })
-    .get('/workstations/:id', async (c) => {
-      const d = await getWorkstationDetail(c.get('actor'), c.get('db'), c.req.param('id'));
-      return d ? c.json(d) : c.json({ error: '工作台不存在' }, 404);
+    .patch('/projects/:id', body(z.object({ budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional() })), async (c) => {
+      const r = await updateProject(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
     })
+    .get('/projects/:id/ledger', async (c) => {
+      const d = await getLedger(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
+    })
+    .get('/projects/:id/export', async (c) => {
+      const data = await exportProject(c.get('db'), c.req.param('id'));
+      if (!data) return fail(c, { status: 404, error: '项目不存在' });
+      if (c.req.query('format') === 'md') return c.text(exportMarkdown(data), 200, { 'content-disposition': 'attachment; filename="project.md"' });
+      return c.json(data, 200, { 'content-disposition': 'attachment; filename="project.json"' });
+    })
+    .get('/projects/:id/knowledge', knowledgeQuery, async (c) => c.json(await listSources(c.get('db'), c.req.param('id'), c.req.valid('query').workstationId)))
+    .post('/projects/:id/knowledge', body(z.object({ name: z.string().trim().min(1, '名称不能为空'), content: z.string(), kind: z.enum(['md', 'txt', 'note']), workstationId: z.string().optional() })), async (c) => {
+      const r = await importSource(c.get('actor'), c.get('db'), { projectId: c.req.param('id'), ...c.req.valid('json') });
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .get('/projects/:id/knowledge/search', knowledgeQuery, async (c) => {
+      const { q, workstationId } = c.req.valid('query');
+      return c.json(await searchKnowledge(c.get('db'), { projectId: c.req.param('id'), workstationId }, q ?? ''));
+    })
+    .delete('/knowledge/:id', async (c) => {
+      const r = await deleteSource(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .get('/knowledge/chunks/:id', async (c) => {
+      const d = await getChunk(c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '引用的片段不存在' });
+    })
+    .get('/projects/:id/overview', async (c) => {
+      const d = await getProjectOverview(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
+    })
+    .get('/projects/:id/pulse', async (c) => {
+      const d = await getTeamPulse(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
+    })
+    .get('/projects/:id/tasks', async (c) => c.json(await listProjectTasks(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/projects/:id/runs', async (c) => c.json(await listRuns(c.get('actor'), c.get('db'), { projectId: c.req.param('id') })))
     .post(
-      '/workstations/:id/agents',
-      zValidator('json', z.object({ templateId: z.string().min(1) })),
+      '/projects/:id/workstations',
+      body(z.object({ parentId: z.string().optional(), pluginId: z.string().min(1), name: z.string().trim().min(1, '工作台名不能为空'), settings: jsonRecord.optional() })),
       async (c) => {
-        const r = await addAgentInstance(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').templateId);
-        if (r.kind === 'not_found') return c.json({ error: '工作台不存在' }, 404);
-        if (r.kind === 'error') return c.json({ error: r.error }, 400);
-        return c.json({ ok: true }, 201);
+        const r = await mountChildWorkstation(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
       },
     )
-    .get('/workstations/:id/tasks', async (c) =>
-      c.json(await listTasks(c.get('actor'), c.get('db'), c.req.param('id'))),
+
+    // ---- 工作台 ----
+    .get('/workstations/:id', async (c) => {
+      const d = await getWorkstationDetail(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '工作台不存在' });
+    })
+    .patch(
+      '/workstations/:id',
+      body(
+        z.object({
+          name: z.string().trim().min(1).optional(),
+          settings: z
+            .object({
+              repoPath: z.string().optional(),
+              targetBranch: z.string().min(1).optional(),
+              baseBranch: z.string().min(1).optional(),
+              commands: z.record(z.string(), z.string()).optional(),
+              commandTimeoutSec: z.number().int().positive().optional(),
+              setupTimeoutSec: z.number().int().positive().optional(),
+              requireHumanFor: z.array(z.string()).optional(),
+              preset: z.string().optional(),
+              budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(),
+            })
+            .optional(),
+        }),
+      ),
+      async (c) => {
+        const r = await updateWorkstation(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+      },
     )
+    .get('/workstations/:id/repo', async (c) => c.json(await repoStatus(c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/agents', body(z.object({ templateId: z.string().min(1) })), async (c) => {
+      const r = await addAgentInstance(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').templateId);
+      if (r.kind === 'not_found') return fail(c, { status: 404, error: '工作台不存在' });
+      if (r.kind === 'error') return fail(c, { status: 400, error: r.error });
+      return c.json({ ok: true }, 201);
+    })
+    .get('/workstations/:id/agents/status', async (c) => c.json(await agentStatus(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/tasks', async (c) => c.json(await listTasks(c.get('actor'), c.get('db'), c.req.param('id'))))
     .post(
       '/workstations/:id/tasks',
-      zValidator(
-        'json',
+      body(
         z.object({
-          title: z.string().min(1),
+          title: z.string().trim().min(1, '标题不能为空'),
           intent: z.string().optional(),
           typeId: z.string().optional(),
           input: jsonRecord.optional(),
@@ -98,37 +275,76 @@ export function createApp(db: DB) {
       ),
       async (c) => {
         const r = await createTaskUc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
-        if (r.kind !== 'ok') {
-          return c.json({ error: (r as { error?: string }).error ?? '失败' }, (((r as { status?: number }).status ?? 400) as never));
-        }
-        return c.json(r.task, 201);
+        return r.kind === 'ok' ? c.json(r.task!, 201) : fail(c, r);
       },
     )
+    .get('/workstations/:id/proposals', async (c) => c.json(await listProposals(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/testruns', async (c) => c.json(await listTestRuns(c.get('actor'), c.get('db'), { workstationId: c.req.param('id') })))
+    .get('/workstations/:id/entities', async (c) => c.json({ entities: await listEntities(c.get('actor'), c.get('db'), c.req.param('id')) }))
+    .post('/workstations/:id/entities', body(z.object({ entityType: z.string().min(1), data: jsonRecord, reason: z.string().optional() })), async (c) => {
+      const r = await createEntity(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .get('/workstations/:id/files', pathQuery, async (c) => c.json(await listRepoFiles(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '')))
+    .get('/workstations/:id/file', pathQuery, async (c) => {
+      const r = await readRepoFile(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '');
+      return r.kind === 'ok' ? c.json({ ref: r.ref, path: r.path, binary: r.binary, truncated: r.truncated, content: r.content }) : fail(c, r);
+    })
+    .get('/workstations/:id/thread', async (c) => {
+      const d = await getWorkstationDetail(c.get('actor'), c.get('db'), c.req.param('id'));
+      if (!d) return fail(c, { status: 404, error: '工作台不存在' });
+      const th = await wsThreadOf(c.get('db'), c.req.param('id'));
+      return c.json({ thread: th });
+    })
+
+    // ---- 实体 ----
+    .patch('/entities/:id', body(z.object({ data: jsonRecord, baseVersion: z.number().int(), reason: z.string().optional() })), async (c) => {
+      const r = await updateEntity(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version }) : fail(c, r);
+    })
+    .post('/entities/:id/rollback', body(z.object({ version: z.number().int().positive() })), async (c) => {
+      const r = await rollbackEntity(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').version);
+      return r.kind === 'ok' ? c.json({ version: r.version }) : fail(c, r);
+    })
+    .get('/entities/:id/versions', async (c) => c.json(await entityHistory(c.get('db'), c.req.param('id'))))
+
+    // ---- 任务 ----
     .get('/tasks/:id', async (c) => {
       const d = await getTaskDetail(c.get('actor'), c.get('db'), c.req.param('id'));
-      return d ? c.json(d) : c.json({ error: '任务不存在' }, 404);
+      return d ? c.json(d) : fail(c, { status: 404, error: '任务不存在' });
     })
+    .patch(
+      '/tasks/:id',
+      body(z.object({ title: z.string().trim().min(1).optional(), intent: z.string().nullable().optional(), input: jsonRecord.optional(), acceptance: z.array(jsonRecord).optional() })),
+      async (c) => {
+        const r = await updateTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
+      },
+    )
     .post(
       '/tasks/:id/dispatch',
-      zValidator(
-        'json',
+      body(
         z.object({
           targetWorkstationId: z.string().min(1),
           typeId: z.string().min(1),
           input: jsonRecord,
+          acceptance: z.array(jsonRecord).optional(),
           reason: z.string().optional(),
+          budget: z.object({ tokens: z.number().int().positive().optional() }).optional(),
         }),
       ),
       async (c) => {
         const r = await dispatchTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
-        if (r.kind === 'ok') return c.json(r.task);
-        return err(c, r.status, (r as { error?: string }).error ?? '失败');
+        return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
       },
     )
+    .post('/tasks/:id/assign', body(z.object({ agentId: z.string().min(1), reason: z.string().optional() })), async (c) => {
+      const r = await assignTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
+    })
     .post(
       '/tasks/:id/respond',
-      zValidator(
-        'json',
+      body(
         z
           .object({
             action: z.enum(['accept', 'reject', 'counter']),
@@ -136,74 +352,194 @@ export function createApp(db: DB) {
             counter: z.object({ input: jsonRecord.optional(), acceptance: z.array(jsonRecord).optional() }).optional(),
           })
           .refine((b) => b.action === 'accept' || (b.reason !== undefined && b.reason.trim().length > 0), {
-            message: 'reject / counter 必须给出 reason',
+            message: '拒绝或反提案必须给出理由',
           }),
       ),
       async (c) => {
         const r = await respondTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
-        if (r.kind === 'ok') return c.json(r.task);
-        return err(c, r.status, (r as { error?: string }).error ?? '失败');
+        return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
       },
     )
-    .post(
-      '/tasks/:id/stage',
-      zValidator('json', z.object({ stage: z.string().min(1) })),
-      async (c) => {
-        const r = await setStage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').stage);
-        if (r.kind === 'ok') return c.json(r.task);
-        return err(c, r.status, (r as { error?: string }).error ?? '失败');
-      },
-    )
-    .post(
-      '/tasks/:id/transition',
-      zValidator('json', z.object({ event: z.enum(TASK_EVENTS) })),
-      async (c) => {
-        const r = await transitionTaskUc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').event);
-        if (r.kind === 'ok') return c.json(r.task);
-        return err(
-          c,
-          r.status,
-          r.kind === 'conflict' ? '任务状态已变化，请刷新后重试' : ((r as { error?: string }).error ?? '失败'),
-        );
-      },
-    )
-    .get('/inbox', async (c) => c.json(await listInbox(c.get('actor'), c.get('db'), c.req.query('status') ?? 'open')))
+    .post('/tasks/:id/stage', body(z.object({ stage: z.string().min(1) })), async (c) => {
+      const r = await setStage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').stage);
+      return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
+    })
+    .post('/tasks/:id/transition', body(z.object({ event: z.enum(TASK_EVENTS) })), async (c) => {
+      const r = await transitionTaskUc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').event);
+      return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
+    })
+    .get('/tasks/:id/timeline', async (c) => {
+      const d = await getTaskTimeline(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '任务不存在' });
+    })
+    .post('/tasks/:id/interrupt', async (c) => {
+      const r = await interruptTask(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ stopped: r.stopped }) : fail(c, r);
+    })
+    .post('/tasks/:id/takeover', async (c) => {
+      const r = await takeoverTask(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
+    })
+    .post('/tasks/:id/release', body(z.object({ note: z.string().optional() })), async (c) => {
+      const r = await releaseTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').note);
+      return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
+    })
+    .post('/tasks/:id/submit-change', body(z.object({ summary: z.string().trim().min(1, '请写一句改动说明') })), async (c) => {
+      const r = await submitHumanChange(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').summary);
+      return r.kind === 'ok' ? c.json({ proposalId: r.proposalId }) : fail(c, r);
+    })
+    .get('/tasks/:id/thread', async (c) => {
+      const th = await taskThreadOf(c.get('db'), c.req.param('id'));
+      return th ? c.json({ thread: th }) : fail(c, { status: 404, error: '任务不存在' });
+    })
+    .get('/tasks/:id/runs', async (c) => c.json(await listRuns(c.get('actor'), c.get('db'), { taskId: c.req.param('id') })))
+    .get('/tasks/:id/proposals', async (c) => c.json(await listTaskProposals(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/tasks/:id/testruns', async (c) => c.json(await listTestRuns(c.get('actor'), c.get('db'), { taskId: c.req.param('id') })))
+
+    // ---- 收件箱 ----
+    .get('/inbox', async (c) => c.json(await listInbox(c.get('actor'), c.get('db'), c.req.query('status') ?? 'open', c.req.query('projectId'))))
     .post(
       '/inbox/:id/resolve',
-      zValidator('json', z.object({ resolution: z.string().optional(), decision: z.enum(['approve','deny']).optional() })),
+      body(z.object({ resolution: z.string().optional(), decision: z.enum(['approve', 'deny']).optional(), action: z.enum(['retry', 'unblock']).optional(), answer: z.string().optional() })),
       async (c) => {
-        const r = await resolveInbox(c.get('actor'), c.get('db'), c.req.param('id'), JSON.stringify({ resolution: c.req.valid('json').resolution, decision: c.req.valid('json').decision }));
-        if (r.kind === 'not_found') return c.json({ error: '条目不存在' }, 404);
-        return c.json({ ok: true });
+        const r = await actOnInbox(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
       },
     )
 
-    .get('/workstations/:id/proposals', async (c) => c.json(await listProposals(c.get('actor'), c.get('db'), c.req.param('id'))))
-    .post('/proposals/:id/approve', async (c) => { const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'approve'); if (r.kind === 'ok') return c.json({ ok: true }); return c.json({ error: (r as { error?: string }).error ?? '失败' }, ((r as { status?: number }).status ?? 400) as never); })
-    .post('/proposals/:id/reject', zValidator('json', z.object({ reason: z.string().optional() })), async (c) => { const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'reject', c.req.valid('json').reason); if (r.kind === 'ok') return c.json({ ok: true }); return c.json({ error: (r as { error?: string }).error ?? '失败' }, ((r as { status?: number }).status ?? 400) as never); })
-    .get('/tasks/:id/thread', async (c) => { const th = await taskThreadOf(c.get('db'), c.req.param('id')); if (!th) return c.json({ error: '任务不存在' }, 404); const msgs = await c.get('db').select().from(message).where(eq(message.threadId, th.id)); return c.json({ thread: th, messages: msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) }); })
-    .get('/workstations/:id/thread', async (c) => { const th = await wsThreadOf(c.get('db'), c.req.param('id')); const msgs = await c.get('db').select().from(message).where(eq(message.threadId, th!.id)); return c.json({ thread: th, messages: msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) }); })
-    .post('/threads/:id/messages', zValidator('json', z.object({ content: z.string().min(1) })), async (c) => c.json(await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').content), 201))
-    .get('/threads/:id/stream', async (c) => { const threadId = c.req.param('id'); const existing = await c.get('db').select().from(message).where(eq(message.threadId, threadId)); return streamSSE(c, async (stream) => { for (const m of existing.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) await stream.writeSSE({ event: 'message', data: JSON.stringify(m) }); await holdSSE(stream, () => [events.on('message_created', async (p: Record<string, unknown>) => { if (p.threadId === threadId) await stream.writeSSE({ event: 'message', data: JSON.stringify(p) }); })]); }); })
-    .get('/tasks/:id/runs', async (c) => c.json(await c.get('db').select().from(run).where(eq(run.taskId, c.req.param('id')))))
-    .get('/agents/:id/runs', async (c) => c.json(await c.get('db').select().from(run).where(eq(run.agentId, c.req.param('id')))))
-    .get('/runs/:id', async (c) => { const r = (await c.get('db').select().from(run).where(eq(run.id, c.req.param('id'))))[0]; return r ? c.json(r) : c.json({ error: 'run 不存在' }, 404); })
-    .get('/runs/:id/stream', async (c) => { const runId = c.req.param('id'); return streamSSE(c, async (stream) => { const r = (await c.get('db').select().from(run).where(eq(run.id, runId)))[0]; for (const s of JSON.parse(r?.traceJson ?? '[]') as unknown[]) await stream.writeSSE({ event: 'step', data: JSON.stringify(s) }); if (r && r.status !== 'running') { await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: r.stopReason }) }); return; } await holdSSE(stream, (close) => [events.on('run_step', async (p: Record<string, unknown>) => { if (p.runId === runId) await stream.writeSSE({ event: 'step', data: JSON.stringify(p.step) }); }), events.on('run_finished', async (p: Record<string, unknown>) => { if (p.runId !== runId) return; await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: p.stopReason }) }); close(); })]); }); })
-    .post('/agents/:id/run', zValidator('json', z.object({ taskId: z.string() })), async (c) => { const { scheduler } = await import('./runtime/scheduler.js'); const r = await scheduler.trigger(c.get('db'), c.req.param('id'), c.req.valid('json').taskId, 'manual'); return r.ok ? c.json({ runId: r.runId }, 201) : c.json({ error: r.error }, 400); })
-    .get('/workstations/:id/agents/status', async (c) => { const db = c.get('db'); const running = await db.select().from(run).where(eq(run.status, 'running')); const agents = await db.select().from(agent).where(eq(agent.workstationId, c.req.param('id'))); const ids = new Set(agents.map((a) => a.id)); return c.json({ running: running.filter((r) => ids.has(r.agentId ?? '')).map((r) => r.agentId) }); })
-    .get('/agents/:id', async (c) => { const a = (await c.get('db').select().from(agent).where(eq(agent.id, c.req.param('id'))))[0]; return a ? c.json(a) : c.json({ error: 'agent 不存在' }, 404); })
-    .post('/proposals/:id/review', zValidator('json', z.object({ decision: z.enum(['approve','request_changes']), summary: z.string(), comments: z.array(z.object({ path: z.string(), line: z.number().optional(), body: z.string() })).optional() })), async (c) => {
-      const db = c.get('db'); const b = c.req.valid('json');
-      const p = (await db.select().from(proposal).where(eq(proposal.id, c.req.param('id'))))[0];
-      if (!p) return c.json({ error: '提案不存在' }, 404);
-      for (const cm of b.comments ?? []) await db.insert(reviewComment).values({ id: crypto.randomUUID(), proposalId: p.id, authorType: 'human', authorId: c.get('actor').id, path: cm.path, line: cm.line ?? null, body: cm.body, resolved: 0, createdAt: new Date().toISOString() });
-      await db.update(proposal).set({ status: b.decision === 'approve' ? 'approved' : 'changes_requested' }).where(eq(proposal.id, p.id));
-      if (p.taskId) { const t = (await db.select().from(task).where(eq(task.id, p.taskId)))[0]; if (t) { const { afterReview } = await import('./runtime/dev_workflow.js'); const wsAgents = await db.select().from(agent).where(eq(agent.workstationId, t.workstationId)); await afterReview({ db, actor: c.get('actor'), permCtx: {} as never, agent: wsAgents[0]!, task: t, run: {} as never }, p.id, b.decision); } }
-      return c.json({ ok: true }); })
-    .post('/proposals/:id/merge', async (c) => { const p = (await c.get('db').select().from(proposal).where(eq(proposal.id, c.req.param('id'))))[0]; if (!p?.taskId) return c.json({ error: '提案不存在' }, 404); const { enqueueMerge } = await import('./runtime/dev_workflow.js'); enqueueMerge(c.get('db'), c.get('actor'), p.taskId); return c.json({ ok: true }); })
-    .get('/workstations/:id/entities', async (c) => { const rows = await c.get('db').select().from(entity).where(eq(entity.workstationId, c.req.param('id'))); return c.json({ entities: rows }); })
-    .get('/workstations/:id/files', async (c) => { const ws = (await c.get('db').select().from(workstation).where(eq(workstation.id, c.req.param('id'))))[0]; if (!ws) return c.json({ error: '不存在' }, 404); const s = devSettings(ws.settingsJson); const { git } = await import('./runtime/git.js'); const path = c.req.query('path') ?? ''; const r = await git(s.repoPath, ['ls-tree', s.targetBranch, '--', path]); return c.json({ entries: r.stdout.split('\n').filter(Boolean) }); })
-    .get('/workstations/:id/file', async (c) => { const ws = (await c.get('db').select().from(workstation).where(eq(workstation.id, c.req.param('id'))))[0]; if (!ws) return c.json({ error: '不存在' }, 404); const s = devSettings(ws.settingsJson); const { git } = await import('./runtime/git.js'); const p = c.req.query('path') ?? ''; const r = await git(s.repoPath, ['show', s.targetBranch + ':' + p]); return c.json({ content: r.stdout.slice(0, 200 * 1024) }); })
+    // ---- 提案 ----
+    .post('/proposals/:id/approve', async (c) => {
+      const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'approve');
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/proposals/:id/reject', body(z.object({ reason: z.string().optional() })), async (c) => {
+      const r = await decideProposal(c.get('actor'), c.get('db'), c.req.param('id'), 'reject', c.req.valid('json').reason);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post(
+      '/proposals/:id/review',
+      body(
+        z.object({
+          decision: z.enum(['approve', 'request_changes']),
+          summary: z.string(),
+          comments: z.array(z.object({ path: z.string(), line: z.number().optional(), body: z.string() })).optional(),
+        }),
+      ),
+      async (c) => {
+        const r = await reviewProposal(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+      },
+    )
+    .post('/proposals/:id/merge', async (c) => {
+      const r = await mergeProposal(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+
+    // ---- 会话 ----
+    .get('/threads/:id/messages', async (c) => c.json(await listMessages(c.get('db'), c.req.param('id'))))
+    .get('/threads/:id/members', async (c) => {
+      const th = (await c.get('db').select().from(thread).where(eq(thread.id, c.req.param('id'))))[0];
+      if (!th) return fail(c, { status: 404, error: '会话不存在' });
+      return c.json((await threadAgents(c.get('db'), th)).map((a) => ({ id: a.id, name: a.name })));
+    })
+    .post('/threads/:id/silence', body(z.object({ silenced: z.boolean() })), async (c) => {
+      const r = await silenceThread(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').silenced);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/messages/:id/propose-adr', async (c) => {
+      const r = await decisionToProposal(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ proposalId: r.proposalId }, 201) : fail(c, r);
+    })
+    .post('/threads/:id/messages', body(z.object({ content: z.string().trim().min(1, '消息不能为空') })), async (c) => {
+      const m = await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').content);
+      return m ? c.json(m, 201) : fail(c, { status: 404, error: '会话不存在' });
+    })
+
+    // ---- 运行 ----
+    .get('/agents/:id/thread', async (c) => {
+      const th = await dmThreadOf(c.get('db'), c.req.param('id'));
+      return th ? c.json({ thread: th }) : fail(c, { status: 404, error: 'Agent 不存在' });
+    })
+    .get('/agents/:id', async (c) => {
+      const a = (await c.get('db').select().from(agent).where(eq(agent.id, c.req.param('id'))))[0];
+      return a ? c.json(a) : fail(c, { status: 404, error: 'Agent 不存在' });
+    })
+    .patch(
+      '/agents/:id',
+      body(
+        z.object({
+          name: z.string().trim().min(1).optional(),
+          status: z.enum(['active', 'paused']).optional(),
+          model: z.object({ provider: z.string().min(1), name: z.string().min(1) }).nullable().optional(),
+          prompt: z.string().nullable().optional(),
+          tools: z.array(z.string()).optional(),
+        }),
+      ),
+      async (c) => {
+        const r = await updateAgent(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json(r.agent) : fail(c, r);
+      },
+    )
+    .get('/agents/:id/runs', async (c) => c.json(await listRuns(c.get('actor'), c.get('db'), { agentId: c.req.param('id') })))
+    .post('/agents/:id/run', body(z.object({ taskId: z.string() })), async (c) => {
+      const r = await scheduler.trigger(c.get('db'), c.req.param('id'), c.req.valid('json').taskId, 'manual');
+      return r.ok ? c.json({ runId: r.runId }, 201) : fail(c, { status: 400, ...(r.error ? { error: r.error } : {}) });
+    })
+    .get('/runs/:id', async (c) => {
+      const r = await getRun(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r ? c.json(r) : fail(c, { status: 404, error: 'run 不存在' });
+    })
+    .post('/runs/:id/retry', body(z.object({ step: z.number().int().min(0) })), async (c) => {
+      const source = (await c.get('db').select().from(run).where(eq(run.id, c.req.param('id'))))[0];
+      if (!source?.agentId || !source.taskId) return fail(c, { status: 400, error: '只有任务上的运行可以重试' });
+      const r = await triggerRun(c.get('db'), source.agentId, source.taskId, 'retry', { resume: { runId: source.id, step: c.req.valid('json').step } });
+      return r.ok ? c.json({ runId: r.runId }, 201) : fail(c, { status: 409, ...(r.error ? { error: r.error } : {}) });
+    })
+    .post('/workstations/:id/screenshot', body(z.object({ url: z.string().url('地址不合法') })), async (c) => {
+      const r = await takeScreenshot(c.get('db'), c.req.param('id'), c.req.valid('json').url);
+      return r.kind === 'ok' ? c.json({ artifactId: r.id }, 201) : fail(c, r);
+    })
+    .get('/artifacts/:id/image', async (c) => {
+      const a = await getArtifact(c.get('actor'), c.get('db'), c.req.param('id'));
+      if (!a?.ref || a.type !== 'screenshot') return fail(c, { status: 404, error: '截图不存在' });
+      return c.body(new Uint8Array(fs.readFileSync(a.ref)), 200, { 'content-type': 'image/png' });
+    })
+    .post('/runs/:id/cancel', async (c) => {
+      const r = (await c.get('db').select().from(run).where(eq(run.id, c.req.param('id'))))[0];
+      if (!r) return fail(c, { status: 404, error: 'run 不存在' });
+      if (r.status !== 'running') return fail(c, { status: 409, error: 'run 已结束' });
+      if (!cancelRun(r.id)) {
+        await c.get('db').update(run).set({ status: 'cancelled', stopReason: 'cancelled', endedAt: new Date().toISOString() }).where(eq(run.id, r.id));
+        events.emit('run_finished', { runId: r.id, agentId: r.agentId, taskId: r.taskId, stopReason: 'cancelled' });
+      }
+      return c.json({ ok: true });
+    })
+    .get('/runs/:id/stream', async (c) => {
+      const runId = c.req.param('id');
+      return streamSSE(c, async (stream) => {
+        const r = (await c.get('db').select().from(run).where(eq(run.id, runId)))[0];
+        for (const s of JSON.parse(r?.traceJson ?? '[]') as unknown[]) await stream.writeSSE({ event: 'step', data: JSON.stringify(s) });
+        if (r && r.status !== 'running') {
+          await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: r.stopReason }) });
+          return;
+        }
+        await holdSSE(stream, (close) => [
+          events.on('run_step', async (p: Record<string, unknown>) => {
+            if (p.runId === runId) await stream.writeSSE({ event: 'step', data: JSON.stringify(p.step) });
+          }),
+          events.on('run_finished', async (p: Record<string, unknown>) => {
+            if (p.runId !== runId) return;
+            await stream.writeSSE({ event: 'finished', data: JSON.stringify({ stopReason: p.stopReason }) });
+            close();
+          }),
+        ]);
+      });
+    })
+    .get('/artifacts/:id', async (c) => {
+      const a = await getArtifact(c.get('actor'), c.get('db'), c.req.param('id'));
+      return a ? c.json({ id: a.id, type: a.type, name: a.name, content: a.ref, createdAt: a.createdAt }) : fail(c, { status: 404, error: '产物不存在' });
+    });
+
   return { app, routes };
 }
 
