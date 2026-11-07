@@ -51,7 +51,6 @@ packages/
 - `apps/server/src/repositories/` 所有函数第一个参数必须是 `actor: Actor`，不得缺省；M0.1 不做权限过滤，M0.2 接 `can()`。
 - 代码注释默认不写；保持现有中文注释风格（只在结构需要处写）。
 - 路由文件改动后 `routeTree.gen.ts` 由插件自动重新生成，不要手改。
-- 不要做 git init / commit。
 - 颜色语义：accent（橙）= 等人，cool（蓝）= 仪器 / 机器在动，bad = 出问题，ok = 收口；主按钮用 primary（墨色）。样式用 index.css 的令牌（深色在同文件的 prefers-color-scheme 里），不写裸色值。
 - usecases 与 runtime 互相引用：`usecases/index.ts` 用具名导出，不要用 `export *`；runtime 从具体模块导入。
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
