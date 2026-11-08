@@ -14,6 +14,7 @@ apps/
 │     │  ├ board/    任务看板——剧本 A 的目标 Module，写干净、可扩展
 │     │  ├ panels/   其余板块渲染器（改动审阅 / 测试 / 实体 / 文件 / 知识库 / 预览 / 编制 / 设置）
 │     │  ├ workstation/  工作台屏幕（大群 / 板块）、板块注册表、控制台总览
+│     │  ├ design/   设计台：画布、沙箱 iframe 与检查脚本、评论 / 旋钮、设计系统、交接
 │     │  ├ timeline/ 协作时间线、交接与结论卡
 │     │  ├ team/     团队脉搏
 │     │  ├ task/     任务头、右栏
@@ -33,7 +34,7 @@ apps/
 packages/
 ├ domain/         纯函数领域层：task-state 状态机、权限、@ 解析、三级预算
 ├ plugin-spec/    manifest 的 Zod schema 与校验（改了要 build，server 读 dist）
-└ plugins/        内置插件 pm、dev
+└ plugins/        内置插件 pm、dev、design
 ```
 
 ## 命令
@@ -54,6 +55,7 @@ packages/
 - 颜色语义：accent（橙）= 等人，cool（蓝）= 仪器 / 机器在动，bad = 出问题，ok = 收口；主按钮用 primary（墨色）。样式用 index.css 的令牌（深色在同文件的 prefers-color-scheme 里），不写裸色值。
 - usecases 与 runtime 互相引用：`usecases/index.ts` 用具名导出，不要用 `export *`；runtime 从具体模块导入。
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
+- 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
 
 

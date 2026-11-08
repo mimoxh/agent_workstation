@@ -38,6 +38,7 @@ const fetchKnowledgeSearch = async (id: string, q: string) => unwrap(await api.p
 const fetchChunk = async (id: string) => unwrap(await api.knowledge.chunks[':id'].$get({ param: { id } }));
 const fetchPlugins = async () => unwrap(await api.plugins.$get());
 const fetchModels = async () => unwrap(await api.models.$get());
+const fetchDesignSystem = async (id: string) => unwrap(await api.workstations[':id']['design-system'].$get({ param: { id } }));
 
 export type ProjectSummary = Awaited<ReturnType<typeof fetchProjects>>[number];
 export type ProjectDetail = Awaited<ReturnType<typeof fetchProject>>;
@@ -110,6 +111,7 @@ export const useKnowledgeSources = (id: string) => useQuery({ queryKey: ['knowle
 export const useKnowledgeSearch = (id: string, q: string) => useQuery({ queryKey: ['knowledge', id, 'search', q], queryFn: () => fetchKnowledgeSearch(id, q) });
 export const useChunk = (id: string | null) => useQuery({ queryKey: ['chunk', id], queryFn: () => fetchChunk(id!), enabled: on(id) });
 export const usePlugins = () => useQuery({ queryKey: ['plugins'], queryFn: fetchPlugins });
+export const useDesignSystem = (id: string) => useQuery({ queryKey: ['design-system', id], queryFn: () => fetchDesignSystem(id) });
 export const useModels = () => useQuery({ queryKey: ['models'], queryFn: fetchModels, staleTime: 60000 });
 
 export interface DispatchTarget { id: string; name: string; taskTypes: TaskType[] }

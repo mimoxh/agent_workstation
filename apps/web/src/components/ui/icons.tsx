@@ -36,6 +36,8 @@ const PATHS = {
   coin: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4M12 7.5V9M12 15.5V17',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   branch: 'M7 4v12M7 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17 8c0 5-10 3-10 8',
+  palette: 'M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 2-.8 2-1.8 0-1.5-1.2-1.7-1.2-3 0-.9.7-1.5 1.7-1.5h2.3c2.1 0 3.7-1.5 3.7-3.7 0-3.9-3.8-7-8.5-7zM8 11.5h.01M10.5 8h.01M15 8.5h.01',
+  sliders: 'M5 7h9M18 7h1M5 17h1M10 17h9M16 5v4M8 15v4',
   info: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 8h.01',
 } as const;
 
@@ -58,6 +60,8 @@ export const PANEL_ICON: Record<string, IconName> = {
   timeline: 'clock',
   knowledge: 'book',
   preview: 'preview',
+  canvas: 'palette',
+  tokens: 'sliders',
 };
 
 export const panelIcon = (type: string | null | undefined, entity?: string | null): IconName =>

@@ -6,6 +6,7 @@ import { foldByDecision } from '../components/timeline/fold';
 import { parseDiff } from './diff';
 import { duration, parseJson, seconds, tokens, when } from './format';
 import { keysFor } from './live';
+import { applyDraft, commentsPrompt, downloadName, exportDoc, parseFrameEvent, previewDoc, tweakVars } from '../components/design/model';
 
 describe('parseDiff', () => {
   const patch = [
@@ -154,4 +155,40 @@ describe('实时失效映射', () => {
   it('消息刷新时间线和会话', () => expect(keysFor('message_created')).toEqual(['timeline', 'thread-messages']));
   it('运行步骤只刷新脉搏和时间线', () => expect(keysFor('run_step')).toEqual(['pulse', 'timeline']));
   it('未知动作不触发刷新', () => expect(keysFor('unknown_action')).toEqual([]));
+});
+
+describe('设计稿', () => {
+  it('只接受形状正确的沙箱消息', () => {
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'pin', n: 2 })).toEqual({ type: 'pin', n: 2 });
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'pick', selector: 'body', anchor: 'a'.repeat(200), tag: 'h1' })).toMatchObject({ type: 'pick', anchor: 'a'.repeat(80) });
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'edit', selector: 1, text: 'x' })).toBeNull();
+    expect(parseFrameEvent({ aw: 'other', type: 'pin', n: 1 })).toBeNull();
+    expect(parseFrameEvent('x')).toBeNull();
+  });
+
+  it('发给设计师的评论带上 id、元素和内容', () => {
+    const c = { id: 'c1', rowVersion: 1, authorType: 'human', authorId: 'local', createdAt: '', design: 'd1', selector: 'body > h1', anchor: '标题', body: '放大' };
+    const text = commentsPrompt('d1', [c, { ...c, id: 'c2', selector: '', anchor: '', body: '整体太挤' }]);
+    expect(text).toContain('design: d1');
+    expect(text).toContain('1. comment id: c1 · 元素 `body > h1`（「标题」）：放大');
+    expect(text).toContain('2. comment id: c2 · 整页：整体太挤');
+  });
+
+  it('旋钮变量带单位，草稿优先', () => {
+    const t = { id: 'r', label: 'r', cssVar: '--r', type: 'range' as const, value: '8', unit: 'px' };
+    expect(tweakVars([t], {})).toEqual({ '--r': '8px' });
+    expect(tweakVars([t], { r: '12' })).toEqual({ '--r': '12px' });
+    expect(applyDraft([t], { r: '12' })[0]!.value).toBe('12');
+  });
+
+  it('预览文档带沙箱 CSP 和检查脚本，导出文档不带', () => {
+    expect(previewDoc('<p>x</p>', [], [])).toContain('Content-Security-Policy');
+    expect(previewDoc('<p>x</p>', [], [])).toContain('aw-design-overlay');
+    expect(exportDoc('<p>x</p>', [], [])).not.toContain('aw-design-overlay');
+    expect(exportDoc('<p>x</p>', [], [])).not.toContain('Content-Security-Policy');
+  });
+
+  it('下载文件名去掉非法字符', () => {
+    expect(downloadName('落地页 / 方向A', 3)).toBe('落地页-方向A-v3.html');
+  });
 });

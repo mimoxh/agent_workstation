@@ -13,7 +13,7 @@ export interface ContextInput {
   dispatchTargets?: string | undefined;
   parentTask: { title: string; status: string; intent: string | null } | null;
   siblingTasks: { title: string; status: string }[];
-  threadMessages: { senderId: string | null; senderType: string | null; content: string | null; kind: string | null }[];
+  threadMessages: { senderId: string | null; senderType: string | null; content: string | null; kind: string | null; note?: string | undefined }[];
   budgetTokens?: number;
   promptContent?: string | undefined;
   isReviewer?: boolean;
@@ -23,6 +23,7 @@ export interface ContextInput {
   moduleInfo?: string | undefined;
   lastTestRun?: string | undefined;
   openComments?: string | undefined;
+  designs?: string | undefined;
 }
 
 const tokensToChars = (t: number) => t * 3;
@@ -88,6 +89,7 @@ export function buildContext(input: ContextInput): { system: string; messages: {
       input.moduleFiles ? `module 文件：\n${input.moduleFiles}` : '',
       input.lastTestRun ? `最近验收：\n${input.lastTestRun}` : '',
       input.openComments ? `未解决审查意见：\n${input.openComments}` : '',
+      input.designs ? `设计稿清单：\n${input.designs}` : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -96,7 +98,7 @@ export function buildContext(input: ContextInput): { system: string; messages: {
 
   // reviewer 隔离：审查时不看实现过程，只有被人 @ 才读会话
   const hideThread = input.isReviewer && input.trigger !== 'mentioned';
-  const threadLines = hideThread ? [] : input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.content ?? ''}`);
+  const threadLines = hideThread ? [] : input.threadMessages.map((m) => `${m.senderType ?? '?'}:${m.senderId ?? '?'} [${m.kind ?? 'chat'}] ${m.note ? `（${m.note}）` : ''}${m.content ?? ''}`);
   const threadText = hideThread ? '' : clip(threadLines.join('\n'), threadBudget);
 
   return {

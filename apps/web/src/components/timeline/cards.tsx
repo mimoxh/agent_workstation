@@ -70,6 +70,7 @@ export function Avatar({ name, human, className }: { name: string; human?: boole
 export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<string, string>; lane?: string | null | undefined }) {
   const human = m.senderType === 'human';
   const who = senderOf(m, names);
+  const design = parseJson<{ design?: { title: string; version: number } }>(m.metaJson, {}).design;
   return (
     <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2.5" data-testid="thread-message">
       <Avatar name={who} human={human} />
@@ -79,6 +80,7 @@ export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<stri
           <span className="measured text-xs text-faint">{clock(m.at)}</span>
           <Lane lane={lane} />
         </p>
+        {design && <p className="text-xs text-muted" data-testid="message-design">看着 {design.title} v{design.version}</p>}
         <p className="whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink"><Rich text={m.content ?? ''} /></p>
       </div>
     </div>

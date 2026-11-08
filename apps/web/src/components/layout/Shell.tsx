@@ -8,6 +8,7 @@ import { tokens } from '@/lib/format';
 import { useLiveConnected } from '@/lib/live';
 import { useAllInbox, useModels, useOverview, useProject, useProjects, useTask, useWorkstation, useWsTasks, type ProjectDetail, type WsNode } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { homeBlock } from '@/components/workstation/home';
 import { CommandPalette } from './CommandPalette';
 import { MountDialog, NewProjectDialog } from './Dialogs';
 
@@ -48,7 +49,7 @@ export function flatWorkstations(project: ProjectDetail) {
   return out;
 }
 
-const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : 'doc');
+const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : pluginId === 'design' ? 'palette' : 'doc');
 
 function LiveDot() {
   const live = useLiveConnected();
@@ -325,12 +326,15 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
   const to = '/projects/$projectId/ws/$wsId' as const;
   const wsParams = { projectId: project.id, wsId };
   const name = node?.name ?? ws.data?.name ?? '';
+  // 声明了 home 的板块占据默认入口，大群让到 _chat
+  const home = ws.data ? homeBlock(ws.data.blocks) : undefined;
+  const onChat = onWs && (home ? loc.panel === '_chat' : !loc.panel);
 
   return (
     <>
       <SideHead icon={wsIcon(node?.pluginId)} title={name} sub={<span className="measured">{ws.data?.manifest ? `${ws.data.manifest.id}@${ws.data.manifest.version}` : (node?.pluginId ?? '')}{node?.parentId === null ? '　根工作台' : ''}</span>} />
       <Group label="群聊" title="群聊">
-        <Link to={to} params={wsParams} className={navClass(onWs && !loc.panel)} data-testid="side-chat">
+        <Link to={to} params={wsParams} search={home ? { panel: '_chat' } : {}} className={navClass(onChat)} data-testid="side-chat">
           <Icon name="hash" className="text-muted" /><span className="truncate">{name}大群</span>
           {!!stat?.running && <i className="ml-auto size-1.5 shrink-0 rounded-full bg-cool" aria-label="在跑" />}
         </Link>
@@ -342,7 +346,7 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
       </Group>
       <Group label="功能" title="功能">
         {(ws.data?.blocks ?? []).map((b) => (
-          <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && loc.panel === b.panelId)} data-testid={`side-panel-${b.name}`}>
+          <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && (loc.panel === b.panelId || (!loc.panel && b.id === home?.id)))} data-testid={`side-panel-${b.name}`}>
             <Icon name={panelIcon(b.panelType, b.entityType)} className="text-muted" /><span className="truncate">{b.name}</span>
             {b.panelType === 'diff' && <Count n={stat?.pendingReviews ?? 0} tone="cool" />}
           </Link>

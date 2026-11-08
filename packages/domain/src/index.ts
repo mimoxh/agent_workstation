@@ -13,5 +13,19 @@ export {
 export type { TaskStatus, TaskEvent, TransitionResult } from './task-state.js';
 export { extractMentions } from './mention.js';
 export type { Mentionable } from './mention.js';
+export {
+  DESIGN_CSP,
+  DESIGN_SCRIPT_HOSTS,
+  applyTextEdits,
+  composeDesignDoc,
+  designStyles,
+  injectHead,
+  isColorValue,
+  lintDesign,
+  parseCssTokens,
+  tokenGroup,
+  tweakCssValue,
+} from './design.js';
+export type { DesignToken, DesignTweak, DesignTweakType, TextEditResult, TokenGroup } from './design.js';
 export { costMicros, firstBreach } from './budget.js';
 export type { Budget, BudgetBreach, BudgetLevel, BudgetScope, Usage } from './budget.js';

@@ -49,6 +49,26 @@ const USAGE = {
   outputTokens: { total: 50, text: 50, reasoning: 0 },
 };
 
+const MOCK_DESIGN = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>mock</title><style>
+body{margin:0;font-family:var(--font-sans);background:var(--color-bg);color:var(--color-text)}
+main{padding:var(--space-6);display:grid;gap:var(--space-3)}
+h1{font-family:var(--font-display);font-size:48px;margin:0}
+button{justify-self:start;padding:var(--pad) calc(var(--pad)*2);border:0;border-radius:var(--radius-md);background:var(--color-primary);color:var(--color-on-primary)}
+</style></head><body><main><h1>Mock 落地页</h1><p>一句说明文字</p><button>开始使用</button></main></body></html>`;
+
+// 设计师的回合：消息带评论就处理评论，否则出一份新稿
+function designerTurn<T>(user: string, calls: (items: [string, unknown][]) => T): T {
+  const designId = user.match(/design: ([\w-]+)/)?.[1];
+  if (designId) {
+    const ids = [...user.matchAll(/comment id: ([\w-]+)/g)].map((m) => m[1]);
+    return calls([
+      ['edit_design', { id: designId, edits: [{ oldText: 'Mock 落地页</h1>', newText: 'Mock 落地页（已修订）</h1>' }], reason: '处理评论（mock）' }],
+      ['resolve_design_comments', { ids, note: '已按评论修改（mock）' }],
+    ]);
+  }
+  return calls([['write_design', { title: 'Mock 落地页', html: MOCK_DESIGN, brief: '由对话生成（mock）', tweaks: [{ id: 'pad', label: '按钮内边距', cssVar: '--pad', type: 'range', value: '12', min: 4, max: 24, step: 2, unit: 'px' }], reason: '初稿（mock）' }]]);
+}
+
 // reviewer 按任务计数（同一任务首审 request_changes、再审 approve），不能按模型实例（每 run 都是新会话）
 const reviewCounts = new Map<string, number>();
 
@@ -83,13 +103,14 @@ export function createScriptedMock() {
       if (CONVERSATION_TRIGGERS.has(trigger)) {
         const user = userText(options.prompt);
         const lastLine = user.split('\n').filter(Boolean).at(-1) ?? '';
-        if (toolRounds > 0) return done(trigger === 'moderated' && tpl === 'pm' ? '已起草任务，确认后派发（mock）。' : '');
+        if (toolRounds > 0) return done(trigger === 'moderated' && tpl === 'pm' ? '已起草任务，确认后派发（mock）。' : tpl === 'designer' ? '设计稿已更新（mock）。' : '');
         if (trigger === 'conclude') return calls([['record_decision', { summary: '结论：按当前方案推进（mock）。' }]]);
         if (trigger === 'block_triage') {
           if (user.includes('需人决策')) return calls([['escalate_block', { reason: '需要人来决定（mock）' }]]);
           return calls([['resolve_block', { note: '按默认方案继续（mock）' }]]);
         }
         if (trigger === 'moderated') {
+          if (tpl === 'designer') return designerTurn(user, calls);
           if (tpl === 'pm') return calls([['create_task', { title: lastLine.split('] ').at(-1)?.slice(0, 30) || '新任务（mock）', intent: '由对话起草（mock）' }]]);
           const others = agents.filter((a) => a.templateId !== tpl);
           const spoke = /agent:[^\n]*\[chat\]/.test(user);

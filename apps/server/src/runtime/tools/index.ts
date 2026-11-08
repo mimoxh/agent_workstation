@@ -11,6 +11,7 @@ import { createTaskUc, dispatchTask, respondTask, setStage, transitionTaskUc } f
 import { postHandoff, postMessage, taskThreadOf } from '../../usecases/threads.js';
 import { escalateTask, reportBlocked } from '../coordination.js';
 import type { AgentRow, RunRow, TaskRow, ThreadRow } from '../types.js';
+import { designTools } from './design.js';
 import { devTools } from './dev.js';
 
 // 讨论线程里的 run 没有任务；依赖任务的工具统一由 executeTool 拦下
@@ -32,6 +33,8 @@ interface ToolBase {
   description: string;
   right: Right;
   parameters: z.ZodType;
+  resultLimit?: number;
+  largeOutput?: boolean;
 }
 
 export type ToolDef =
@@ -267,11 +270,11 @@ const tools: Record<string, ToolDef> = {
 };
 
 export function allTools(): Record<string, ToolDef> {
-  return { ...tools, ...devTools };
+  return { ...tools, ...devTools, ...designTools };
 }
 
-export function toolSchemasFor(agentTools: string[]): { name: string; description: string; parameters: z.ZodType }[] {
-  return agentTools.filter((n) => allTools()[n]).map((n) => ({ name: n, description: allTools()[n]!.description, parameters: allTools()[n]!.parameters }));
+export function toolSchemasFor(agentTools: string[]): { name: string; description: string; parameters: z.ZodType; largeOutput: boolean }[] {
+  return agentTools.filter((n) => allTools()[n]).map((n) => ({ name: n, description: allTools()[n]!.description, parameters: allTools()[n]!.parameters, largeOutput: allTools()[n]!.largeOutput ?? false }));
 }
 
 export async function executeTool(ctx: RunCtx, name: string, args: Record<string, unknown>): Promise<unknown> {

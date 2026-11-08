@@ -7,11 +7,11 @@ import { Dialog } from '@/components/ui/dialog';
 import { api, unwrap } from '@/lib/api';
 import { useThreadMessages } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { Composer } from './Composer';
+import { Composer, type MessageMeta } from './Composer';
 
 interface ThreadInfo { id: string; state: string; turnCount: number }
 
-function ThreadView({ thread, projectId, names, hint, placeholder, wide }: { thread: ThreadInfo; projectId: string; names: Record<string, string>; hint: string; placeholder?: string; wide?: boolean | undefined }) {
+function ThreadView({ thread, projectId, names, hint, placeholder, wide, meta }: { thread: ThreadInfo; projectId: string; names: Record<string, string>; hint: string; placeholder?: string | undefined; wide?: boolean | undefined; meta?: MessageMeta | undefined }) {
   const q = useThreadMessages(thread.id);
   const logRef = useRef<HTMLDivElement>(null);
   const messages = useMemo<MessageLike[]>(() => (q.data ?? []).map((m) => ({ ...m, at: m.createdAt })), [q.data]);
@@ -47,18 +47,19 @@ function ThreadView({ thread, projectId, names, hint, placeholder, wide }: { thr
         threadId={thread.id}
         hint={silenced ? '已静默，发话后恢复' : hint}
         placeholder={placeholder}
+        meta={meta}
         actions={<Button size="sm" variant="quiet" aria-pressed={silenced} disabled={toggle.isPending} onClick={() => toggle.mutate()} data-testid="thread-silence">{silenced ? '恢复' : '静默'}</Button>}
       />
     </div>
   );
 }
 
-export function WsThread({ wsId, projectId, names, root, wide }: { wsId: string; projectId: string; names: Record<string, string>; root: boolean; wide?: boolean }) {
+export function WsThread({ wsId, projectId, names, root, wide, meta, hint, placeholder }: { wsId: string; projectId: string; names: Record<string, string>; root: boolean; wide?: boolean; meta?: MessageMeta | undefined; hint?: string; placeholder?: string }) {
   const th = useQuery({ queryKey: ['thread', 'ws', wsId], queryFn: async () => unwrap(await api.workstations[':id'].thread.$get({ param: { id: wsId } })) });
   if (!th.data) return <p className="p-3 text-sm text-muted">加载会话…</p>;
   return root
     ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint="项目经理会起草任务，确认后派发" placeholder="说目标，比如：给任务看板加状态筛选" />
-    : <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint="steward 主持讨论，@ 可以直接点名成员" />;
+    : <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint={hint ?? 'steward 主持讨论，@ 可以直接点名成员'} placeholder={placeholder} meta={meta} />;
 }
 
 export function DmDialog({ agentId, agentName, projectId, names, onClose }: { agentId: string; agentName: string; projectId: string; names: Record<string, string>; onClose: () => void }) {

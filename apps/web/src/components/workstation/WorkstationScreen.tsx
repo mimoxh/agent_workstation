@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import type { BoardFilter, StatusFilter } from '@/components/board/filter';
 import { TaskBoard } from '@/components/board/TaskBoard';
+import { DesignStudio } from '@/components/design/DesignStudio';
+import { DesignSystemPanel } from '@/components/design/DesignSystemPanel';
 import { AgentsPanel } from '@/components/panels/AgentsPanel';
 import { EntityPanel } from '@/components/panels/EntityPanel';
 import { FilesPanel } from '@/components/panels/FilesPanel';
@@ -14,17 +16,19 @@ import { PageHeader } from '@/components/layout/Page';
 import { TeamPulse } from '@/components/team/TeamPulse';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/feedback';
+import { homeBlock } from './home';
 import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 
-export interface WsSearch { panel?: string; q?: string; status?: StatusFilter }
+export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; design?: string }
 
 const STATUSES: StatusFilter[] = ['open', 'attention', 'done'];
 
 export const parseWsSearch = (s: Record<string, unknown>): WsSearch => ({
   ...(typeof s.panel === 'string' ? { panel: s.panel } : {}),
   ...(typeof s.q === 'string' && s.q ? { q: s.q } : {}),
+  ...(typeof s.design === 'string' && s.design ? { design: s.design } : {}),
   ...(STATUSES.includes(s.status as StatusFilter) ? { status: s.status as StatusFilter } : {}),
 });
 
@@ -48,6 +52,8 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
       return def ? <EntityPanel wsId={ws.id} entityType={block.entityType!} def={def} editable={editable} sortByDate /> : null;
     case 'knowledge':
       return <KnowledgePanel projectId={project.id} />;
+    case 'tokens':
+      return <DesignSystemPanel ws={ws} project={project} />;
     case 'preview':
       return <PreviewPanel wsId={ws.id} config={{ ...parseJson<{ urlField?: string; baselineField?: string }>(block.configJson, {}), ...(block.entityType ? { entity: block.entityType } : {}) }} />;
     default:
@@ -115,9 +121,9 @@ function WsChat({ ws, project }: { ws: WorkstationDetail; project: ProjectDetail
   );
 }
 
-// 左侧栏决定看什么：不带 panel 是大群，带 panel 是对应板块
+// 左侧栏决定看什么：不带 panel 是大群（声明了 home 的板块优先），带 panel 是对应板块
 export function WorkstationScreen({ ws, project, search, onSearch }: { ws: WorkstationDetail; project: ProjectDetail; search: WsSearch; onSearch: (s: WsSearch, replace?: boolean) => void }) {
-  const block = ws.blocks.find((b) => b.panelId === search.panel);
+  const block = search.panel ? ws.blocks.find((b) => b.panelId === search.panel) : homeBlock(ws.blocks);
   const onFilter = (f: BoardFilter) =>
     onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(f.q ? { q: f.q } : {}), ...(f.status ? { status: f.status as StatusFilter } : {}) }, true);
   const budget = ws.manifest?.defaults?.taskBudget;
@@ -126,6 +132,7 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
   let content: ReactNode;
   if (search.panel === '_agents') content = <PanelFrame icon="people" title="成员" desc={`${ws.name}的 Agent 编制：模型、权限、预算`}><AgentsPanel ws={ws} /></PanelFrame>;
   else if (search.panel === '_settings') content = <PanelFrame icon="gear" title="工作台设置" desc={budgetNote}><SettingsPanel key={ws.id} ws={ws} project={project} /></PanelFrame>;
+  else if (block?.panelType === 'canvas') content = <DesignStudio ws={ws} project={project} openId={search.design} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { design: id } : {}) })} />;
   else if (block) {
     content = (
       <PanelFrame icon={panelIcon(block.panelType, block.entityType)} title={block.name ?? block.panelId ?? ''} desc={ws.name}>

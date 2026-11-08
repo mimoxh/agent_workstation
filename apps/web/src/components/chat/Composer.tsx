@@ -8,7 +8,9 @@ import { cn } from '@/lib/utils';
 import { mentionQuery } from './mention';
 
 // 会话输入：@ 候选来自线程的真实成员，服务端按同一份名单解析提及
-export function Composer({ threadId, hint, placeholder, actions, wide }: { threadId: string; hint?: string | undefined; placeholder?: string | undefined; actions?: ReactNode; wide?: boolean | undefined }) {
+export type MessageMeta = { design: { id: string; title: string; version: number } };
+
+export function Composer({ threadId, hint, placeholder, actions, wide, meta }: { threadId: string; hint?: string | undefined; placeholder?: string | undefined; actions?: ReactNode; wide?: boolean | undefined; meta?: MessageMeta | undefined }) {
   const members = useThreadMembers(threadId).data ?? [];
   const [input, setInput] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -35,7 +37,7 @@ export function Composer({ threadId, hint, placeholder, actions, wide }: { threa
     if (!content || sending) return;
     setSending(true);
     try {
-      await unwrap(await api.threads[':id'].messages.$post({ param: { id: threadId }, json: { content } }));
+      await unwrap(await api.threads[':id'].messages.$post({ param: { id: threadId }, json: { content, ...(meta ? { meta } : {}) } }));
       setInput('');
       setCursor(0);
     } catch (e) {

@@ -8,6 +8,7 @@ import type { DB } from '../db/client.js';
 import { agent, artifact, entity, message, proposal, reviewComment, run, task, thread, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { buildPermCtx, logEvent, manifestOf } from '../usecases/core.js';
+import { designContextOf } from '../usecases/designs.js';
 import { pushInbox, pushRunFailure } from '../usecases/inbox.js';
 import { threadAgents } from '../usecases/threads.js';
 import { buildContext } from './context.js';
@@ -215,6 +216,12 @@ export async function buildRunContext(db: DB, a: AgentRow, t: TaskRow, manifest:
   });
 }
 
+// 人发消息时眼前的那份稿子，「这里」「标题」这类指代靠它落地
+function focusNote(metaJson: string | null) {
+  const d = (JSON.parse(metaJson ?? '{}') as { design?: { id: string; title: string; version: number } }).design;
+  return d ? `正在看设计稿「${d.title}」id: ${d.id} v${d.version}` : undefined;
+}
+
 async function buildThreadContext(db: DB, a: AgentRow, th: ThreadRow, manifest: ReturnType<typeof manifestOf>, trigger: string) {
   const { promptContent } = promptOf(a, manifest);
   const members = await threadAgents(db, th);
@@ -230,8 +237,9 @@ async function buildThreadContext(db: DB, a: AgentRow, th: ThreadRow, manifest: 
     agents: members.map((x) => ({ id: x.id, name: x.name, templateId: x.templateId })),
     task: null, threadTitle: th.title ?? '讨论',
     parentTask: null, siblingTasks: [],
-    threadMessages: msgs.map((m) => ({ senderId: names.get(m.senderId ?? '') ?? m.senderId, senderType: m.senderType, content: m.content, kind: m.kind })),
+    threadMessages: msgs.map((m) => ({ senderId: names.get(m.senderId ?? '') ?? m.senderId, senderType: m.senderType, content: m.content, kind: m.kind, note: focusNote(m.metaJson) })),
     dispatchTargets: await dispatchTargetsOf(db, a),
+    designs: manifest?.entities.Design ? await designContextOf(db, a.workstationId) : undefined,
   });
 }
 

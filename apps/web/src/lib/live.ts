@@ -10,7 +10,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['thread_', ['thread', 'thread-messages']],
   ['run_step', ['pulse', 'timeline']],
   ['run_', ['runs', 'run', 'agent-status', 'overview', 'task', 'testruns', 'pulse', 'timeline', 'ledger']],
-  ['entity_', ['entities', 'testruns', 'timeline', 'knowledge']],
+  ['entity_', ['entities', 'entity-versions', 'design-system', 'testruns', 'timeline', 'knowledge']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],
   ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files', 'remote', 'tasks']],
   ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins']],

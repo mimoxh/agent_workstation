@@ -30,6 +30,15 @@ export const BUILTIN_TOOLS = [
   'capture_screenshot',
   'list_files',
   'sync_branch',
+  'list_designs',
+  'read_design',
+  'write_design',
+  'edit_design',
+  'read_design_system',
+  'update_design_system',
+  'comment_design',
+  'resolve_design_comments',
+  'read_design_handoff',
 ] as const;
 
 export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:knowledge'] as const;

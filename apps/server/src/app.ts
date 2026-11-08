@@ -72,6 +72,7 @@ import {
   taskBranchStatus,
 } from './usecases/repo.js';
 import { confirmGates } from './usecases/gates.js';
+import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, saveDesign, saveDesignSystem } from './usecases/designs.js';
 import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
@@ -334,6 +335,26 @@ export function createApp(db: DB) {
       return c.json({ thread: th });
     })
 
+    // ---- 设计台 ----
+    .get('/workstations/:id/designs', async (c) => c.json(await listDesigns(c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/designs', body(z.object({ title: z.string().trim().min(1, '标题不能为空'), html: z.string().trim().min(1, 'HTML 不能为空'), brief: z.string().optional() })), async (c) => {
+      const r = await saveDesign(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), reason: '导入 HTML' });
+      return r.kind === 'ok' ? c.json({ id: r.id, warnings: r.warnings }, 201) : fail(c, r);
+    })
+    .get('/workstations/:id/design-system', async (c) => c.json(await designSystemOf(c.get('db'), c.req.param('id'))))
+    .put('/workstations/:id/design-system', body(z.object({ name: z.string().trim().min(1).optional(), tokens: z.array(z.object({ name: z.string().regex(/^--[\w-]+$/, '令牌名要以 -- 开头'), value: z.string().trim().min(1, '令牌的值不能为空'), description: z.string().optional() })).optional(), guidelines: z.string().optional(), baseVersion: z.number().int().optional() })), async (c) => {
+      const r = await saveDesignSystem(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), reason: '人工修改' });
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/workstations/:id/design-system/import', body(z.object({ css: z.string().optional(), sourceWorkstationId: z.string().optional(), path: z.string().optional() })), async (c) => {
+      const r = await importDesignTokens(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ count: r.count }) : fail(c, r);
+    })
+    .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional() })), async (c) => {
+      const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
+    })
+
     // ---- 实体 ----
     .patch('/entities/:id', body(z.object({ data: jsonRecord, baseVersion: z.number().int(), reason: z.string().optional() })), async (c) => {
       const r = await updateEntity(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
@@ -501,8 +522,9 @@ export function createApp(db: DB) {
       const r = await decisionToProposal(c.get('actor'), c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ proposalId: r.proposalId }, 201) : fail(c, r);
     })
-    .post('/threads/:id/messages', body(z.object({ content: z.string().trim().min(1, '消息不能为空') })), async (c) => {
-      const m = await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').content);
+    .post('/threads/:id/messages', body(z.object({ content: z.string().trim().min(1, '消息不能为空'), meta: z.object({ design: z.object({ id: z.string(), title: z.string(), version: z.number().int() }) }).optional() })), async (c) => {
+      const { content, meta } = c.req.valid('json');
+      const m = await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), content, meta);
       return m ? c.json(m, 201) : fail(c, { status: 404, error: '会话不存在' });
     })
 

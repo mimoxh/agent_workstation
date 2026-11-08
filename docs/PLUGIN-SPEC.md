@@ -242,7 +242,7 @@ export interface RelationDef {
 ```ts
 export interface PanelDef {
   id: string;
-  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge';
+  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge' | 'canvas' | 'tokens';
   entity: string;                 // 插件实体或系统实体（system:*）
   title: string;
   config?: Record<string, unknown>;
@@ -263,6 +263,8 @@ export interface PanelDef {
 | `diff` | 代码改动审阅 | `showComments` |
 | `preview` | 页面预览 + 截图对比 | `urlField`, `baselineField` |
 | `knowledge` | 知识库导入与检索 | — |
+| `canvas` | 设计画布（对话 + 沙箱预览 + 评论） | `home`：作为工作台默认入口 |
+| `tokens` | 设计令牌与规范 | — |
 
 ## 6. 阶段定义
 

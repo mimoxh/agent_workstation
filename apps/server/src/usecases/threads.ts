@@ -100,10 +100,10 @@ export async function postMessage(db: DB, threadId: string, sender: Sender, cont
 
 export const PLATFORM: Sender = { type: 'agent', id: 'platform' };
 
-export async function postThreadMessage(actor: Actor, db: DB, threadId: string, content: string) {
+export async function postThreadMessage(actor: Actor, db: DB, threadId: string, content: string, meta?: Record<string, unknown>) {
   const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
   if (!th) return null;
-  const m = await postMessage(db, threadId, actor, content);
+  const m = await postMessage(db, threadId, actor, content, 'chat', meta);
   await logEvent(db, actor, 'message_posted', 'thread', threadId, {});
   return m;
 }

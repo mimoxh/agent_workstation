@@ -10,7 +10,7 @@ import type { ModelRoute } from './models.js';
 import { isRetryable, runCost, sanitizeError } from './models.js';
 import { pushInbox, pushRunFailure } from '../usecases/inbox.js';
 import { postMessage, taskThreadOf } from '../usecases/threads.js';
-import { executeTool, toolSchemasFor, type RunCtx } from './tools/index.js';
+import { allTools, executeTool, toolSchemasFor, type RunCtx } from './tools/index.js';
 import type { AgentRow, TaskRow } from './types.js';
 
 export type StopReason = 'completed' | 'max_turns' | 'no_progress' | 'budget' | 'timeout' | 'error' | 'cancelled';
@@ -62,6 +62,8 @@ export function readUsage(res: unknown): { inputTokens?: number; outputTokens?: 
 
 const MAX_TURNS = 8;
 const TOOL_RESULT_LIMIT = 8 * 1024;
+// 一次工具调用就要写整份设计稿：不少 provider 的默认输出上限放不下，半截 JSON 等于这一轮白跑
+const LARGE_OUTPUT_TOKENS = Number(process.env.AW_LARGE_OUTPUT_TOKENS ?? 16000);
 
 const now = () => new Date().toISOString();
 
@@ -122,6 +124,7 @@ export async function runAgent(opts: {
   activeRuns.set(runId, active);
 
   const toolDefs = toolSchemasFor(JSON.parse(opts.agentRow.toolsJson ?? '[]') as string[]);
+  const maxOutputTokens = LARGE_OUTPUT_TOKENS > 0 && toolDefs.some((t) => t.largeOutput) ? LARGE_OUTPUT_TOKENS : undefined;
   const aiTools = Object.fromEntries(
     toolDefs.map((t) => [t.name, tool({ description: t.description, inputSchema: jsonSchema(zodToJson(t.parameters)) })]),
   );
@@ -157,6 +160,7 @@ export async function runAgent(opts: {
           messages: messages as never,
           tools: aiTools as unknown as ToolSet,
           abortSignal: abort.signal,
+          ...(maxOutputTokens ? { maxOutputTokens } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -228,8 +232,9 @@ export async function runAgent(opts: {
         let truncated = false;
         let err: string | undefined;
         const ser = JSON.stringify(result);
-        if (ser && ser.length > TOOL_RESULT_LIMIT) {
-          result = { truncated_preview: ser.slice(0, TOOL_RESULT_LIMIT) };
+        const limit = allTools()[c.toolName]?.resultLimit ?? TOOL_RESULT_LIMIT;
+        if (ser && ser.length > limit) {
+          result = { truncated_preview: ser.slice(0, limit) };
           truncated = true;
         }
         if (typeof result === 'object' && result !== null && 'error' in result) {
