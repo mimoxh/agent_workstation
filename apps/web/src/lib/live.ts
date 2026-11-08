@@ -3,8 +3,8 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 // 按顺序取第一个匹配：run_step 很频繁，只刷新脉搏和时间线
 const RULES: [prefix: string, keys: string[]][] = [
-  ['task_', ['tasks', 'task', 'project-tasks', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse']],
-  ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline']],
+  ['task_', ['tasks', 'task', 'project-tasks', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse', 'task-branch']],
+  ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline', 'task-branch', 'remote']],
   ['inbox_', ['inbox', 'overview', 'projects']],
   ['message_', ['timeline', 'thread-messages']],
   ['thread_', ['thread', 'thread-messages']],
@@ -12,7 +12,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['run_', ['runs', 'run', 'agent-status', 'overview', 'task', 'testruns', 'pulse', 'timeline', 'ledger']],
   ['entity_', ['entities', 'testruns', 'timeline', 'knowledge']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],
-  ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files']],
+  ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files', 'remote', 'tasks']],
   ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins']],
 ];
 

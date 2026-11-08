@@ -6,7 +6,8 @@ import { events } from '../events.js';
 import { condTransition } from '../runtime/dev_workflow.js';
 import { triggerRun } from '../runtime/scheduler.js';
 import { logEvent } from './core.js';
-import { transitionTaskUc } from './tasks.js';
+import { confirmGates } from './gates.js';
+import { setStage, transitionTaskUc } from './tasks.js';
 import { postThreadMessage, taskThreadOf } from './threads.js';
 
 const now = () => new Date().toISOString();
@@ -28,6 +29,7 @@ const SEVERITY: Record<string, string> = {
   task_rejected: 'high',
   task_countered: 'normal',
   human_request: 'normal',
+  gate_confirm: 'normal',
   proposal_review: 'normal',
 };
 const REPEAT_FAILURES = 3;
@@ -116,7 +118,21 @@ export async function actOnInbox(actor: Actor, db: DB, id: string, body: InboxAc
     const r = await transitionTaskUc(actor, db, t.id, t.status === 'escalated' ? 'resolve' : 'unblock');
     if (r.kind !== 'ok') return r;
   }
-  if (body.action !== 'unblock' && body.answer?.trim() && item.refId) {
+  // 阶段门禁的人工检查项：确认后按 Agent 当初要去的阶段推进；不同意就把意见留给任务会话
+  if (item.kind === 'gate_confirm' && item.refId && body.decision) {
+    const p = JSON.parse(item.payloadJson ?? '{}') as { target?: string; gates?: { stage: string; index: number }[] };
+    if (body.decision === 'approve') {
+      await confirmGates(actor, db, item.refId, p.gates ?? []);
+      if (p.target) {
+        const r = await setStage(actor, db, item.refId, p.target);
+        if (r.kind !== 'ok') return r;
+      }
+    } else {
+      const th = await taskThreadOf(db, item.refId);
+      if (th) await postThreadMessage(actor, db, th.id, `阶段检查未通过，先不推进${body.answer?.trim() ? `：${body.answer.trim()}` : ''}`);
+    }
+  }
+  if (body.action !== 'unblock' && body.answer?.trim() && item.refId && item.kind !== 'gate_confirm') {
     if (item.refType === 'task') {
       const r = await answerRequest(actor, db, item.refId, body.answer.trim(), payloadOf(item.payloadJson).agentId);
       if (r.kind !== 'ok') return r;

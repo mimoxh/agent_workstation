@@ -8,10 +8,11 @@ import { InboxEntry } from '@/components/inbox/InboxEntry';
 import { PageIcon, Prop } from '@/components/layout/Page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/feedback';
 import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { clock, num, parseJson, seconds, shortId, when } from '@/lib/format';
-import type { BoardTask, InboxRow, NameMaps, RunRow, TaskDetail, TestRun } from '@/lib/queries';
+import { useTaskBranch, type BoardTask, type Gate, type InboxRow, type NameMaps, type RunRow, type TaskDetail, type TestRun } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 const MAX_SEND_BACKS = 3;
@@ -60,10 +61,22 @@ function StageRail({ detail }: { detail: TaskDetail }) {
   );
 }
 
+const GATE_ERROR = '未满足阶段门禁';
+
 function StageSelect({ detail }: { detail: TaskDetail }) {
   const { task, flow } = detail;
   const advance = useMutation({
-    mutationFn: async (stage: string) => unwrap(await api.tasks[':id'].stage.$post({ param: { id: task.id }, json: { stage } })),
+    mutationFn: async ({ stage, force }: { stage: string; force?: boolean }) =>
+      unwrap(await api.tasks[':id'].stage.$post({ param: { id: task.id }, json: { stage, ...(force ? { force } : {}) } })),
+    meta: { silent: true },
+    // 门禁没过时让人决定是否越过；越过会记进事件日志
+    onError: (e, v) => {
+      if (!v.force && e.message.startsWith(GATE_ERROR) && window.confirm(`${e.message}\n\n仍要推进吗？这次越过会记录在任务日志里。`)) {
+        advance.mutate({ stage: v.stage, force: true });
+      } else if (!e.message.startsWith(GATE_ERROR) || v.force) {
+        toast(e.message);
+      }
+    },
   });
   if (flow.stages.length === 0 || !['in_progress', 'reviewing'].includes(task.status)) return null;
   return (
@@ -73,10 +86,77 @@ function StageSelect({ detail }: { detail: TaskDetail }) {
       data-testid="stage-select"
       value={task.stage ?? ''}
       disabled={advance.isPending}
-      onChange={(e) => advance.mutate(e.target.value)}
+      onChange={(e) => advance.mutate({ stage: e.target.value })}
     >
       {flow.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
     </Select>
+  );
+}
+
+// 离开当前阶段前要满足的条件；人工检查项可以就地确认
+function Gates({ detail }: { detail: TaskDetail }) {
+  const { task, flow } = detail;
+  const confirm = useMutation({
+    mutationFn: async (g: Gate) => unwrap(await api.tasks[':id'].gates.confirm.$post({ param: { id: task.id }, json: { stage: g.stage, index: g.index } })),
+  });
+  if (flow.gates.length === 0 || !['in_progress', 'reviewing'].includes(task.status)) return null;
+  return (
+    <ul className="space-y-1" data-testid="stage-gates">
+      {flow.gates.map((g) => (
+        <li key={`${g.stage}-${g.index}`} className="flex items-baseline gap-2 text-sm">
+          <span aria-hidden className={cn('measured w-3', g.met ? 'text-ok' : 'text-accent')}>{g.met ? '✓' : '·'}</span>
+          <span className={cn('min-w-0 flex-1', g.met ? 'text-muted' : 'text-ink-2')}>{g.text}</span>
+          {!g.met && g.confirmable && (
+            <Button size="sm" variant="quiet" disabled={confirm.isPending} onClick={() => confirm.mutate(g)} data-testid="gate-confirm">确认</Button>
+          )}
+          {!g.met && !g.confirmable && <span className="shrink-0 text-xs text-muted">平台判定</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// 代码任务的分支：落后多少、是否卡在冲突里；合并后可以回滚
+function BranchState({ task }: { task: TaskDetail['task'] }) {
+  const q = useTaskBranch(task.id, !!task.codeRefJson);
+  const sync = useMutation({
+    mutationFn: async () => unwrap(await api.tasks[':id'].sync.$post({ param: { id: task.id } })),
+    onSuccess: (r) => toast(r.status === 'up_to_date' ? '已是最新' : r.status === 'merged' ? '已同步目标分支' : `同步后有冲突：${r.files.join('、')}`, r.status === 'conflicts' ? 'bad' : 'ok'),
+  });
+  const revert = useMutation({
+    mutationFn: async (reason: string) => unwrap(await api.tasks[':id'].revert.$post({ param: { id: task.id }, json: reason ? { reason } : {} })),
+    onSuccess: (r) => toast(`已回滚，回滚提交 ${r.revertSha.slice(0, 8)}`, 'ok'),
+  });
+  const b = q.data?.branch;
+  if (!b) return null;
+  const askRevert = () => {
+    const reason = window.prompt('回滚这次合并：会在目标分支上生成一个反向提交。原因（可选）', '');
+    if (reason !== null) revert.mutate(reason.trim());
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" data-testid="task-branch">
+      {b.branch && <code className="text-ink-2">{b.branch}</code>}
+      {b.revertSha ? (
+        <span className="text-muted">已回滚 <span className="measured">{b.revertSha.slice(0, 8)}</span></span>
+      ) : b.mergeSha ? (
+        <>
+          <span className="text-muted">已合并 <span className="measured">{b.mergeSha.slice(0, 8)}</span></span>
+          <Button size="sm" variant="quiet" disabled={revert.isPending} onClick={askRevert} data-testid="task-revert">{revert.isPending ? '回滚中…' : '回滚'}</Button>
+        </>
+      ) : b.live ? (
+        <>
+          <span className={b.behind > 0 ? 'text-accent' : 'text-muted'}>
+            {b.behind > 0 ? `落后目标分支 ${b.behind} 个提交` : '与目标分支同步'}
+            <span className="text-muted">，领先 <span className="measured">{b.ahead}</span></span>
+          </span>
+          {b.merging && <span className="text-bad">合并中{b.conflicts.length > 0 ? `，冲突：${b.conflicts.join('、')}` : '，冲突已解决待提交'}</span>}
+          {b.movedAfterSubmit && <span className="text-bad">提交提案后分支又被改过，合并时会退回</span>}
+          {b.behind > 0 && !b.merging && (
+            <Button size="sm" variant="quiet" disabled={sync.isPending} onClick={() => sync.mutate()} data-testid="task-sync">{sync.isPending ? '同步中…' : '同步'}</Button>
+          )}
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -160,6 +240,10 @@ export function TaskHeader({
             <StageSelect detail={detail} />
           </Prop>
         )}
+        {flow.gates.length > 0 && ['in_progress', 'reviewing'].includes(task.status) && (
+          <Prop icon="flag" label="门禁"><Gates detail={detail} /></Prop>
+        )}
+        {task.codeRefJson && <Prop icon="branch" label="分支"><BranchState task={task} /></Prop>}
         <Prop icon="person" label="负责">{assignee}</Prop>
         <Prop icon="coin" label="用量">
           <span className="measured text-ink-2" data-testid="task-usage">{num(used)}{flow.budget?.tokens ? ` / ${num(flow.budget.tokens)}` : ''} tok</span>

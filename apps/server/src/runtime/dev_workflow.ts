@@ -5,7 +5,7 @@ import { transition } from '@aw/domain';
 import type { DB } from '../db/client.js';
 import { agent, artifact, entity, proposal, reviewComment, run, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
-import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, type DevSettings } from './git.js';
+import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, pushTarget, type DevSettings } from './git.js';
 import { runCommand, portEnv, type ExecResult } from './exec.js';
 import { snapshotDb } from '../usecases/backup.js';
 import { logEvent, manifestOf } from '../usecases/core.js';
@@ -259,12 +259,55 @@ export function enqueueMerge(db: DB, actor: Actor, taskId: string) {
   })().catch((e: unknown) => console.error('[merge] 入队失败', taskId, String(e)));
 }
 
+const PLATFORM = ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local'];
+
+type CodeRef = { worktree: string; branch: string; base_sha: string; head_sha?: string; merge_sha?: string; revert_sha?: string };
+
+const inMerge = async (wt: string) => (await git(wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])).code === 0;
+
+// 把目标分支最新进展合进任务分支：干净合入直接提交；有冲突就停在合并中，冲突标记留给实现者解决后 git_commit
+// base_sha 前移到目标分支 HEAD，之后的 diff / 提案 / 范围校验只看任务自己的改动
+export async function syncTaskBranch(db: DB, taskId: string): Promise<
+  { error: string } | { status: 'up_to_date' } | { status: 'merged'; base_sha: string } | { status: 'conflicts'; base_sha: string; files: string[] }
+> {
+  const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+  const ref = t?.codeRefJson ? (JSON.parse(t.codeRefJson) as CodeRef) : null;
+  if (!t || !ref?.worktree) return { error: '任务没有 worktree' };
+  const s = await wsSettings(db, t.workstationId);
+  if (await inMerge(ref.worktree)) {
+    const left = (await git(ref.worktree, ['diff', '--name-only', '--diff-filter=U'])).stdout.split('\n').filter(Boolean);
+    return { error: `上次同步还在合并中，先解决冲突并 git_commit：${left.join('、') || '（冲突已解决，直接提交）'}` };
+  }
+  if ((await git(ref.worktree, ['status', '--porcelain'])).stdout.trim()) return { error: '存在未提交改动，先 git_commit 再同步' };
+  const target = (await gitOk(ref.worktree, ['rev-parse', s.targetBranch])).stdout.trim();
+  if ((await git(ref.worktree, ['merge-base', '--is-ancestor', target, 'HEAD'])).code === 0) return { status: 'up_to_date' };
+  const m = await git(ref.worktree, [...PLATFORM, 'merge', '--no-edit', '-m', `Sync ${s.targetBranch} into ${ref.branch}`, target]);
+  await db.update(task).set({ codeRefJson: JSON.stringify({ ...ref, base_sha: target }) }).where(eq(task.id, taskId));
+  await logEvent(db, { type: 'human', id: 'local' }, 'task_branch_synced', 'task', taskId, { base_sha: target, clean: m.code === 0 });
+  if (m.code === 0) return { status: 'merged', base_sha: target };
+  const files = (await git(ref.worktree, ['diff', '--name-only', '--diff-filter=U'])).stdout.split('\n').filter(Boolean);
+  if (files.length === 0) {
+    await git(ref.worktree, ['merge', '--abort']);
+    await db.update(task).set({ codeRefJson: JSON.stringify(ref) }).where(eq(task.id, taskId));
+    return { error: `同步失败：${(m.stderr || m.stdout).trim().slice(0, 300)}` };
+  }
+  return { status: 'conflicts', base_sha: target, files };
+}
+
 async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!t?.codeRefJson || t.status === 'done') return;
-  const ref = JSON.parse(t.codeRefJson) as { worktree: string; branch: string; base_sha: string };
+  const ref = JSON.parse(t.codeRefJson) as CodeRef;
   const integ = await ensureIntegration(s, t.workstationId);
   const p = (await db.select().from(proposal).where(and(eq(proposal.taskId, taskId), eq(proposal.status, 'approved')))).pop();
+
+  // 0. 审过的是 head_sha；之后分支又有提交（手动 commit 等）就不能直接合，否则会带进没审过的代码
+  const branchHead = (await git(integ, ['rev-parse', `refs/heads/${ref.branch}`])).stdout.trim();
+  if (ref.head_sha && branchHead && branchHead !== ref.head_sha) {
+    if (p) await db.update(proposal).set({ status: 'superseded' }).where(eq(proposal.id, p.id));
+    await sendBack(db, { actor }, taskId, `提案提交后分支 ${ref.branch} 又有新提交（${branchHead.slice(0, 8)}，审过的是 ${ref.head_sha.slice(0, 8)}），需要重新 submit_change 再走测试与评审`);
+    return;
+  }
 
   // 1. 干净 + targetBranch
   const cur = (await git(integ, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
@@ -283,7 +326,14 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
     await git(integ, ['merge', '--abort']);
     if (p) await db.update(proposal).set({ status: 'conflicted' }).where(eq(proposal.id, p.id));
     const detail = (m.stderr.trim() || m.stdout.trim()).slice(0, 300);
-    await sendBack(db, { actor }, taskId, `合并冲突，回退到实现阶段。冲突文件：${conflicted.join('、') || '未知'}。${detail}`);
+    // 冲突不再只退回：先把目标分支合进任务分支，冲突标记留在 worktree 里交给实现者解决
+    const synced = await syncTaskBranch(db, taskId).catch((e: unknown) => ({ error: String(e) }));
+    const how = 'error' in synced
+      ? `自动同步失败（${synced.error}），请先调用 sync_branch。`
+      : synced.status === 'conflicts'
+        ? `平台已把 ${s.targetBranch} 合进你的分支，冲突留在这些文件里：${synced.files.join('、')}。用 read_file 看冲突标记，apply_patch 改成正确结果，git_commit 完成合并后 submit_change。`
+        : `平台已把 ${s.targetBranch} 干净地合进你的分支，确认验收仍通过后直接 submit_change。`;
+    await sendBack(db, { actor }, taskId, `合并冲突，回退到实现阶段。冲突文件：${conflicted.join('、') || '未知'}。${how}\n${detail}`);
     return;
   }
   // 3. setup + 验收
@@ -304,11 +354,12 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
     return;
   }
   // 4. commit + proposal merged + task approve + 回收
-  const pending = (await git(integ, ['status', '--porcelain'])).stdout.trim();
-  if (pending) {
-    await gitOk(integ, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'commit', '--no-edit', '-m', `Merge ${ref.branch}: ${t.title} (task ${taskId.slice(0, 8)})`]);
+  // --no-ff 下 MERGE_HEAD 存在就要提交，即使内容没变也留一个合并提交，回滚才有对象
+  if (await inMerge(integ)) {
+    await gitOk(integ, [...PLATFORM, 'commit', '--no-edit', '-m', `Merge ${ref.branch}: ${t.title} (task ${taskId.slice(0, 8)})`]);
   }
   const mergeSha = (await gitOk(integ, ['rev-parse', 'HEAD'])).stdout.trim();
+  notePlatformHead(t.workstationId, mergeSha);
   if (p) {
     await db.update(proposal).set({ status: 'merged' }).where(eq(proposal.id, p.id));
   }
@@ -318,7 +369,73 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   await condTransition(db, actor, taskId, 'approve');
   await removeTaskWorktree(s, t.workstationId, taskId);
   events.emit('inbox_created', { kind: 'merged', refId: taskId });
+  if (s.remote?.autoPush) await afterMergePush(db, taskId, s);
   await maybeCloseParent(db, t.parentId);
+}
+
+// 目标分支被平台移动过（合并 / 回滚 / 同步）：告诉漂移检测这是自己人干的
+const platformHeads = new Map<string, string>();
+export const notePlatformHead = (wsId: string, sha: string) => platformHeads.set(wsId, sha);
+export const platformHeadOf = (wsId: string) => platformHeads.get(wsId);
+
+async function afterMergePush(db: DB, taskId: string, s: DevSettings) {
+  const r = await pushTarget(s).catch((e: unknown) => ({ ok: false as const, output: String(e) }));
+  await postStatus(db, taskId, r.ok ? `已推送 ${s.targetBranch} 到 ${s.remote?.name ?? 'origin'}` : `自动推送失败：${r.output.slice(0, 300)}`);
+}
+
+// ===== 回滚：在 integration worktree 里 revert 合并提交，走同一条串行队列 =====
+export async function revertMerged(db: DB, actor: Actor, taskId: string, reason?: string): Promise<{ error: string } | { revert_sha: string }> {
+  const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+  const ref = t?.codeRefJson ? (JSON.parse(t.codeRefJson) as CodeRef) : null;
+  if (!t || !ref) return { error: '任务不存在或不是代码任务' };
+  if (!ref.merge_sha) return { error: '这个任务还没有合并，没有可回滚的提交' };
+  if (ref.revert_sha) return { error: `已回滚过（${ref.revert_sha.slice(0, 8)}）` };
+  const s = await wsSettings(db, t.workstationId);
+  return queueOf(s.repoPath).add(async () => {
+    const integ = await ensureIntegration(s, t.workstationId);
+    if ((await git(integ, ['status', '--porcelain'])).stdout.trim()) return { error: 'integration worktree 不干净，无法回滚' };
+    const parents = (await gitOk(integ, ['rev-list', '--parents', '-n', '1', ref.merge_sha!])).stdout.trim().split(' ');
+    const reachable = (await git(integ, ['merge-base', '--is-ancestor', ref.merge_sha!, 'HEAD'])).code === 0;
+    if (!reachable) return { error: `合并提交 ${ref.merge_sha!.slice(0, 8)} 不在 ${s.targetBranch} 上` };
+    // 平台合并一律 --no-ff；不是合并提交说明分支内容早已在目标分支里，单独回滚会误伤别的提交
+    if (parents.length <= 2) return { error: '这次合并没有产生合并提交，无法单独回滚' };
+    const r = await git(integ, [...PLATFORM, 'revert', '--no-edit', '-m', '1', ref.merge_sha!]);
+    if (r.code !== 0) {
+      await git(integ, ['revert', '--abort']);
+      return { error: `回滚冲突：之后的改动依赖这次合并，需要人工处理。${(r.stderr || r.stdout).trim().slice(0, 300)}` };
+    }
+    const sha = (await gitOk(integ, ['rev-parse', 'HEAD'])).stdout.trim();
+    notePlatformHead(t.workstationId, sha);
+    await db.update(task).set({ codeRefJson: JSON.stringify({ ...ref, revert_sha: sha }) }).where(eq(task.id, taskId));
+    const p = (await db.select().from(proposal).where(and(eq(proposal.taskId, taskId), eq(proposal.status, 'merged')))).pop();
+    if (p) await db.update(proposal).set({ status: 'reverted' }).where(eq(proposal.id, p.id));
+    await logEvent(db, actor, 'task_reverted', 'task', taskId, { merge_sha: ref.merge_sha, revert_sha: sha, reason: reason ?? null });
+    await postHandoff(db, taskId, `已回滚合并 ${ref.merge_sha!.slice(0, 8)}（回滚提交 ${sha.slice(0, 8)}）${reason ? `：${reason}` : ''}`, { from: await actorName(db, actor), to: 'steward', refs: { revert_sha: sha } });
+    if (s.remote?.autoPush) await afterMergePush(db, taskId, s);
+    return { revert_sha: sha };
+  });
+}
+
+// ===== 同步基线：把 baseBranch 的新提交（人在主分支上的手动提交）合进 targetBranch =====
+export async function syncBaseIntoTarget(db: DB, actor: Actor, wsId: string): Promise<{ error: string } | { status: 'up_to_date' | 'merged'; sha?: string }> {
+  const s = await wsSettings(db, wsId);
+  return queueOf(s.repoPath).add(async () => {
+    const integ = await ensureIntegration(s, wsId);
+    if ((await git(integ, ['status', '--porcelain'])).stdout.trim()) return { error: 'integration worktree 不干净' };
+    const base = (await git(integ, ['rev-parse', '--verify', `refs/heads/${s.baseBranch}`])).stdout.trim();
+    if (!base) return { error: `基线分支 ${s.baseBranch} 不存在` };
+    if ((await git(integ, ['merge-base', '--is-ancestor', base, 'HEAD'])).code === 0) return { status: 'up_to_date' as const };
+    const m = await git(integ, [...PLATFORM, 'merge', '--no-edit', '-m', `Sync ${s.baseBranch} into ${s.targetBranch}`, base]);
+    if (m.code !== 0) {
+      const files = (await git(integ, ['diff', '--name-only', '--diff-filter=U'])).stdout.split('\n').filter(Boolean);
+      await git(integ, ['merge', '--abort']);
+      return { error: `${s.baseBranch} 与 ${s.targetBranch} 冲突：${files.join('、') || (m.stderr || m.stdout).trim().slice(0, 300)}。需要在主仓库手动合并` };
+    }
+    const sha = (await gitOk(integ, ['rev-parse', 'HEAD'])).stdout.trim();
+    notePlatformHead(wsId, sha);
+    await logEvent(db, actor, 'workstation_base_synced', 'workstation', wsId, { sha });
+    return { status: 'merged' as const, sha };
+  });
 }
 
 // ===== 父任务收口 =====

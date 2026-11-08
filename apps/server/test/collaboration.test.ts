@@ -287,9 +287,11 @@ describe('任务流', () => {
     const parent = await addTask({ workstationId: root.id, assigneeType: 'workstation', assigneeId: dev.id, typeId: 'dev.issue', stage: 'requirement' });
     const a = await addTask({ parentId: parent.id, typeId: 'dev.issue', stage: 'review' });
     const b = await addTask({ parentId: parent.id, typeId: 'dev.issue', stage: 'test' });
-    expect((await post(`/api/tasks/${a.id}/stage`, { stage: 'merge' })).status).toBe(200);
+    // 没有审查通过就进合并会被门禁拦下；人可以显式越过
+    expect((await post(`/api/tasks/${a.id}/stage`, { stage: 'merge' })).status).toBe(409);
+    expect((await post(`/api/tasks/${a.id}/stage`, { stage: 'merge', force: true })).status).toBe(200);
     expect((await reload(parent.id)).stage).toBe('test');
-    expect((await post(`/api/tasks/${b.id}/stage`, { stage: 'review' })).status).toBe(200);
+    expect((await post(`/api/tasks/${b.id}/stage`, { stage: 'review', force: true })).status).toBe(200);
     expect((await reload(parent.id)).stage).toBe('review');
     await settle();
   });

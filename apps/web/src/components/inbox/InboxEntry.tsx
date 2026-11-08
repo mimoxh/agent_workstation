@@ -13,6 +13,7 @@ const TONE: Record<string, BadgeTone> = {
   command_confirm: 'amber',
   blocked: 'amber',
   human_request: 'amber',
+  gate_confirm: 'amber',
   task_countered: 'amber',
   proposal_review: 'cool',
   run_failed: 'bad',
@@ -40,6 +41,14 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
       <>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve.mutate({ decision: 'approve' })}>批准执行</Button>
         <Button size="sm" disabled={busy} onClick={() => resolve.mutate({ decision: 'deny' })}>拒绝</Button>
+      </>
+    );
+  }
+  if (item.kind === 'gate_confirm') {
+    return (
+      <>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve.mutate({ decision: 'approve' })} data-testid="gate-approve">确认并推进</Button>
+        <Button size="sm" disabled={busy} onClick={() => resolve.mutate({ decision: 'deny' })}>先不推进</Button>
       </>
     );
   }

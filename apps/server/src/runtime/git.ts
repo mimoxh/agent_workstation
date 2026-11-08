@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import PQueue from 'p-queue';
 import path from 'node:path';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 
 export interface GitResult { code: number; stdout: string; stderr: string; argv: string[]; ms: number; timedOut?: boolean }
 
@@ -45,11 +45,14 @@ export interface DevSettings {
   commandTimeoutSec: number;
   setupTimeoutSec: number;
   requireHumanFor: string[];
+  // 远端：不配就只在本地合并；autoPush 合并 / 回滚后把目标分支推上去
+  remote?: { name: string; autoPush: boolean } | undefined;
 }
 
 export function devSettings(settingsJson: string | null): DevSettings {
   const s = (JSON.parse(settingsJson ?? '{}') as Record<string, unknown>);
   const commands = (s.commands ?? {}) as Record<string, string | undefined>;
+  const remote = s.remote as { name?: string; autoPush?: boolean } | undefined;
   return {
     repoPath: String(s.repoPath ?? '.'),
     targetBranch: String(s.targetBranch ?? 'develop'),
@@ -58,7 +61,37 @@ export function devSettings(settingsJson: string | null): DevSettings {
     commandTimeoutSec: Number(s.commandTimeoutSec ?? 120),
     setupTimeoutSec: Number(s.setupTimeoutSec ?? 600),
     requireHumanFor: Array.isArray(s.requireHumanFor) ? (s.requireHumanFor as string[]) : [],
+    remote: remote?.name ? { name: remote.name, autoPush: !!remote.autoPush } : undefined,
   };
+}
+
+const PUSH_TIMEOUT_MS = 180_000;
+
+// 推送目标分支；凭据交给用户自己的 git 配置（credential helper / ssh），平台不碰
+export async function pushTarget(s: DevSettings): Promise<{ ok: boolean; output: string }> {
+  const name = s.remote?.name ?? 'origin';
+  const r = await git(s.repoPath, ['push', name, `refs/heads/${s.targetBranch}:refs/heads/${s.targetBranch}`], PUSH_TIMEOUT_MS);
+  return { ok: r.code === 0, output: (r.stderr || r.stdout).trim() };
+}
+
+// 从零开始的项目：目录不是仓库就 git init，没有任何提交就在基线分支上建一个空的初始提交
+export async function ensureRepo(s: DevSettings): Promise<{ ok: true; created: boolean } | { ok: false; error: string }> {
+  if (!path.isAbsolute(s.repoPath)) return { ok: false, error: '仓库路径必须是绝对路径' };
+  // 路径写错不能悄悄建出一个新仓库：目录要先存在，且是空目录才会初始化
+  if (!existsSync(s.repoPath)) return { ok: false, error: `仓库路径不存在：${s.repoPath}` };
+  let created = false;
+  if ((await git(s.repoPath, ['rev-parse', '--is-inside-work-tree'])).code !== 0) {
+    if (readdirSync(s.repoPath).length > 0) return { ok: false, error: `不是 git 仓库且目录非空：${s.repoPath}` };
+    const init = await git(s.repoPath, ['init', '-b', s.baseBranch]);
+    if (init.code !== 0) return { ok: false, error: init.stderr.trim() };
+    created = true;
+  }
+  if ((await git(s.repoPath, ['rev-parse', '--verify', '--quiet', 'HEAD'])).code !== 0) {
+    const c = await git(s.repoPath, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'commit', '--allow-empty', '-m', 'Initial commit']);
+    if (c.code !== 0) return { ok: false, error: c.stderr.trim() };
+    created = true;
+  }
+  return { ok: true, created };
 }
 
 export const wtRoot = (repoPath: string, wsId: string) => path.join(process.env.AW_WORKTREE_ROOT ?? path.join(repoPath, 'data', 'worktrees'), wsId.slice(0, 8));
@@ -66,6 +99,8 @@ export const integrationPath = (repoPath: string, wsId: string) => path.join(wtR
 
 // 主工作区检出 targetBranch → 禁止继续（会打架）
 export async function ensureTargetBranch(s: DevSettings): Promise<{ ok: true } | { ok: false; error: string }> {
+  const repo = await ensureRepo(s);
+  if (!repo.ok) return repo;
   const cur = (await gitOk(s.repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
   if (cur === s.targetBranch) return { ok: false, error: `目标分支 ${s.targetBranch} 被主工作区检出` };
   const exists = await git(s.repoPath, ['rev-parse', '--verify', `refs/heads/${s.targetBranch}`]);

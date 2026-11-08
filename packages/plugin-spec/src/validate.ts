@@ -28,6 +28,8 @@ export const BUILTIN_TOOLS = [
   'run_command',
   'run_tests',
   'capture_screenshot',
+  'list_files',
+  'sync_branch',
 ] as const;
 
 export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:knowledge'] as const;

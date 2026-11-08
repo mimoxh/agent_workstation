@@ -69,6 +69,7 @@ export const PROPOSAL_LABEL: Record<string, string> = {
   rejected: '已驳回',
   superseded: '已被取代',
   conflicted: '合并冲突',
+  reverted: '已回滚',
 };
 
 export const PROPOSAL_TONE: Record<string, BadgeTone> = {
@@ -79,6 +80,7 @@ export const PROPOSAL_TONE: Record<string, BadgeTone> = {
   rejected: 'neutral',
   superseded: 'neutral',
   conflicted: 'bad',
+  reverted: 'neutral',
 };
 
 export const RUN_LABEL: Record<string, string> = {
@@ -109,6 +111,7 @@ export const INBOX_LABEL: Record<string, string> = {
   command_confirm: '命令确认',
   human_request: '请求决策',
   budget: '预算超限',
+  gate_confirm: '阶段确认',
 };
 
 export const TRIGGER_LABEL: Record<string, string> = {
@@ -126,6 +129,8 @@ export const TRIGGER_LABEL: Record<string, string> = {
 
 export const TOOL_LABEL: Record<string, string> = {
   read_file: '读文件',
+  list_files: '列目录',
+  sync_branch: '同步分支',
   search_code: '查代码',
   git_diff: '看改动',
   apply_patch: '改文件',

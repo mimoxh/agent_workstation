@@ -270,7 +270,7 @@ describe('插件升级', () => {
     expect(tools).toContain('search_knowledge');
     expect(tools).not.toContain('git_diff');
     expect((await db.select().from(block).where(and(eq(block.workstationId, dev.id), eq(block.panelId, 'knowledge'))))).toHaveLength(1);
-    expect((await db.select().from(workstation).where(eq(workstation.id, dev.id)))[0]!.pluginVersion).toBe('1.1.0');
+    expect((await db.select().from(workstation).where(eq(workstation.id, dev.id)))[0]!.pluginVersion).toBe('1.2.0');
   });
 });
 

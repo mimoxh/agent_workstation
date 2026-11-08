@@ -7,6 +7,7 @@ import { createApp } from './app.js';
 import { loadPlugins } from './plugins.js';
 import { loadModels, sanitizeError } from './runtime/models.js';
 import { startScheduler } from './runtime/scheduler.js';
+import { startRepoWatch } from './runtime/repo_watch.js';
 import { syncWorkstations } from './usecases/workstations.js';
 
 // 最后一道兜底：单个任务的漏网异常不能带走常驻进程和其他 run
@@ -35,6 +36,7 @@ for (const r of stale) {
 }
 
 startScheduler(db);
+startRepoWatch(db);
 
 const { app } = createApp(db);
 const port = Number(process.env.AW_PORT ?? 8787);

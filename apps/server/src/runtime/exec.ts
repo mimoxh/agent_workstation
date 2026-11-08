@@ -46,6 +46,13 @@ export function isDangerous(argv: string[]): boolean {
   return false;
 }
 
+// 包管理器的增删改依赖：add / remove / update / install <pkg>，以及 up / upgrade / rm 等别名
+export function isDependencyChange(argv: string[]): boolean {
+  const [cmd, sub] = argv;
+  if (cmd !== 'pnpm' && cmd !== 'npm') return false;
+  return ['add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'install', 'i'].includes(sub ?? '') && !argv.includes('publish');
+}
+
 function scrubEnv(extra?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {

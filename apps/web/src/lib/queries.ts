@@ -13,6 +13,8 @@ const fetchWsTestRuns = async (id: string) => unwrap(await api.workstations[':id
 const fetchWsEntities = async (id: string) => unwrap(await api.workstations[':id'].entities.$get({ param: { id } }));
 const fetchAgentStatus = async (id: string) => unwrap(await api.workstations[':id'].agents.status.$get({ param: { id } }));
 const fetchRepoStatus = async (id: string) => unwrap(await api.workstations[':id'].repo.$get({ param: { id } }));
+const fetchRemote = async (id: string) => unwrap(await api.workstations[':id'].remote.$get({ param: { id } }));
+const fetchTaskBranch = async (id: string) => unwrap(await api.tasks[':id'].branch.$get({ param: { id } }));
 const fetchFiles = async (id: string, path: string) => unwrap(await api.workstations[':id'].files.$get({ param: { id }, query: { path } }));
 const fetchFile = async (id: string, path: string) => unwrap(await api.workstations[':id'].file.$get({ param: { id }, query: { path } }));
 const fetchTask = async (id: string) => unwrap(await api.tasks[':id'].$get({ param: { id } }));
@@ -61,6 +63,9 @@ export type Ledger = Awaited<ReturnType<typeof fetchLedger>>;
 export type LedgerRow = Ledger['byAgent'][number];
 export type ModelConfig = Awaited<ReturnType<typeof fetchModelConfig>>;
 export type PluginInfo = Awaited<ReturnType<typeof fetchPlugins>>[number];
+export type RepoStatus = Awaited<ReturnType<typeof fetchRepoStatus>>;
+export type TaskBranch = NonNullable<Awaited<ReturnType<typeof fetchTaskBranch>>['branch']>;
+export type Gate = TaskDetail['flow']['gates'][number];
 export type ProjectTask = Awaited<ReturnType<typeof fetchProjectTasks>>[number];
 
 const on = <T,>(id: T | null | undefined) => id !== null && id !== undefined && id !== '';
@@ -77,6 +82,8 @@ export const useWsTestRuns = (id: string) => useQuery({ queryKey: ['testruns', '
 export const useWsEntities = (id: string) => useQuery({ queryKey: ['entities', id], queryFn: () => fetchWsEntities(id) });
 export const useAgentStatus = (id: string | null | undefined) => useQuery({ queryKey: ['agent-status', id], queryFn: () => fetchAgentStatus(id!), enabled: on(id) });
 export const useRepoStatus = (id: string) => useQuery({ queryKey: ['repo', id], queryFn: () => fetchRepoStatus(id) });
+export const useRemoteStatus = (id: string, enabled = true) => useQuery({ queryKey: ['remote', id], queryFn: () => fetchRemote(id), enabled, staleTime: 30000 });
+export const useTaskBranch = (id: string, enabled = true) => useQuery({ queryKey: ['task-branch', id], queryFn: () => fetchTaskBranch(id), enabled, refetchInterval: 20000 });
 export const useFiles = (id: string, path: string) => useQuery({ queryKey: ['files', id, path], queryFn: () => fetchFiles(id, path) });
 export const useFile = (id: string, path: string | null) => useQuery({ queryKey: ['file', id, path], queryFn: () => fetchFile(id, path!), enabled: on(path) });
 export const useTask = (id: string | null | undefined) => useQuery({ queryKey: ['task', id], queryFn: () => fetchTask(id!), enabled: on(id) });

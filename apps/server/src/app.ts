@@ -55,7 +55,21 @@ import { actOnInbox } from './usecases/inbox.js';
 import { deleteSource, getChunk, importSource, listSources, searchKnowledge } from './usecases/knowledge.js';
 import { createProject, mountChildWorkstation, setPluginEnabled, takeScreenshot, updateAgent, updateProject, updateWorkstation } from './usecases/projects.js';
 import { decideProposal, mergeProposal, reviewProposal } from './usecases/proposals.js';
-import { listRepoFiles, readRepoFile, repoStatus } from './usecases/repo.js';
+import {
+  ackDrift,
+  createPullRequest,
+  importIssues,
+  listRepoFiles,
+  pushWorkstation,
+  readRepoFile,
+  remoteStatus,
+  repoStatus,
+  revertTask,
+  syncBase,
+  syncTask,
+  taskBranchStatus,
+} from './usecases/repo.js';
+import { confirmGates } from './usecases/gates.js';
 import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
@@ -241,6 +255,7 @@ export function createApp(db: DB) {
               setupTimeoutSec: z.number().int().positive().optional(),
               requireHumanFor: z.array(z.string()).optional(),
               preset: z.string().optional(),
+              remote: z.object({ name: z.string().trim().min(1), autoPush: z.boolean() }).nullable().optional(),
               budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(),
             })
             .optional(),
@@ -252,6 +267,24 @@ export function createApp(db: DB) {
       },
     )
     .get('/workstations/:id/repo', async (c) => c.json(await repoStatus(c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/repo/sync-base', async (c) => {
+      const r = await syncBase(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ status: r.status, sha: r.sha ?? null }) : fail(c, r);
+    })
+    .post('/workstations/:id/repo/ack-drift', async (c) => c.json(ackDrift(c.req.param('id'))))
+    .get('/workstations/:id/remote', async (c) => c.json(await remoteStatus(c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/remote/push', async (c) => {
+      const r = await pushWorkstation(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/workstations/:id/remote/pull-request', async (c) => {
+      const r = await createPullRequest(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ url: r.url, created: r.created }) : fail(c, r);
+    })
+    .post('/workstations/:id/remote/import-issues', async (c) => {
+      const r = await importIssues(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ created: r.created, skipped: r.skipped }) : fail(c, r);
+    })
     .post('/workstations/:id/agents', body(z.object({ templateId: z.string().min(1) })), async (c) => {
       const r = await addAgentInstance(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').templateId);
       if (r.kind === 'not_found') return fail(c, { status: 404, error: '工作台不存在' });
@@ -360,9 +393,23 @@ export function createApp(db: DB) {
         return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
       },
     )
-    .post('/tasks/:id/stage', body(z.object({ stage: z.string().min(1) })), async (c) => {
-      const r = await setStage(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').stage);
+    .post('/tasks/:id/stage', body(z.object({ stage: z.string().min(1), force: z.boolean().optional() })), async (c) => {
+      const { stage, force } = c.req.valid('json');
+      const r = await setStage(c.get('actor'), c.get('db'), c.req.param('id'), stage, { force });
       return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
+    })
+    .post('/tasks/:id/gates/confirm', body(z.object({ stage: z.string().min(1), index: z.number().int().min(0) })), async (c) => {
+      await confirmGates(c.get('actor'), c.get('db'), c.req.param('id'), [c.req.valid('json')]);
+      return c.json({ ok: true });
+    })
+    .get('/tasks/:id/branch', async (c) => c.json({ branch: await taskBranchStatus(c.get('db'), c.req.param('id')) }))
+    .post('/tasks/:id/sync', async (c) => {
+      const r = await syncTask(c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ status: r.status, files: 'files' in r ? r.files : [] }) : fail(c, r);
+    })
+    .post('/tasks/:id/revert', body(z.object({ reason: z.string().optional() })), async (c) => {
+      const r = await revertTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').reason);
+      return r.kind === 'ok' ? c.json({ revertSha: r.revertSha }) : fail(c, r);
     })
     .post('/tasks/:id/transition', body(z.object({ event: z.enum(TASK_EVENTS) })), async (c) => {
       const r = await transitionTaskUc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').event);

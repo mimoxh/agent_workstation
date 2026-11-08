@@ -5,6 +5,7 @@ import { agent, artifact, block, entity, eventLog, inboxItem, message, pluginIns
 import { pluginRegistry } from '../plugins.js';
 import { buildPermCtx, manifestOf, visibleTaskFilter } from '../usecases/core.js';
 import { stewardOf, taskFlow } from '../usecases/flow.js';
+import { stageGates } from '../usecases/gates.js';
 
 // M0.1 不做权限过滤；M0.2 起读路径走 can()：
 // human 全通过；agent 按 §4.2 过滤可见工作台。
@@ -212,6 +213,8 @@ export async function getTaskDetail(actor: Actor, db: DB, taskId: string) {
       stages: flow.stages.map((st) => ({ id: st.id, name: st.name, activeAgents: st.activeAgents ?? [], activePanels: st.activePanels ?? [] })),
       budget: flow.type?.defaultBudget ?? flow.manifest?.defaults?.taskBudget ?? null,
       stewardId: (await stewardOf(db, flow.workstationId))?.id ?? null,
+      // 离开当前阶段前要满足的门禁
+      gates: await stageGates(db, t),
     },
   };
 }
@@ -373,7 +376,8 @@ async function describeInbox(db: DB, item: typeof inboxItem.$inferSelect) {
   let runId: string | null = null;
   let proposalId: string | null = null;
   let proposalTarget: string | null = null;
-  let detail: string | null = payload.reason ?? payload.question ?? null;
+  const gates = (payload as { gates?: { text: string }[] }).gates;
+  let detail: string | null = payload.reason ?? payload.question ?? (gates ? `进入下一阶段前需要你确认：${gates.map((g) => g.text).join('；')}` : null);
 
   if (item.refType === 'task' && item.refId) {
     taskRow = (await db.select().from(task).where(eq(task.id, item.refId)))[0];

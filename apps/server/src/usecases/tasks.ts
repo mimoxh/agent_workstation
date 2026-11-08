@@ -10,7 +10,8 @@ import { modelGate } from '../runtime/models.js';
 import { triggerRun } from '../runtime/scheduler.js';
 import { buildPermCtx, logEvent, manifestOf, mergeAcceptance } from './core.js';
 import { taskFlow } from './flow.js';
-import { closeInboxFor } from './inbox.js';
+import { confirmGates, describeGates, gatesBetween } from './gates.js';
+import { closeInboxFor, pushInbox } from './inbox.js';
 import { postHandoff, postStatus } from './threads.js';
 
 const now = () => new Date().toISOString();
@@ -271,7 +272,9 @@ export async function respondTask(
   return { kind: 'ok' as const, task: updated[0] };
 }
 
-export async function setStage(actor: Actor, db: DB, taskId: string, stage: string) {
+export const GATE_ERROR = '未满足阶段门禁';
+
+export async function setStage(actor: Actor, db: DB, taskId: string, stage: string, opts: { force?: boolean | undefined } = {}) {
   const rows = await db.select().from(task).where(eq(task.id, taskId));
   const t = rows[0];
   if (!t) return { kind: 'not_found' as const, status: 404 as const, error: '任务不存在' };
@@ -281,6 +284,27 @@ export async function setStage(actor: Actor, db: DB, taskId: string, stage: stri
   const { stages } = await taskFlow(db, t);
   if (!stages.some((s) => s.id === stage)) {
     return { kind: 'invalid' as const, status: 400 as const, error: `stage ${stage} 不属于该任务类型` };
+  }
+  let unmet = (await gatesBetween(db, t, stage)).filter((g) => !g.met);
+  if (actor.type === 'human') {
+    // 人亲手推进即视为确认了人工检查项
+    const manual = unmet.filter((g) => g.kind === 'manual');
+    if (manual.length > 0) await confirmGates(actor, db, taskId, manual);
+    unmet = unmet.filter((g) => g.kind !== 'manual');
+    if (unmet.length > 0 && opts.force) {
+      await logEvent(db, actor, 'task_gate_overridden', 'task', taskId, { stage, gates: unmet.map((g) => g.text) });
+      unmet = [];
+    }
+  } else if (unmet.some((g) => g.kind === 'manual')) {
+    const open = await db.select().from(inboxItem).where(and(eq(inboxItem.kind, 'gate_confirm'), eq(inboxItem.refId, taskId), eq(inboxItem.status, 'open')));
+    if (open.length === 0) {
+      const manual = unmet.filter((g) => g.kind === 'manual');
+      await pushInbox(db, t.projectId, { kind: 'gate_confirm', refType: 'task', refId: taskId, payload: { target: stage, gates: manual.map((g) => ({ stage: g.stage, index: g.index, text: g.text })) } });
+    }
+  }
+  if (unmet.length > 0) {
+    const wait = actor.type === 'human' ? '' : unmet.some((g) => g.kind === 'manual') ? '；人工检查项已发到收件箱等人确认，确认后平台会推进' : '';
+    return { kind: 'invalid' as const, status: 409 as const, error: `${GATE_ERROR}：${describeGates(unmet)}${wait}` };
   }
   await db.update(task).set({ stage }).where(eq(task.id, taskId));
   await logEvent(db, actor, 'task_stage_changed', 'task', taskId, { stage });

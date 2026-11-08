@@ -1,16 +1,16 @@
 import { and, eq } from 'drizzle-orm';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { submitChange, afterReview, runAcceptance } from '../dev_workflow.js';
+import { submitChange, afterReview, runAcceptance, syncTaskBranch } from '../dev_workflow.js';
 import { git, gitOk, devSettings } from '../git.js';
-import { runCommand, isDangerous, splitCommand, portEnv, type ExecResult } from '../exec.js';
+import { runCommand, isDangerous, isDependencyChange, splitCommand, portEnv, type ExecResult } from '../exec.js';
 import { inboxItem, project, proposal, reviewComment, workstation } from '../../db/schema.js';
 import type { ToolCtx, ToolDef } from './index.js';
 import { events } from '../../events.js';
 import { captureScreenshot } from '../visual.js';
 import { logEvent } from '../../usecases/core.js';
+import { inScope, parseScope, scopeLabel, type TaskScope } from '../scope.js';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -33,8 +33,11 @@ function safePath(wt: string, p: string): string | null {
   const abs = path.join(wt, p);
   const rel = path.relative(wt, abs);
   if (rel.startsWith('..') || path.isAbsolute(rel) || rel === '' || rel.startsWith('.git')) return null;
+  // 新建文件可能落在还不存在的目录里：取最近一层已存在的祖先做符号链接校验
+  let probe = path.dirname(abs);
+  while (!existsSync(probe) && probe.length > wt.length) probe = path.dirname(probe);
   try {
-    const real = realpathSync(path.dirname(abs));
+    const real = realpathSync(probe);
     if (!real.startsWith(realpathSync(wt))) return null;
   } catch { return null; }
   return abs;
@@ -46,19 +49,24 @@ function writeDenied(ctx: ToolCtx): string | null {
   return ctx.task.assigneeId ? '这个任务的 worktree 归 assignee 所有，你不能写入' : null;
 }
 
-function moduleOf(ctx: ToolCtx): string {
-  try { return String((JSON.parse(ctx.task.inputJson ?? '{}') as { module?: string }).module ?? ''); } catch { return ''; }
-}
-
-function inModule(p: string, mod: string): boolean {
-  if (!mod) return true;
-  const norm = (x: string) => x.replace(/\\/g, '/').replace(/\/+$/, '');
-  return norm(p).startsWith(norm(mod));
-}
+const scopeOf = (ctx: ToolCtx): TaskScope => parseScope(ctx.task.inputJson);
+const outOfScope = (s: TaskScope, p: string) => `越出 Module 范围（${scopeLabel(s)}）：${p}`;
 
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 const FILE_LIMIT = 8 * 1024;
 const DIFF_LIMIT = 32 * 1024;
+const LIST_LIMIT = 500;
+
+// worktree 里 git 认得的文件（含未跟踪、不含忽略），用来列目录
+async function worktreeFiles(wt: string, dir: string): Promise<string[]> {
+  const spec = dir ? ['--', `${dir}/`] : [];
+  const r = await git(wt, ['ls-files', '--cached', '--others', '--exclude-standard', ...spec]);
+  const files = new Set(r.stdout.split('\n').filter(Boolean));
+  // 已删除但未提交的文件仍在索引里，不能再列出来
+  const gone = await git(wt, ['ls-files', '--deleted', ...spec]);
+  for (const f of gone.stdout.split('\n').filter(Boolean)) files.delete(f);
+  return [...files].sort();
+}
 
 export const devTools: Record<string, ToolDef> = {
   read_file: {
@@ -79,17 +87,41 @@ export const devTools: Record<string, ToolDef> = {
     },
   },
   search_code: {
-    description: 'git grep 搜索（默认限 module 路径）',
+    description: 'git grep 搜索（默认在任务范围内；给 path 可以搜范围外的代码，只读）',
     right: 'observe',
     parameters: z.object({ query: z.string(), path: z.string().optional() }),
     execute: async (ctx, a) => {
       const ref = requireWt(ctx);
       if (!ref) return { error: '任务没有 worktree' };
-      const mod = moduleOf(ctx);
-      const scope = a.path ? String(a.path) : mod;
-      if (!inModule(scope, mod)) return { error: '越出 Module' };
-      const r = await git(ref.worktree, ['grep', '-n', '-I', '-F', String(a.query), '--', scope || '.']);
+      const s = scopeOf(ctx);
+      const specs = a.path ? [String(a.path)] : s.whole ? ['.'] : s.modules;
+      const r = await git(ref.worktree, ['grep', '-n', '-I', '-F', String(a.query), '--', ...specs]);
       return { matches: r.stdout.split('\n').filter(Boolean).slice(0, 50) };
+    },
+  },
+  list_files: {
+    description: '列出 worktree 目录内容（默认任务范围根目录）；recursive 时列出全部文件',
+    right: 'observe',
+    parameters: z.object({ path: z.string().optional(), recursive: z.boolean().optional() }),
+    execute: async (ctx, a) => {
+      const ref = requireWt(ctx);
+      if (!ref) return { error: '任务没有 worktree' };
+      const s = scopeOf(ctx);
+      const dir = String(a.path ?? (s.modules.length === 1 ? s.modules[0] : '')).replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '');
+      if (dir && !safePath(ref.worktree, dir)) return { error: '路径非法' };
+      const files = await worktreeFiles(ref.worktree, dir);
+      const prefix = dir ? `${dir}/` : '';
+      if (a.recursive) {
+        return { path: dir || '.', files: files.slice(0, LIST_LIMIT), truncated: files.length > LIST_LIMIT };
+      }
+      const entries = new Set<string>();
+      for (const f of files) {
+        const rest = f.slice(prefix.length);
+        const slash = rest.indexOf('/');
+        entries.add(slash === -1 ? rest : `${rest.slice(0, slash)}/`);
+      }
+      const list = [...entries].sort((x, y) => (x.endsWith('/') === y.endsWith('/') ? x.localeCompare(y) : x.endsWith('/') ? -1 : 1));
+      return { path: dir || '.', entries: list.slice(0, LIST_LIMIT), truncated: list.length > LIST_LIMIT };
     },
   },
   git_diff: {
@@ -106,30 +138,51 @@ export const devTools: Record<string, ToolDef> = {
     },
   },
   apply_patch: {
-    description: '原子化编辑文件（oldText 必须恰好出现一次；paths 必须在 module 内）',
+    description: '原子化改文件：edits 改（oldText 必须恰好出现一次）、creates 新建或覆盖、renames 移动/重命名、deletes 删除文件或目录；路径必须在任务范围内',
     right: 'propose',
     parameters: z.object({
       edits: z.array(z.object({ path: z.string(), oldText: z.string(), newText: z.string() })).default([]),
       creates: z.array(z.object({ path: z.string(), content: z.string() })).default([]),
+      renames: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
+      deletes: z.array(z.string()).default([]),
     }),
     execute: async (ctx, a) => {
       const ref = requireWt(ctx);
       if (!ref) return { error: '任务没有 worktree' };
       const denied = writeDenied(ctx);
       if (denied) return { error: denied };
-      const mod = moduleOf(ctx);
+      const scope = scopeOf(ctx);
       const edits = (a.edits ?? []) as { path: string; oldText: string; newText: string }[];
       const creates = (a.creates ?? []) as { path: string; content: string }[];
-      // 先全部校验
+      const renames = (a.renames ?? []) as { from: string; to: string }[];
+      const deletes = (a.deletes ?? []) as string[];
+      // 先全部校验，任何一处不合法都不落盘
       const plans: { abs: string; content: string; eol: string }[] = [];
+      const moves: { from: string; to: string }[] = [];
+      const removals: string[] = [];
+      for (const r of renames) {
+        for (const p of [r.from, r.to]) if (!inScope(p, scope)) return { error: outOfScope(scope, p) };
+        const from = safePath(ref.worktree, r.from);
+        const to = safePath(ref.worktree, r.to);
+        if (!from || !existsSync(from)) return { error: `路径非法或不存在：${r.from}` };
+        if (!to) return { error: `路径非法：${r.to}` };
+        if (existsSync(to)) return { error: `目标已存在：${r.to}` };
+        moves.push({ from, to });
+      }
+      for (const d of deletes) {
+        if (!inScope(d, scope)) return { error: outOfScope(scope, d) };
+        const abs = safePath(ref.worktree, d);
+        if (!abs || !existsSync(abs)) return { error: `路径非法或不存在：${d}` };
+        removals.push(abs);
+      }
       for (const c of creates) {
-        if (!inModule(c.path, mod)) return { error: `越出 Module：${c.path}` };
+        if (!inScope(c.path, scope)) return { error: outOfScope(scope, c.path) };
         const abs = safePath(ref.worktree, c.path);
         if (!abs) return { error: `路径非法：${c.path}` };
         plans.push({ abs, content: c.content, eol: '\n' });
       }
       for (const e of edits) {
-        if (!inModule(e.path, mod)) return { error: `越出 Module：${e.path}` };
+        if (!inScope(e.path, scope)) return { error: outOfScope(scope, e.path) };
         const abs = safePath(ref.worktree, e.path);
         if (!abs || !existsSync(abs)) return { error: `路径非法或不存在：${e.path}` };
         const cur = readFileSync(abs, 'utf8');
@@ -140,11 +193,17 @@ export const devTools: Record<string, ToolDef> = {
         if (count !== 1) return { error: `${e.path}：oldText 出现 ${count} 次（要求恰好 1 次）` };
         plans.push({ abs, content: normCur.replace(normOld, e.newText.replace(/\r\n/g, '\n')), eol });
       }
+      // 顺序：写 → 移动 → 删除；edits 的路径都按移动前写
       for (const p of plans) {
         mkdirSync(path.dirname(p.abs), { recursive: true });
         writeFileSync(p.abs, p.eol === '\r\n' ? p.content.replace(/\n/g, '\r\n') : p.content);
       }
-      return { edited: plans.length };
+      for (const m of moves) {
+        mkdirSync(path.dirname(m.to), { recursive: true });
+        renameSync(m.from, m.to);
+      }
+      for (const r of removals) rmSync(r, { recursive: true, force: true });
+      return { edited: plans.length, renamed: moves.length, deleted: removals.length };
     },
   },
   git_commit: {
@@ -156,18 +215,32 @@ export const devTools: Record<string, ToolDef> = {
       if (!ref) return { error: '任务没有 worktree' };
       const denied = writeDenied(ctx);
       if (denied) return { error: denied };
-      const mod = moduleOf(ctx);
+      const scope = scopeOf(ctx);
       const r = await git(ref.worktree, ['diff', '--name-only', ref.base_sha]);
       const untracked = await git(ref.worktree, ['ls-files', '--others', '--exclude-standard']);
       const files = [...r.stdout.split('\n'), ...untracked.stdout.split('\n')].filter(Boolean);
-      const out = files.filter((f) => !inModule(f, mod));
-      if (out.length > 0) return { error: `越出 Module 的改动：${out.join(', ')}` };
+      const out = files.filter((f) => !inScope(f, scope));
+      if (out.length > 0) return { error: `越出 Module 范围（${scopeLabel(scope)}）的改动：${out.join(', ')}` };
       await gitOk(ref.worktree, ['add', '-A']);
+      // 解决冲突时漏掉的冲突标记不能进提交
+      const check = await git(ref.worktree, ['diff', '--cached', '--check']);
+      const markers = check.stdout.split('\n').filter((l) => l.includes('conflict marker'));
+      if (markers.length > 0) return { error: `还有未解决的冲突标记：\n${markers.slice(0, 10).join('\n')}` };
       const email = `agent-${ctx.agent.id.slice(0, 8)}@aw.local`;
       const c = await git(ref.worktree, ['-c', `user.name=${ctx.agent.name}`, '-c', `user.email=${email}`, 'commit', '-m', String(a.message)]);
       if (c.code !== 0) return { error: c.stderr || 'nothing to commit' };
       const sha = (await gitOk(ref.worktree, ['rev-parse', 'HEAD'])).stdout.trim();
       return { sha };
+    },
+  },
+  sync_branch: {
+    description: `把目标分支的最新进展合进任务分支。干净合入会直接提交；有冲突时返回冲突文件，冲突标记留在文件里，用 apply_patch 改好后 git_commit 完成合并`,
+    right: 'propose',
+    parameters: z.object({}),
+    execute: async (ctx) => {
+      const denied = writeDenied(ctx);
+      if (denied) return { error: denied };
+      return syncTaskBranch(ctx.db, ctx.task.id);
     },
   },
   submit_change: {
@@ -238,7 +311,9 @@ export const devTools: Record<string, ToolDef> = {
       const argv = splitCommand(cmd);
       const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
       const s = devSettings(ws?.settingsJson ?? null);
-      if (argv && isDangerous(argv)) {
+      // 依赖任务的本职就是装 / 升 / 删依赖，不用每条都等人确认；发布等仍要确认
+      const depsOwn = scopeOf(ctx).kind === 'deps' && argv !== null && isDependencyChange(argv);
+      if (argv && isDangerous(argv) && !depsOwn) {
         // 生成 inbox command_confirm 并原地等待
         const p = await ctx.db.select().from(project).where(eq(project.id, ctx.task.projectId));
         const iid = uid();

@@ -17,6 +17,7 @@ import { afterTestRun, condTransition, maybeCloseParent, triggerStageAgents } fr
 import { runCommand } from './exec.js';
 import { createTaskWorktree, devSettings, ensureTargetBranch, git, removeTaskWorktree, type DevSettings } from './git.js';
 import { runAgent } from './loop.js';
+import { parseScope } from './scope.js';
 import { budgetBreach, describeBreach } from './budget.js';
 import { fallbackRoutes, loadModels, resolveModel, sanitizeError } from './models.js';
 import type { RunCtx } from './tools/index.js';
@@ -104,7 +105,7 @@ function prepareWorktree(db: DB, a: AgentRow, t: TaskRow, s: DevSettings): Promi
         return 'mock 模式不得作用于本仓库';
       }
       const tb = await ensureTargetBranch(s);
-      if (!tb.ok) return tb.error;
+      if (!tb.ok) return `worktree 准备失败：${tb.error}`;
       const ref = await createTaskWorktree(s, a.workstationId, t.id);
       if (s.commands.setup) {
         const setup = await runCommand({ cwd: ref.worktree, command: s.commands.setup, timeoutSec: s.setupTimeoutSec });
@@ -119,9 +120,10 @@ function prepareWorktree(db: DB, a: AgentRow, t: TaskRow, s: DevSettings): Promi
   });
 }
 
-async function moduleFilesOf(worktree: string | undefined, mod: string | undefined) {
-  if (!worktree || !mod) return undefined;
-  const r = await git(worktree, ['ls-files', '--', mod]);
+async function moduleFilesOf(worktree: string | undefined, inputJson: string | null) {
+  if (!worktree) return undefined;
+  const s = parseScope(inputJson);
+  const r = await git(worktree, ['ls-files', '--', ...(s.whole ? ['.'] : s.modules)]);
   if (r.code !== 0) return undefined;
   const files = r.stdout.split('\n').filter(Boolean);
   const more = files.length > MODULE_FILES_LIMIT ? `\n…[还有 ${files.length - MODULE_FILES_LIMIT} 个文件]` : '';
@@ -195,7 +197,7 @@ export async function buildRunContext(db: DB, a: AgentRow, t: TaskRow, manifest:
     threadMessages: msgs.map((m) => ({ senderId: m.senderId, senderType: m.senderType, content: m.content, kind: m.kind })),
     module: mod,
     branch: ref?.branch,
-    moduleFiles: await moduleFilesOf(ref?.worktree, mod),
+    moduleFiles: await moduleFilesOf(ref?.worktree, t.inputJson),
     lastTestRun: await lastTestRunOf(db, t),
     openComments: await openCommentsOf(db, t.id),
     dispatchTargets: await dispatchTargetsOf(db, a),
