@@ -4,6 +4,8 @@ import type { DB } from '../db/client.js';
 import { entity, proposal, task } from '../db/schema.js';
 import { logEvent } from './core.js';
 import { taskFlow } from './flow.js';
+import { registeredModules, uncoveredPaths } from '../runtime/modules.js';
+import { parseScope } from '../runtime/scope.js';
 
 type TaskRow = typeof task.$inferSelect;
 
@@ -11,7 +13,7 @@ type TaskRow = typeof task.$inferSelect;
 export interface Gate {
   stage: string;
   index: number;
-  kind: 'entity' | 'acceptance' | 'approval' | 'manual';
+  kind: 'entity' | 'acceptance' | 'approval' | 'manual' | 'new_scope_decision';
   text: string;
   met: boolean;
   // manual 只能人确认；其余由平台按事实判定
@@ -22,7 +24,8 @@ type Requirement =
   | { kind: 'entity'; entity: string; minCount?: number | undefined; fieldsPresent?: string[] | undefined; description?: string | undefined }
   | { kind: 'acceptance'; description?: string | undefined }
   | { kind: 'approval'; by?: 'human' | 'agent' | undefined; description?: string | undefined }
-  | { kind: 'manual'; text: string; description?: string | undefined };
+  | { kind: 'manual'; text: string; description?: string | undefined }
+  | { kind: 'new_scope_decision'; registry: string; pathField?: string | undefined; decision: string; description?: string | undefined };
 
 const resultOf = (t: TaskRow) => (t.resultJson ? (JSON.parse(t.resultJson) as Record<string, unknown>) : {});
 const confirmedOf = (t: TaskRow) => (resultOf(t).gates ?? {}) as Record<string, number[]>;
@@ -41,15 +44,25 @@ async function evaluate(db: DB, t: TaskRow, wsId: string, stage: string, index: 
     const met = ps.some((p) => ['approved', 'merged'].includes(p.status) && (!r.by || p.decidedByType === r.by || (r.by === 'agent' && p.decidedByType === null)));
     return { ...base, text: r.description ?? (r.by === 'human' ? '改动经人审查通过' : '改动审查通过'), met };
   }
-  // entity：本任务开始之后在执行台里产生的该类实体（带 task_id 的只算本任务的）
-  const rows = await db.select().from(entity).where(and(eq(entity.workstationId, wsId), eq(entity.entityType, r.entity), gte(entity.createdAt, t.createdAt)));
-  const mine = rows.filter((e) => {
+  if (r.kind === 'new_scope_decision') {
+    const fresh = uncoveredPaths(parseScope(t.inputJson), await registeredModules(db, wsId, r.registry, r.pathField ?? 'path'));
+    if (fresh.length === 0) return { ...base, text: `${r.description ?? `涉及新 ${r.registry} 时需有 ${r.decision}`}：未涉及未登记的 ${r.registry}`, met: true };
+    const made = await entitiesSince(db, t, wsId, r.decision, []);
+    return { ...base, text: `${r.description ?? `涉及新 ${r.registry}`}（${fresh.join('、')}）：需要至少 1 条 ${r.decision}`, met: made >= 1 };
+  }
+  const need = r.minCount ?? 1;
+  const mine = await entitiesSince(db, t, wsId, r.entity, r.fieldsPresent ?? []);
+  return { ...base, text: r.description ?? `至少 ${need} 条 ${r.entity}${r.fieldsPresent?.length ? `（含 ${r.fieldsPresent.join('、')}）` : ''}`, met: mine >= need };
+}
+
+// 本任务开始之后在执行台里产生的该类实体（带 task_id 的只算本任务的）
+async function entitiesSince(db: DB, t: TaskRow, wsId: string, type: string, fieldsPresent: string[]) {
+  const rows = await db.select().from(entity).where(and(eq(entity.workstationId, wsId), eq(entity.entityType, type), gte(entity.createdAt, t.createdAt)));
+  return rows.filter((e) => {
     const data = JSON.parse(e.dataJson ?? '{}') as Record<string, unknown>;
     if (data.task_id && data.task_id !== t.id) return false;
-    return (r.fieldsPresent ?? []).every((f) => data[f] !== undefined && data[f] !== null && data[f] !== '');
-  });
-  const need = r.minCount ?? 1;
-  return { ...base, text: r.description ?? `至少 ${need} 条 ${r.entity}${r.fieldsPresent?.length ? `（含 ${r.fieldsPresent.join('、')}）` : ''}`, met: mine.length >= need };
+    return fieldsPresent.every((f) => data[f] !== undefined && data[f] !== null && data[f] !== '');
+  }).length;
 }
 
 export async function stageGates(db: DB, t: TaskRow, stageId?: string | null): Promise<Gate[]> {

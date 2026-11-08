@@ -15,12 +15,13 @@ interface Settings {
   commands?: Record<string, string>;
   commandTimeoutSec?: number;
   requireHumanFor?: string[];
+  sandbox?: { image?: string } | null;
   preset?: string;
   budget?: { tokens?: number } | null;
   remote?: { name: string; autoPush: boolean } | null;
 }
 
-const COMMANDS: [key: string, label: string][] = [['setup', '安装'], ['build', '构建'], ['test', '测试'], ['lint', '检查']];
+const COMMANDS: [key: string, label: string][] = [['setup', '安装'], ['build', '构建'], ['test', '测试'], ['lint', '检查'], ['serve', '视觉验收服务']];
 
 function RepoStatus({ wsId, baseBranch }: { wsId: string; baseBranch: string }) {
   const q = useRepoStatus(wsId);
@@ -134,6 +135,7 @@ export function SettingsPanel({ ws, project }: { ws: WorkstationDetail; project:
   const [budget, setBudget] = useState(String(s.budget?.tokens ?? ''));
   const [remoteName, setRemoteName] = useState(s.remote?.name ?? '');
   const [autoPush, setAutoPush] = useState(s.remote?.autoPush ?? false);
+  const [sandboxImage, setSandboxImage] = useState(s.sandbox?.image ?? '');
   const presets = usePlugins().data?.find((p) => p.id === ws.manifest?.id)?.presets ?? [];
   const root = ws.parentId === null;
 
@@ -156,6 +158,7 @@ export function SettingsPanel({ ws, project }: { ws: WorkstationDetail; project:
                     preset,
                     budget: Number(budget) > 0 ? { tokens: Number(budget) } : null,
                     remote: remoteName.trim() ? { name: remoteName.trim(), autoPush } : null,
+                    sandbox: sandboxImage.trim() ? { image: sandboxImage.trim() } : null,
                   },
                 }
               : {}),
@@ -216,6 +219,10 @@ export function SettingsPanel({ ws, project }: { ws: WorkstationDetail; project:
                   </Field>
                 ))}
               </div>
+              <p className="text-xs text-muted">视觉验收服务：跑 visual 验收前平台在任务 worktree 里启动它，端口从环境变量 PORT 取，验收 url 里写 {'{port}'}。</p>
+              <Field label="容器沙箱镜像" hint="留空则在本机直接执行。填了以后命令都在一次性容器里跑、默认断网；镜像要预装 pnpm。Docker 不可用时命令会被拒绝，不会退回本机" className="w-96">
+                <Input className="measured" value={sandboxImage} placeholder="aw-runner:latest" onChange={(e) => setSandboxImage(e.target.value)} data-testid="settings-sandbox" />
+              </Field>
               <Field label="命令超时（秒）" className="w-40">
                 <Input className="measured" type="number" min={1} value={timeout} onChange={(e) => setTimeoutSec(e.target.value)} />
               </Field>

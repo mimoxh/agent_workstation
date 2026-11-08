@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import PQueue from 'p-queue';
 import path from 'node:path';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import type { SandboxConfig } from './sandbox.js';
 
 export interface GitResult { code: number; stdout: string; stderr: string; argv: string[]; ms: number; timedOut?: boolean }
 
@@ -41,18 +42,22 @@ export interface DevSettings {
   repoPath: string;
   targetBranch: string;
   baseBranch: string;
-  commands: { build?: string; test?: string; lint?: string; setup?: string };
+  // serve：视觉验收前在 worktree 里起的 dev server（端口从 PORT / AW_E2E_WEB_PORT 取，url 里写 {port}）
+  commands: { build?: string; test?: string; lint?: string; setup?: string; serve?: string };
   commandTimeoutSec: number;
   setupTimeoutSec: number;
   requireHumanFor: string[];
   // 远端：不配就只在本地合并；autoPush 合并 / 回滚后把目标分支推上去
   remote?: { name: string; autoPush: boolean } | undefined;
+  // 配了镜像就在容器里跑命令；docker 不可用时拒绝执行，不退回宿主
+  sandbox?: SandboxConfig | undefined;
 }
 
 export function devSettings(settingsJson: string | null): DevSettings {
   const s = (JSON.parse(settingsJson ?? '{}') as Record<string, unknown>);
   const commands = (s.commands ?? {}) as Record<string, string | undefined>;
   const remote = s.remote as { name?: string; autoPush?: boolean } | undefined;
+  const sandbox = s.sandbox as SandboxConfig | null | undefined;
   return {
     repoPath: String(s.repoPath ?? '.'),
     targetBranch: String(s.targetBranch ?? 'develop'),
@@ -62,6 +67,7 @@ export function devSettings(settingsJson: string | null): DevSettings {
     setupTimeoutSec: Number(s.setupTimeoutSec ?? 600),
     requireHumanFor: Array.isArray(s.requireHumanFor) ? (s.requireHumanFor as string[]) : [],
     remote: remote?.name ? { name: remote.name, autoPush: !!remote.autoPush } : undefined,
+    sandbox: sandbox?.image ? sandbox : undefined,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { Actor, TaskEvent } from '@aw/domain';
 import { can, descendantIds, TERMINAL, transition, type TaskStatus } from '@aw/domain';
-import { validateInput } from '@aw/plugin-spec';
+import { validateInput as validateSchema } from '@aw/plugin-spec';
+import { parseScope } from '../runtime/scope.js';
 import { and, eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { agent, inboxItem, project, task, workstation } from '../db/schema.js';
@@ -13,6 +14,15 @@ import { taskFlow } from './flow.js';
 import { confirmGates, describeGates, gatesBetween } from './gates.js';
 import { closeInboxFor, pushInbox } from './inbox.js';
 import { postHandoff, postStatus } from './threads.js';
+
+// 声明了 module 的任务类型：范围必须解析得出来（路径、逗号分隔多个或 .），否则写工具会全部拒绝
+function validateInput(schema: Parameters<typeof validateSchema>[0], input: unknown): string[] {
+  const errs = validateSchema(schema, input);
+  if (errs.length > 0) return errs;
+  const props = (schema as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
+  if ('module' in props && parseScope(JSON.stringify(input ?? {})).invalid) return ['module 不能为空，也不能越出仓库：写一个或多个仓库内路径（逗号分隔），整个仓库写 .'];
+  return [];
+}
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();

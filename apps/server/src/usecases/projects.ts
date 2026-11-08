@@ -1,9 +1,11 @@
 import type { Actor } from '@aw/domain';
+import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { agent, artifact, pluginInstall, project, workstation } from '../db/schema.js';
-import { captureScreenshot } from '../runtime/visual.js';
+import { captureScreenshot, diffRatio } from '../runtime/visual.js';
+import { readRepoBlob } from './repo.js';
 import { logEvent, manifestOf } from './core.js';
 import { addAgentInstance, mountWorkstation } from './workstations.js';
 
@@ -128,7 +130,7 @@ export async function setPluginEnabled(actor: Actor, db: DB, pluginId: string, e
 const SHOT_DIR = 'screenshots';
 
 // 预览板块：给本地页面截一张图，存成产物
-export async function takeScreenshot(db: DB, wsId: string, url: string) {
+export async function takeScreenshot(db: DB, wsId: string, url: string, opts: { baseline?: string | undefined; branch?: string | undefined } = {}) {
   const parsed = new URL(url);
   if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) return { kind: 'error' as const, status: 400 as const, error: '只能预览本地页面' };
   const id = uid();
@@ -139,5 +141,18 @@ export async function takeScreenshot(db: DB, wsId: string, url: string) {
     return { kind: 'error' as const, status: 502 as const, error: `截图失败：${e instanceof Error ? e.message.split('\n')[0] : String(e)}` };
   }
   await db.insert(artifact).values({ id, workstationId: wsId, type: 'screenshot', name: parsed.pathname, ref: target, metaJson: JSON.stringify({ url }), createdAt: now() });
-  return { kind: 'ok' as const, id };
+  if (!opts.baseline) return { kind: 'ok' as const, id };
+  // 基线从仓库（目标分支或任务分支）读出来，和这张截图做像素对比
+  const blob = await readRepoBlob(db, wsId, opts.baseline, opts.branch);
+  if (!blob.ok) return { kind: 'ok' as const, id, compare: { error: blob.error } };
+  const baseId = uid();
+  const baseTarget = path.join(path.dirname(target), `${baseId}.png`);
+  fs.writeFileSync(baseTarget, blob.data);
+  await db.insert(artifact).values({ id: baseId, workstationId: wsId, type: 'screenshot', name: opts.baseline, ref: baseTarget, metaJson: JSON.stringify({ baseline: opts.baseline, ref: blob.ref }), createdAt: now() });
+  try {
+    const ratio = diffRatio(blob.data, fs.readFileSync(target));
+    return { kind: 'ok' as const, id, compare: { baselineId: baseId, ratio, ref: blob.ref } };
+  } catch (e) {
+    return { kind: 'ok' as const, id, compare: { baselineId: baseId, error: `对比失败：${e instanceof Error ? e.message : String(e)}` } };
+  }
 }

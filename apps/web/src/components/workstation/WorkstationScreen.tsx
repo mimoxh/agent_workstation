@@ -49,7 +49,7 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
     case 'knowledge':
       return <KnowledgePanel projectId={project.id} />;
     case 'preview':
-      return <PreviewPanel wsId={ws.id} />;
+      return <PreviewPanel wsId={ws.id} config={{ ...parseJson<{ urlField?: string; baselineField?: string }>(block.configJson, {}), ...(block.entityType ? { entity: block.entityType } : {}) }} />;
     default:
       return <Empty title={`${block.name}板块未装载`}>{ws.manifest?.name} 还没有这个板块的渲染器。</Empty>;
   }

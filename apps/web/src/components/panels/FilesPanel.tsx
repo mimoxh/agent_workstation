@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Select } from '@/components/ui/input';
 import { bytes } from '@/lib/format';
-import { useFile, useFiles } from '@/lib/queries';
+import { useBranches, useFile, useFiles } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-function FileView({ wsId, path }: { wsId: string; path: string }) {
-  const q = useFile(wsId, path);
+function FileView({ wsId, path, branch }: { wsId: string; path: string; branch: string }) {
+  const q = useFile(wsId, path, branch);
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState error={q.error} />;
   const lines = q.data?.content.split('\n') ?? [];
@@ -34,14 +35,36 @@ function FileView({ wsId, path }: { wsId: string; path: string }) {
 export function FilesPanel({ wsId }: { wsId: string }) {
   const [dir, setDir] = useState('');
   const [file, setFile] = useState<string | null>(null);
-  const list = useFiles(wsId, dir);
+  const [branch, setBranch] = useState('');
+  const list = useFiles(wsId, dir, branch);
+  const refs = useBranches(wsId);
   const parts = dir ? dir.split('/') : [];
+  const taskBranches = refs.data?.branches ?? [];
 
-  if (list.data?.error && !dir) return <Empty title="文件树不可用">{list.data.error}</Empty>;
+  if (list.data?.error && !dir && !branch) return <Empty title="文件树不可用">{list.data.error}</Empty>;
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[17rem_minmax(0,1fr)]" data-testid="file-tree">
       <div className="flex min-h-0 flex-col border-r border-rule">
+        {taskBranches.length > 0 && (
+          <div className="border-b border-rule px-3 py-2">
+            <Select
+              aria-label="浏览的分支"
+              className="measured w-full text-xs"
+              value={branch}
+              onChange={(e) => {
+                setBranch(e.target.value);
+                setFile(null);
+              }}
+              data-testid="file-branch"
+            >
+              <option value="">目标分支{refs.data?.target ? `（${refs.data.target}）` : ''}</option>
+              {taskBranches.map((b) => (
+                <option key={b.branch} value={b.branch}>{b.branch} · {b.title}</option>
+              ))}
+            </Select>
+          </div>
+        )}
         <nav aria-label="当前目录" className="measured flex flex-wrap gap-1 border-b border-rule px-3 py-2 text-xs text-muted">
           <button type="button" className="hover:text-ink" onClick={() => setDir('')}>{list.data?.ref ?? '根'}</button>
           {parts.map((p, i) => (
@@ -72,7 +95,11 @@ export function FilesPanel({ wsId }: { wsId: string }) {
         </ul>
       </div>
       <div className="min-w-0">
-        {file ? <FileView wsId={wsId} path={file} /> : <Empty title="选择左侧文件查看内容">读取的是目标分支上的版本，不含未合并的改动。</Empty>}
+        {file ? (
+          <FileView wsId={wsId} path={file} branch={branch} />
+        ) : (
+          <Empty title="选择左侧文件查看内容">{branch ? `读取的是任务分支 ${branch} 上已提交的版本。` : '读取的是目标分支上的版本；要看还没合并的改动，在上方切到任务分支。'}</Empty>
+        )}
       </div>
     </div>
   );

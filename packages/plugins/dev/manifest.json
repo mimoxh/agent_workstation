@@ -1,7 +1,7 @@
 {
   "id": "dev",
   "name": "全栈开发工作台",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "多 Agent 分工 + 可执行验收的软件开发工作台",
   "steward": "architect",
   "entities": {
@@ -57,7 +57,7 @@
     {
       "id": "design",
       "name": "设计",
-      "requirements": [{ "kind": "manual", "text": "涉及新 Module 时需有 ADR" }],
+      "requirements": [{ "kind": "new_scope_decision", "registry": "Module", "pathField": "path", "decision": "ADR", "description": "涉及新 Module 时需有 ADR" }],
       "activePanels": ["board", "decisions"],
       "activeAgents": ["architect"]
     },

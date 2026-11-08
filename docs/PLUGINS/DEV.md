@@ -1,7 +1,7 @@
 # 全栈开发工作台（插件 `dev`）
 
-**版本**：v0.3
-**日期**：2026-11-07
+**版本**：v0.4
+**日期**：2026-11-08
 
 ---
 
@@ -81,7 +81,7 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 | 阶段 | 门禁（Requirement kind） | 激活的 Agent |
 |---|---|---|
 | 需求 | `entity` / `manual`：有明确 acceptance | 架构师 |
-| 设计 | `manual`：「涉及新 Module 时需有 ADR」 | 架构师 |
+| 设计 | `new_scope_decision`：任务范围有未登记的 Module 路径时需有 ADR（平台判定） | 架构师 |
 | 实现 | 存在 pending 的 code proposal | 前端 / 后端 |
 | 测试 | `acceptance` | 测试 |
 | 评审 | `approval` | 审查 |
@@ -126,7 +126,7 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 
 **平台托管（非 Agent 工具）**：worktree 和分支由平台在子任务指派时自动创建；merge 由平台的串行合并队列在审查通过且验收通过后执行；worktree 在任务结束时回收。不提供 `git_branch`——这三项都不是 Agent 工具。
 
-**执行边界（v0.1，不做容器）**：
+**执行边界**（v0.1 白名单；v0.4 起可选容器沙箱，见 §13.7）：
 
 - 命令白名单：`pnpm` / `npm` / `node` / `git` / `tsc` / 测试运行器
 - 工作目录锁定在仓库根，禁止 `cd ..`
@@ -150,14 +150,16 @@ acceptance:
     run: pnpm lint
     expect: { exitCode: 0 }
   - kind: visual
-    url: http://localhost:3000/projects/1
+    url: http://localhost:{port}/projects/1   # {port} 由平台换成这个 worktree 分到的端口
     baseline: shots/workspace-shell.png
     maxDiff: 0.02
   - kind: manual
     text: 三栏在 1280 宽度下不换行
 ```
 
-前三种可自动判定，第四种给前端场景兜底。**任务能不能「完成」，不再靠 Agent 自评。**
+前三种可自动判定，第四种给前端场景兜底。配了 `commands.serve` 时，平台在跑 visual 前于被验收的 worktree 里启动它（端口从环境变量 `PORT` 取），页面可访问后再截图，结束即停；不配就假设页面已经在跑。
+
+验收跑不起来（命令不存在、不在白名单、服务起不来、浏览器没装）算**环境错误**：任务转 blocked 进收件箱，不计退回次数，修好环境后解除阻塞、实现者重新提交再验收。超时和测试自身失败仍按退回处理。**任务能不能「完成」，不再靠 Agent 自评。**
 
 `TestRun` 由平台写入，不靠 Agent 提案：M0 在执行 acceptance 中的 `command` 检查时自动记录；M1 起 `run_tests` 也会生成 TestRun。
 
@@ -329,7 +331,7 @@ reviewer 独立审阅
 
 **2. 上下文成本** —— 代码仓库动辄几十万 token。必须靠 `Module` 划分 + 检索装配，不能把仓库塞进上下文。这是 dev 垂直比小说垂直贵得多的根本原因。
 
-**3. 执行安全** —— 没有沙箱时，一条恶意 prompt 就能 `rm -rf`。v0.1 靠白名单 + 确认 + 目录锁定，v0.2 再上容器。
+**3. 执行安全** —— 没有沙箱时，一条恶意 prompt 就能 `rm -rf`。默认靠白名单 + 确认 + 目录锁定；v0.4 起工作台配置镜像后命令进容器（§13.7）。
 
 ## 10. 与竞品的差异
 
@@ -432,3 +434,23 @@ M0 为了验证核心模型推迟了五件事，v0.3 起的状态：
 - **阶段门禁**：推进到后面的阶段前，检查途经各阶段 `requirements`（entity / acceptance / approval / manual）。Agent 推进遇到人工项 → 收件箱「阶段确认」，人确认后平台推进；人亲手推进视为确认人工项，其余未满足项可以显式越过（`force`，记日志）。往回退不检查。任务页列出当前阶段的门禁。
 - **回滚**：已合并的任务可在任务页一键回滚，平台在 integration worktree 里对合并提交 `git revert -m 1`，走同一条串行队列；提案标为「已回滚」，只能回滚一次，回滚冲突时报错交人处理。
 - **远端 / GitHub**：设置里填远端名后可推送目标分支，可选合并 / 回滚后自动推送；GitHub 仓库可用本机 `gh` 开「目标分支 → 基线分支」的 PR、把开着的 Issue 导入为草稿任务（module 先给 `.`，派发前收窄）。平台不保存任何 token。
+
+### 13.6 v0.4 补齐
+
+- **合并队列可恢复**：入队时在任务上落标记，合并结束才清除；服务重启后带标记且提案已通过的任务重新入队，integration worktree 里残留的半截合并先 abort。等待命令确认的 run 已经不在了，对应确认项在启动时关闭。
+- **范围默认拒绝**：`module` 没声明或解析不了时没有可写范围（只读工具不受影响），创建 / 派发 / 修改任务时直接报错；整个仓库必须显式写 `.`。
+- **Module 登记表生效**：与任务范围相关的 Module 职责进入运行上下文；范围里有没被任何 Module 覆盖的路径时，设计阶段门禁要求本任务期间产生一条 ADR。一个 Module 都没登记时不触发。
+- **预览**：登记的 Page 可一键套用地址；填基线路径（默认取 Page 的 `screenshot_ref`）时和目标分支上的基线做像素对比并排展示。
+- **文件树**可切到任务分支，查看已提交但还没合并的改动。
+- **命令确认**由收件箱事件立即唤醒；run 结束时等待随之结束并关闭确认项。
+
+
+### 13.7 容器沙箱
+
+在工作台设置里填镜像（`settings.sandbox.image`，可选 `memory`、`cpus`）后，run_command、验收、setup、视觉验收服务都在一次性 Docker 容器里跑。留空时仍在本机执行。
+
+- **隔离**：只挂载当前 worktree，`.git` 文件只读；`--cap-drop ALL`、`no-new-privileges`、根文件系统只读（/tmp 为 tmpfs）、限制内存 / CPU / 进程数；不带宿主环境变量。
+- **网络**：默认断网。setup 与依赖命令（`pnpm add` 等、经确认的 `npx`）走 bridge；视觉验收服务也走 bridge，端口只发布到 127.0.0.1。
+- **git 留在宿主**：容器里 worktree 的 gitdir 指向宿主路径，用不了。沙箱模式下 run_command 只放行只读 git 子命令，提交和同步走 `git_commit`、`sync_branch`。
+- **失败即拒绝**：docker 不可用、镜像拉不到时命令失败并按环境错误转人工，绝不退回本机执行。超时按容器名删除容器。
+- **镜像要求**：需预装 node 与 pnpm（默认断网，corepack 无法现场下载）。node_modules 由容器内的 setup 安装，和宿主平台不混用。`AW_DOCKER_BIN` 可替换 docker 可执行文件（如 podman）。

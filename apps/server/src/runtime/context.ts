@@ -20,6 +20,7 @@ export interface ContextInput {
   module?: string | undefined;
   branch?: string | undefined;
   moduleFiles?: string | undefined;
+  moduleInfo?: string | undefined;
   lastTestRun?: string | undefined;
   openComments?: string | undefined;
 }
@@ -82,6 +83,7 @@ export function buildContext(input: ContextInput): { system: string; messages: {
         ? `兄弟子任务：${input.siblingTasks.map((s) => `${s.title}(${s.status})`).join('、')}`
         : '',
       input.module ? `module：${input.module}` : '',
+      input.moduleInfo ? `相关 Module（职责边界，别把别的 Module 的事做进来）：\n${input.moduleInfo}` : '',
       input.branch ? `分支：${input.branch}` : '',
       input.moduleFiles ? `module 文件：\n${input.moduleFiles}` : '',
       input.lastTestRun ? `最近验收：\n${input.lastTestRun}` : '',

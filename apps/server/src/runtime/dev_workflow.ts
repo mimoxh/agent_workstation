@@ -6,15 +6,16 @@ import type { DB } from '../db/client.js';
 import { agent, artifact, entity, proposal, reviewComment, run, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, pushTarget, type DevSettings } from './git.js';
-import { runCommand, portEnv, type ExecResult } from './exec.js';
+import { runCommand, portEnv, isEnvError, type ExecResult } from './exec.js';
 import { snapshotDb } from '../usecases/backup.js';
 import { logEvent, manifestOf } from '../usecases/core.js';
 import { pushInbox } from '../usecases/inbox.js';
 import { rollupStage } from '../usecases/tasks.js';
 import { postHandoff, postStatus } from '../usecases/threads.js';
 import { triggerRun } from './scheduler.js';
-import { runVisualCheck } from './visual.js';
+import { resolveUrl, runVisualCheck, withServer, type VisualResult } from './visual.js';
 import type { TaskRow } from './types.js';
+import type { SandboxConfig } from './sandbox.js';
 import path from 'node:path';
 
 const now = () => new Date().toISOString();
@@ -157,33 +158,66 @@ export async function afterReview(ctx: Pick<WorkflowCtx, 'db' | 'actor' | 'task'
 
 // ===== 验收 =====
 interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number }
+export interface AcceptanceExec { serve?: string | undefined; sandbox?: SandboxConfig | undefined }
+export const acceptanceExec = (s: DevSettings): AcceptanceExec => ({ serve: s.commands.serve, sandbox: s.sandbox });
+export interface AcceptanceResult { command: string; status: string; duration: number; output: string; env: boolean }
 
-export async function runAcceptance(db: DB, wsId: string, worktree: string, checks: Check[], timeoutSec: number, taskId?: string): Promise<{ allPassed: boolean; results: { command: string; status: string; duration: number; output: string }[] }> {
+const envSummary = (results: AcceptanceResult[]) => results.filter((r) => r.env).map((r) => `${r.command}: ${r.output.trim().slice(0, 300)}`).join('\n');
+
+// 验收跑不起来是环境问题（命令不存在、服务起不来）：退回实现者没用，转 blocked 等人修环境
+async function blockForEnvironment(db: DB, taskId: string, where: string, results: AcceptanceResult[]) {
+  const actor: Actor = { type: 'human', id: 'local' };
+  const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+  if (!t) return;
+  const reason = `${where}时验收环境出错，不是改动本身的问题（不计退回次数）。修好环境后解除阻塞，实现者重新提交即可再次验收：\n${envSummary(results)}`;
+  // 已审过的提案作废：重新提交后要走一遍新的测试与评审
+  await db.update(proposal).set({ status: 'superseded' }).where(and(eq(proposal.taskId, taskId), eq(proposal.status, 'approved')));
+  await condTransition(db, actor, taskId, 'begin_review');
+  await condTransition(db, actor, taskId, 'send_back', { stage: 'implement' });
+  await condTransition(db, actor, taskId, 'block', { blockedReason: reason.slice(0, 2000) });
+  await pushInbox(db, t.projectId, { kind: 'blocked', refType: 'task', refId: taskId, payload: { reason, environment: true } });
+  await postStatus(db, taskId, reason);
+}
+
+export async function runAcceptance(db: DB, wsId: string, worktree: string, checks: Check[], timeoutSec: number, taskId?: string, exec: AcceptanceExec = {}): Promise<{ allPassed: boolean; envError: boolean; results: AcceptanceResult[] }> {
   const head = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
   const batchId = uid();
-  const results: { command: string; status: string; duration: number; output: string }[] = [];
+  const results: AcceptanceResult[] = [];
   for (const c of checks.filter((x) => x.kind === 'command' && x.run)) {
     let res: ExecResult;
     try {
-      res = await runCommand({ cwd: worktree, command: c.run!, timeoutSec, env: portEnv(path.basename(worktree)) });
+      res = await runCommand({ cwd: worktree, command: c.run!, timeoutSec, env: portEnv(path.basename(worktree)), sandbox: exec.sandbox });
     } catch (e) {
       res = { exitCode: -1, durationMs: 0, output: String(e), truncated: false, timedOut: false };
     }
-    const status = res.timedOut || res.exitCode === -1 ? 'error' : res.exitCode === 0 ? 'passed' : 'failed';
+    const env = res.exitCode !== 0 && isEnvError(res);
+    const status = res.timedOut || env ? 'error' : res.exitCode === 0 ? 'passed' : 'failed';
     const aid = uid();
     await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'test_output', ref: res.output.slice(0, 32000), createdAt: now() });
     await db.insert(entity).values({
       id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
-      dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
+      dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null, ...(env ? { env_error: true } : {}) }),
       createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
     });
-    results.push({ command: c.run!, status, duration: res.durationMs / 1000, output: res.output });
+    results.push({ command: c.run!, status, duration: res.durationMs / 1000, output: res.output, env });
   }
-  for (const c of checks.filter((x) => x.kind === 'visual' && x.url && x.baseline)) {
-    const started = Date.now();
-    const v = await runVisualCheck(worktree, { url: c.url!, baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
+  const visuals = checks.filter((x) => x.kind === 'visual' && x.url && x.baseline);
+  const ports = portEnv(path.basename(worktree));
+  const visualOut: { c: Check; v: VisualResult; duration: number }[] = [];
+  if (visuals.length > 0) {
+    const served = await withServer({ cwd: worktree, command: exec.serve, sandbox: exec.sandbox, env: ports, probeUrl: resolveUrl(visuals[0]!.url!, ports) }, async () => {
+      for (const c of visuals) {
+        const started = Date.now();
+        const v = await runVisualCheck(worktree, { url: resolveUrl(c.url!, ports), baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
+        visualOut.push({ c, v, duration: (Date.now() - started) / 1000 });
+      }
+    });
+    if (!served.ok) {
+      for (const c of visuals) visualOut.push({ c, v: { status: 'error', ratio: null, output: served.error, shot: null, env: true }, duration: 0 });
+    }
+  }
+  for (const { c, v, duration } of visualOut) {
     const command = `visual ${c.url}`;
-    const duration = (Date.now() - started) / 1000;
     const aid = uid();
     await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'visual', ref: v.output, metaJson: JSON.stringify({ shot: v.shot, ratio: v.ratio }), createdAt: now() });
     await db.insert(entity).values({
@@ -191,7 +225,7 @@ export async function runAcceptance(db: DB, wsId: string, worktree: string, chec
       dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
       createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
     });
-    results.push({ command, status: v.status, duration, output: v.output });
+    results.push({ command, status: v.status, duration, output: v.output, env: v.env === true });
   }
   const allPassed = results.every((r) => r.status === 'passed');
   if (taskId) {
@@ -200,7 +234,7 @@ export async function runAcceptance(db: DB, wsId: string, worktree: string, chec
     rj.acceptance = { batchId, passed: allPassed, at: now() };
     await db.update(task).set({ resultJson: JSON.stringify(rj) }).where(eq(task.id, taskId));
   }
-  return { allPassed, results };
+  return { allPassed, envError: results.some((r) => r.env), results };
 }
 
 // 守卫：读 task.resultJson.acceptance（最近一次验收批次），无记录返回 null
@@ -232,7 +266,11 @@ export async function afterTestRun(db: DB, taskId: string, runId?: string) {
   const ref = t.codeRefJson ? JSON.parse(t.codeRefJson) as { worktree: string } : null;
   if (!ref?.worktree) return;
   const actor: Actor = { type: 'human', id: 'local' };
-  const { allPassed, results } = await runAcceptance(db, t.workstationId, ref.worktree, checks, s.commandTimeoutSec, taskId);
+  const { allPassed, envError, results } = await runAcceptance(db, t.workstationId, ref.worktree, checks, s.commandTimeoutSec, taskId, acceptanceExec(s));
+  if (envError) {
+    await blockForEnvironment(db, taskId, '测试阶段', results);
+    return;
+  }
   await condTransition(db, actor, taskId, 'begin_review');
   if (allPassed) {
     await postHandoff(db, taskId, `验收通过（${results.length} 项），交给审查`, { from: '测试工程师', to: '审查', next: '独立审阅 diff' });
@@ -247,16 +285,59 @@ export async function afterTestRun(db: DB, taskId: string, runId?: string) {
 const mergeQueues = new Map<string, PQueue>();
 const queueOf = (repo: string) => mergeQueues.get(repo) ?? mergeQueues.set(repo, new PQueue({ concurrency: 1 })).get(repo)!;
 
+// 队列只在内存里：入队时在任务上落一个标记，合并结束（成功 / 退回 / 异常）才清掉，重启时据此重新入队
+async function markMergeQueued(db: DB, taskId: string, on: boolean) {
+  const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+  if (!t) return;
+  const rj = t.resultJson ? (JSON.parse(t.resultJson) as Record<string, unknown>) : {};
+  if (on) rj.mergeQueued = now();
+  else delete rj.mergeQueued;
+  await db.update(task).set({ resultJson: JSON.stringify(rj) }).where(eq(task.id, taskId));
+}
+
 export function enqueueMerge(db: DB, actor: Actor, taskId: string) {
   void (async () => {
     const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
     if (!t) return;
     const s = await wsSettings(db, t.workstationId);
-    await queueOf(s.repoPath).add(() => doMerge(db, actor, taskId, s).catch(async (e) => {
-      // 合并任务异常不能静默：任务必须脱离 reviewing/merge，否则永久卡住
-      await sendBack(db, { actor }, taskId, `合并异常：${String(e).slice(0, 300)}`);
-    }));
+    await markMergeQueued(db, taskId, true);
+    await queueOf(s.repoPath).add(async () => {
+      try {
+        await doMerge(db, actor, taskId, s);
+      } catch (e) {
+        // 合并任务异常不能静默：任务必须脱离 reviewing/merge，否则永久卡住
+        await sendBack(db, { actor }, taskId, `合并异常：${String(e).slice(0, 300)}`);
+      } finally {
+        await markMergeQueued(db, taskId, false);
+      }
+    });
   })().catch((e: unknown) => console.error('[merge] 入队失败', taskId, String(e)));
+}
+
+// 启动恢复：上次进程退出时还排在队里（或正在合并）的任务重新入队；integration worktree 里残留的半截合并先清掉
+export async function recoverMergeQueue(db: DB): Promise<string[]> {
+  const actor: Actor = { type: 'human', id: 'local' };
+  const recovered: string[] = [];
+  for (const t of await db.select().from(task)) {
+    const rj = t.resultJson ? (JSON.parse(t.resultJson) as { mergeQueued?: string }) : {};
+    if (!rj.mergeQueued) continue;
+    const approved = (await db.select().from(proposal).where(and(eq(proposal.taskId, t.id), eq(proposal.status, 'approved')))).length > 0;
+    if (t.status === 'done' || !approved) {
+      await markMergeQueued(db, t.id, false);
+      continue;
+    }
+    const s = await wsSettings(db, t.workstationId);
+    try {
+      const integ = await ensureIntegration(s, t.workstationId);
+      if (await inMerge(integ)) await git(integ, ['merge', '--abort']);
+    } catch (e) {
+      console.error('[merge] 恢复时清理 integration 失败', t.id, String(e));
+    }
+    await postStatus(db, t.id, '服务重启，合并重新入队');
+    enqueueMerge(db, actor, t.id);
+    recovered.push(t.id);
+  }
+  return recovered;
 }
 
 const PLATFORM = ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local'];
@@ -338,7 +419,7 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   }
   // 3. setup + 验收
   if (s.commands.setup) {
-    const setup = await runCommand({ cwd: integ, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv('_integration') });
+    const setup = await runCommand({ cwd: integ, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv('_integration'), sandbox: s.sandbox, network: 'bridge' });
     if (setup.exitCode !== 0) {
       await git(integ, ['merge', '--abort']);
       await sendBack(db, { actor }, taskId, `合并后 setup 失败：\n${setup.output.slice(0, 300)}`);
@@ -346,7 +427,12 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
     }
   }
   const checks = JSON.parse(t.acceptanceJson ?? '[]') as Check[];
-  const { allPassed, results } = await runAcceptance(db, t.workstationId, integ, checks, s.commandTimeoutSec, taskId);
+  const { allPassed, envError, results } = await runAcceptance(db, t.workstationId, integ, checks, s.commandTimeoutSec, taskId, acceptanceExec(s));
+  if (envError) {
+    await git(integ, ['merge', '--abort']);
+    await blockForEnvironment(db, taskId, '合并后', results);
+    return;
+  }
   if (!allPassed) {
     await git(integ, ['merge', '--abort']);
     const fails = results.filter((r) => r.status !== 'passed').map((r) => `${r.command}: ${r.output.slice(0, 300)}`).join('\n');
@@ -457,7 +543,7 @@ export async function maybeCloseParent(db: DB, parentId: string | null) {
   const s = await wsSettings(db, targetWs);
   const integ = await ensureIntegration(s, targetWs);
   const checks = JSON.parse(parent.acceptanceJson ?? '[]') as Check[];
-  const { allPassed } = await runAcceptance(db, targetWs, integ, checks, s.commandTimeoutSec, parentId);
+  const { allPassed } = await runAcceptance(db, targetWs, integ, checks, s.commandTimeoutSec, parentId, acceptanceExec(s));
   const steward = (await db.select().from(agent).where(and(eq(agent.workstationId, targetWs), eq(agent.isSteward, 1))))[0];
   if (allPassed) {
     await condTransition(db, actor, parentId, 'approve');

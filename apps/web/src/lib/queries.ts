@@ -15,8 +15,9 @@ const fetchAgentStatus = async (id: string) => unwrap(await api.workstations[':i
 const fetchRepoStatus = async (id: string) => unwrap(await api.workstations[':id'].repo.$get({ param: { id } }));
 const fetchRemote = async (id: string) => unwrap(await api.workstations[':id'].remote.$get({ param: { id } }));
 const fetchTaskBranch = async (id: string) => unwrap(await api.tasks[':id'].branch.$get({ param: { id } }));
-const fetchFiles = async (id: string, path: string) => unwrap(await api.workstations[':id'].files.$get({ param: { id }, query: { path } }));
-const fetchFile = async (id: string, path: string) => unwrap(await api.workstations[':id'].file.$get({ param: { id }, query: { path } }));
+const fetchFiles = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].files.$get({ param: { id }, query: { path, branch } }));
+const fetchBranches = async (id: string) => unwrap(await api.workstations[':id'].branches.$get({ param: { id } }));
+const fetchFile = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].file.$get({ param: { id }, query: { path, branch } }));
 const fetchTask = async (id: string) => unwrap(await api.tasks[':id'].$get({ param: { id } }));
 const fetchTaskRuns = async (id: string) => unwrap(await api.tasks[':id'].runs.$get({ param: { id } }));
 const fetchTaskProposals = async (id: string) => unwrap(await api.tasks[':id'].proposals.$get({ param: { id } }));
@@ -84,8 +85,9 @@ export const useAgentStatus = (id: string | null | undefined) => useQuery({ quer
 export const useRepoStatus = (id: string) => useQuery({ queryKey: ['repo', id], queryFn: () => fetchRepoStatus(id) });
 export const useRemoteStatus = (id: string, enabled = true) => useQuery({ queryKey: ['remote', id], queryFn: () => fetchRemote(id), enabled, staleTime: 30000 });
 export const useTaskBranch = (id: string, enabled = true) => useQuery({ queryKey: ['task-branch', id], queryFn: () => fetchTaskBranch(id), enabled, refetchInterval: 20000 });
-export const useFiles = (id: string, path: string) => useQuery({ queryKey: ['files', id, path], queryFn: () => fetchFiles(id, path) });
-export const useFile = (id: string, path: string | null) => useQuery({ queryKey: ['file', id, path], queryFn: () => fetchFile(id, path!), enabled: on(path) });
+export const useFiles = (id: string, path: string, branch = '') => useQuery({ queryKey: ['files', id, branch, path], queryFn: () => fetchFiles(id, path, branch) });
+export const useBranches = (id: string) => useQuery({ queryKey: ['files', id, 'branches'], queryFn: () => fetchBranches(id) });
+export const useFile = (id: string, path: string | null, branch = '') => useQuery({ queryKey: ['file', id, branch, path], queryFn: () => fetchFile(id, path!, branch), enabled: on(path) });
 export const useTask = (id: string | null | undefined) => useQuery({ queryKey: ['task', id], queryFn: () => fetchTask(id!), enabled: on(id) });
 export const useTaskRuns = (id: string) => useQuery({ queryKey: ['runs', 'task', id], queryFn: () => fetchTaskRuns(id) });
 export const useTaskProposals = (id: string) => useQuery({ queryKey: ['proposals', 'task', id], queryFn: () => fetchTaskProposals(id) });

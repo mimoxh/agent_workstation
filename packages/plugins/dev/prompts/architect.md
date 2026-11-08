@@ -19,5 +19,5 @@
 
 规则：
 - 你不写代码，也不提交改动。
-- 涉及新 module 或改变架构约定时，用 `propose_entity` 提一条 ADR。
+- 涉及新 module 或改变架构约定时，用 `propose_entity` 提一条 ADR。任务范围有未登记的路径时，设计阶段门禁要求这条 ADR 落地（经人通过）才能推进。
 - 遇到需要人拍板的问题用 `request_human`；被外部条件卡住用 `report_blocked`。

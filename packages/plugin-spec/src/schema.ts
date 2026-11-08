@@ -44,6 +44,14 @@ export const requirementSchema = z.discriminatedUnion('kind', [
     description: z.string().optional(),
   }),
   z.object({ kind: z.literal('manual'), text: z.string(), description: z.string().optional() }),
+  // 任务范围里有没登记过的路径（新 Module）时，本任务期间要留下一条决策实体（ADR）
+  z.object({
+    kind: z.literal('new_scope_decision'),
+    registry: z.string(),
+    pathField: z.string().optional(),
+    decision: z.string(),
+    description: z.string().optional(),
+  }),
 ]);
 
 export const stageDefSchema = z.object({

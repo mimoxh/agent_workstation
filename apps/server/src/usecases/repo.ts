@@ -1,5 +1,6 @@
 import type { Actor } from '@aw/domain';
 import { eq } from 'drizzle-orm';
+import { execFile } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import type { DB } from '../db/client.js';
 import { proposal, task, workstation } from '../db/schema.js';
@@ -27,10 +28,32 @@ async function browseRef(s: DevSettings): Promise<string | null> {
   return (await git(s.repoPath, ['rev-parse', '--verify', '--quiet', 'HEAD'])).code === 0 ? 'HEAD' : null;
 }
 
-export async function listRepoFiles(db: DB, wsId: string, dir: string) {
+// 可浏览的版本：目标分支，或某个任务的分支（看还没合并的改动）
+async function pickRef(db: DB, wsId: string, s: DevSettings, branch?: string): Promise<string | null> {
+  if (!branch) return browseRef(s);
+  const refs = await listBrowseRefs(db, wsId);
+  if (!refs.branches.some((b) => b.branch === branch)) return null;
+  return branch;
+}
+
+export async function listBrowseRefs(db: DB, wsId: string) {
+  const r = await settingsOf(db, wsId);
+  if ('error' in r) return { target: null, branches: [] as { branch: string; taskId: string; title: string; status: string }[] };
+  const tasks = await db.select().from(task).where(eq(task.workstationId, wsId));
+  const branches: { branch: string; taskId: string; title: string; status: string }[] = [];
+  for (const t of tasks) {
+    const ref = t.codeRefJson ? (JSON.parse(t.codeRefJson) as { branch?: string }) : null;
+    if (!ref?.branch) continue;
+    if ((await git(r.settings.repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref.branch}`])).code !== 0) continue;
+    branches.push({ branch: ref.branch, taskId: t.id, title: t.title, status: t.status });
+  }
+  return { target: await browseRef(r.settings), branches };
+}
+
+export async function listRepoFiles(db: DB, wsId: string, dir: string, branch?: string) {
   const r = await settingsOf(db, wsId);
   if ('error' in r) return { ref: null, entries: [], error: r.error };
-  const ref = await browseRef(r.settings);
+  const ref = await pickRef(db, wsId, r.settings, branch);
   if (!ref) return { ref: null, entries: [], error: `无法读取仓库：${r.settings.repoPath}` };
   const clean = dir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   // 路径带尾斜杠才列目录内容，否则 ls-tree 只返回目录自身
@@ -49,10 +72,10 @@ export async function listRepoFiles(db: DB, wsId: string, dir: string) {
   return { ref, entries, error: null };
 }
 
-export async function readRepoFile(db: DB, wsId: string, filePath: string) {
+export async function readRepoFile(db: DB, wsId: string, filePath: string, branch?: string) {
   const r = await settingsOf(db, wsId);
   if ('error' in r) return { kind: 'error' as const, status: r.status, error: r.error };
-  const ref = await browseRef(r.settings);
+  const ref = await pickRef(db, wsId, r.settings, branch);
   if (!ref) return { kind: 'error' as const, status: 400 as const, error: '无法读取仓库' };
   const out = await git(r.settings.repoPath, ['show', `${ref}:${filePath.replace(/\\/g, '/')}`]);
   if (out.code !== 0) return { kind: 'error' as const, status: 404 as const, error: '文件不存在' };
@@ -65,6 +88,20 @@ export async function readRepoFile(db: DB, wsId: string, filePath: string) {
     truncated: out.stdout.length > FILE_LIMIT,
     content: binary ? '' : out.stdout.slice(0, FILE_LIMIT),
   };
+}
+
+// 二进制读取（截图基线）：git() 按文本返回，图片会被破坏
+export async function readRepoBlob(db: DB, wsId: string, filePath: string, branch?: string): Promise<{ ok: true; data: Buffer; ref: string } | { ok: false; error: string }> {
+  const r = await settingsOf(db, wsId);
+  if ('error' in r) return { ok: false, error: r.error };
+  const ref = await pickRef(db, wsId, r.settings, branch);
+  if (!ref) return { ok: false, error: branch ? `分支不可浏览：${branch}` : '无法读取仓库' };
+  const spec = `${ref}:${filePath.replace(/\\/g, '/').replace(/^\.?\/+/, '')}`;
+  return new Promise((resolve) => {
+    execFile('git', ['cat-file', 'blob', spec], { cwd: r.settings.repoPath, encoding: 'buffer', maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+      resolve(err ? { ok: false, error: `基线不存在：${spec}` } : { ok: true, data: stdout, ref });
+    });
+  });
 }
 
 export async function repoStatus(db: DB, wsId: string) {

@@ -54,11 +54,13 @@ import {
 import { actOnInbox } from './usecases/inbox.js';
 import { deleteSource, getChunk, importSource, listSources, searchKnowledge } from './usecases/knowledge.js';
 import { createProject, mountChildWorkstation, setPluginEnabled, takeScreenshot, updateAgent, updateProject, updateWorkstation } from './usecases/projects.js';
+import { SANDBOX_IMAGE } from './runtime/sandbox.js';
 import { decideProposal, mergeProposal, reviewProposal } from './usecases/proposals.js';
 import {
   ackDrift,
   createPullRequest,
   importIssues,
+  listBrowseRefs,
   listRepoFiles,
   pushWorkstation,
   readRepoFile,
@@ -96,7 +98,7 @@ const body = <T extends z.ZodType>(schema: T) =>
     return undefined;
   });
 
-const pathQuery = zValidator('query', z.object({ path: z.string().optional() }), (r, c) => {
+const pathQuery = zValidator('query', z.object({ path: z.string().optional(), branch: z.string().optional() }), (r, c) => {
   if (!r.success) return c.json({ error: '路径参数不合法' }, 400);
   return undefined;
 });
@@ -256,6 +258,7 @@ export function createApp(db: DB) {
               requireHumanFor: z.array(z.string()).optional(),
               preset: z.string().optional(),
               remote: z.object({ name: z.string().trim().min(1), autoPush: z.boolean() }).nullable().optional(),
+              sandbox: z.object({ image: z.string().trim().regex(SANDBOX_IMAGE, '镜像名不合法'), memory: z.string().regex(/^\d+[kmg]?$/i).optional(), cpus: z.number().positive().optional() }).nullable().optional(),
               budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(),
             })
             .optional(),
@@ -318,9 +321,10 @@ export function createApp(db: DB) {
       const r = await createEntity(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
     })
-    .get('/workstations/:id/files', pathQuery, async (c) => c.json(await listRepoFiles(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '')))
+    .get('/workstations/:id/files', pathQuery, async (c) => c.json(await listRepoFiles(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '', c.req.valid('query').branch || undefined)))
+    .get('/workstations/:id/branches', async (c) => c.json(await listBrowseRefs(c.get('db'), c.req.param('id'))))
     .get('/workstations/:id/file', pathQuery, async (c) => {
-      const r = await readRepoFile(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '');
+      const r = await readRepoFile(c.get('db'), c.req.param('id'), c.req.valid('query').path ?? '', c.req.valid('query').branch || undefined);
       return r.kind === 'ok' ? c.json({ ref: r.ref, path: r.path, binary: r.binary, truncated: r.truncated, content: r.content }) : fail(c, r);
     })
     .get('/workstations/:id/thread', async (c) => {
@@ -542,9 +546,10 @@ export function createApp(db: DB) {
       const r = await triggerRun(c.get('db'), source.agentId, source.taskId, 'retry', { resume: { runId: source.id, step: c.req.valid('json').step } });
       return r.ok ? c.json({ runId: r.runId }, 201) : fail(c, { status: 409, ...(r.error ? { error: r.error } : {}) });
     })
-    .post('/workstations/:id/screenshot', body(z.object({ url: z.string().url('地址不合法') })), async (c) => {
-      const r = await takeScreenshot(c.get('db'), c.req.param('id'), c.req.valid('json').url);
-      return r.kind === 'ok' ? c.json({ artifactId: r.id }, 201) : fail(c, r);
+    .post('/workstations/:id/screenshot', body(z.object({ url: z.string().url('地址不合法'), baseline: z.string().optional(), branch: z.string().optional() })), async (c) => {
+      const { url, baseline, branch } = c.req.valid('json');
+      const r = await takeScreenshot(c.get('db'), c.req.param('id'), url, { baseline: baseline || undefined, branch: branch || undefined });
+      return r.kind === 'ok' ? c.json({ artifactId: r.id, compare: r.compare ?? null }, 201) : fail(c, r);
     })
     .get('/artifacts/:id/image', async (c) => {
       const a = await getArtifact(c.get('actor'), c.get('db'), c.req.param('id'));

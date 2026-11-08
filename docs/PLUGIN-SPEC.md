@@ -283,7 +283,8 @@ export type Requirement =
   | { kind: 'entity'; entity: string; minCount?: number; fieldsPresent?: string[] }
   | { kind: 'acceptance' }
   | { kind: 'approval'; by?: 'human' | 'agent' }
-  | { kind: 'manual'; text: string };
+  | { kind: 'manual'; text: string }
+  | { kind: 'new_scope_decision'; registry: string; pathField?: string; decision: string };  // 任务范围有未登记路径时要一条决策实体
 // 每种都可以带 description?: string
 ```
 

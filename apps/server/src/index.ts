@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { createDb, migrateDb } from './db/client.js';
 import { seed } from './db/seed.js';
 import { agent, inboxItem, run, task, workstation } from './db/schema.js';
@@ -8,6 +8,7 @@ import { loadPlugins } from './plugins.js';
 import { loadModels, sanitizeError } from './runtime/models.js';
 import { startScheduler } from './runtime/scheduler.js';
 import { startRepoWatch } from './runtime/repo_watch.js';
+import { recoverMergeQueue } from './runtime/dev_workflow.js';
 import { syncWorkstations } from './usecases/workstations.js';
 
 // 最后一道兜底：单个任务的漏网异常不能带走常驻进程和其他 run
@@ -34,6 +35,10 @@ for (const r of stale) {
     id: crypto.randomUUID(), workspaceId: 'default', projectId: owner?.projectId ?? ws?.projectId ?? null, kind: 'run_failed', refType: 'run', refId: r.id, status: 'open', createdAt: new Date().toISOString(),
   });
 }
+
+// 等待命令确认的 run 已经不在了，确认项留着只会误导
+await db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ resolution: 'interrupted' }) }).where(and(eq(inboxItem.kind, 'command_confirm'), eq(inboxItem.status, 'open')));
+await recoverMergeQueue(db);
 
 startScheduler(db);
 startRepoWatch(db);

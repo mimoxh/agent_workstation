@@ -2,15 +2,15 @@ import { and, eq } from 'drizzle-orm';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { submitChange, afterReview, runAcceptance, syncTaskBranch } from '../dev_workflow.js';
+import { acceptanceExec, submitChange, afterReview, runAcceptance, syncTaskBranch } from '../dev_workflow.js';
 import { git, gitOk, devSettings } from '../git.js';
 import { runCommand, isDangerous, isDependencyChange, splitCommand, portEnv, type ExecResult } from '../exec.js';
-import { inboxItem, project, proposal, reviewComment, workstation } from '../../db/schema.js';
+import { inboxItem, project, proposal, reviewComment, run, workstation } from '../../db/schema.js';
 import type { ToolCtx, ToolDef } from './index.js';
 import { events } from '../../events.js';
 import { captureScreenshot } from '../visual.js';
 import { logEvent } from '../../usecases/core.js';
-import { inScope, parseScope, scopeLabel, type TaskScope } from '../scope.js';
+import { inScope, parseScope, readSpecs, scopeLabel, type TaskScope } from '../scope.js';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -51,6 +51,24 @@ function writeDenied(ctx: ToolCtx): string | null {
 
 const scopeOf = (ctx: ToolCtx): TaskScope => parseScope(ctx.task.inputJson);
 const outOfScope = (s: TaskScope, p: string) => `越出 Module 范围（${scopeLabel(s)}）：${p}`;
+
+const CONFIRM_TIMEOUT_MS = 300_000;
+// 人处理收件箱时事件立即唤醒；轮询只兜底绕过事件的关闭路径（closeInboxFor 等）
+const CONFIRM_POLL_MS = 5_000;
+
+function waitForConfirm(itemId: string, runId: string, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const offs: (() => void)[] = [];
+    const done = () => {
+      clearTimeout(timer);
+      for (const off of offs) off();
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    offs.push(events.on('inbox_resolved', (p) => { if (p.targetId === itemId) done(); }));
+    offs.push(events.on('run_finished', (p) => { if (p.runId === runId) done(); }));
+  });
+}
 
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 const FILE_LIMIT = 8 * 1024;
@@ -94,7 +112,7 @@ export const devTools: Record<string, ToolDef> = {
       const ref = requireWt(ctx);
       if (!ref) return { error: '任务没有 worktree' };
       const s = scopeOf(ctx);
-      const specs = a.path ? [String(a.path)] : s.whole ? ['.'] : s.modules;
+      const specs = a.path ? [String(a.path)] : readSpecs(s);
       const r = await git(ref.worktree, ['grep', '-n', '-I', '-F', String(a.query), '--', ...specs]);
       return { matches: r.stdout.split('\n').filter(Boolean).slice(0, 50) };
     },
@@ -281,8 +299,9 @@ export const devTools: Record<string, ToolDef> = {
       if (!ref) return { error: '任务没有 worktree' };
       const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
       const checks = JSON.parse(ctx.task.acceptanceJson ?? '[]') as { kind: string }[];
-      const { allPassed, results } = await runAcceptance(ctx.db, ctx.agent.workstationId, ref.worktree, checks, devSettings(ws?.settingsJson ?? null).commandTimeoutSec, ctx.task.id);
-      return { allPassed, results: results.map((r) => ({ command: r.command, status: r.status, output: r.output.slice(-2000) })) };
+      const s = devSettings(ws?.settingsJson ?? null);
+      const { allPassed, envError, results } = await runAcceptance(ctx.db, ctx.agent.workstationId, ref.worktree, checks, s.commandTimeoutSec, ctx.task.id, acceptanceExec(s));
+      return { allPassed, ...(envError ? { note: '验收环境出错（命令不存在或服务起不来），不是代码问题，用 report_blocked 告诉人' } : {}), results: results.map((r) => ({ command: r.command, status: r.status, output: r.output.slice(-2000) })) };
     },
   },
   capture_screenshot: {
@@ -324,21 +343,31 @@ export const devTools: Record<string, ToolDef> = {
           createdAt: now(),
         });
         events.emit('inbox_created', { kind: 'command_confirm', refId: iid });
-        const deadline = Date.now() + Math.min(300_000, 300_000);
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 2000));
+        const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+        let approved = false;
+        while (Date.now() < deadline && !approved) {
+          await waitForConfirm(iid, ctx.run.id, Math.min(CONFIRM_POLL_MS, deadline - Date.now()));
           const row = (await ctx.db.select().from(inboxItem).where(eq(inboxItem.id, iid)))[0];
           if (row?.status === 'resolved') {
             const decision = (JSON.parse(row.resolutionJson ?? '{}') as { decision?: string }).decision;
-            if (decision === 'approve') break;
-            return { error: '命令被拒绝' };
+            if (decision !== 'approve') return { error: '命令被拒绝' };
+            approved = true;
+            break;
+          }
+          // run 被取消后没人等结果了：确认项一并关掉，不留给人一条点了也没用的待办
+          const r = (await ctx.db.select({ status: run.status }).from(run).where(eq(run.id, ctx.run.id)))[0];
+          if (r && r.status !== 'running') {
+            await ctx.db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ resolution: 'run_ended' }) }).where(eq(inboxItem.id, iid));
+            return { error: '运行已结束，命令未执行' };
           }
         }
-        const row = (await ctx.db.select().from(inboxItem).where(eq(inboxItem.id, iid)))[0];
-        if (row?.status !== 'resolved') return { error: '命令确认超时' };
+        if (!approved) {
+          await ctx.db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ resolution: 'timeout' }) }).where(and(eq(inboxItem.id, iid), eq(inboxItem.status, 'open')));
+          return { error: '命令确认超时' };
+        }
       }
       const t0 = Date.now();
-      const res: ExecResult = await runCommand({ cwd: ref.worktree, command: cmd, timeoutSec: s.commandTimeoutSec, env: portEnv(path.basename(ref.worktree)) });
+      const res: ExecResult = await runCommand({ cwd: ref.worktree, command: cmd, timeoutSec: s.commandTimeoutSec, env: portEnv(path.basename(ref.worktree)), sandbox: s.sandbox });
       await logEvent(ctx.db, ctx.actor, 'command_executed', 'task', ctx.task.id, { cwd: ref.worktree, argv: argv ?? [], exitCode: res.exitCode, ms: res.durationMs });
       return { exitCode: res.exitCode, durationMs: res.durationMs, output: res.output, truncated: res.truncated, timedOut: res.timedOut, waited: Date.now() - t0 };
     },

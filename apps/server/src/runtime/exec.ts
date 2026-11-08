@@ -1,5 +1,7 @@
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { dockerBin, dockerRunArgs, sandboxGitDenied, SANDBOX_IMAGE, type SandboxConfig, type SandboxNetwork } from './sandbox.js';
 
 export interface ExecResult { exitCode: number; durationMs: number; output: string; truncated: boolean; timedOut: boolean }
 
@@ -53,6 +55,17 @@ export function isDependencyChange(argv: string[]): boolean {
   return ['add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'install', 'i'].includes(sub ?? '') && !argv.includes('publish');
 }
 
+// 环境问题（命令不存在、不在白名单、cwd 不对）不是代码的错：退回实现者也修不好，应该转人
+// 只看输出开头：shell 找不到命令时报错在第一行；构建 / 测试自己的 "not found" 不算
+const SHELL_MISSING = /^[^\n]*(is not recognized as an internal or external command|: command not found|: not found$)/m;
+export function isEnvError(res: ExecResult): boolean {
+  if (res.timedOut) return false;
+  if (res.exitCode === 127 || res.exitCode === 9009) return true;
+  // -1：平台没能把命令跑起来（spawn 失败、白名单、cwd、命令格式），或进程被外部信号杀掉
+  if (res.exitCode === -1) return true;
+  return res.exitCode === 1 && SHELL_MISSING.test(res.output.trimStart().split('\n').slice(0, 2).join('\n'));
+}
+
 function scrubEnv(extra?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -76,46 +89,99 @@ export function portEnv(worktreeKey: string): Record<string, string> {
   return { AW_E2E_API_PORT: String(8900 + 2 * n), AW_E2E_WEB_PORT: String(8901 + 2 * n) };
 }
 
-export function runCommand(opts: { cwd: string; command: string; timeoutSec: number; env?: Record<string, string> }): Promise<ExecResult> {
-  if (!opts.cwd || !path.isAbsolute(opts.cwd)) {
-    return Promise.resolve({ exitCode: -1, durationMs: 0, output: 'cwd 缺失或不是绝对路径', truncated: false, timedOut: false });
-  }
+type Launch = { cwd: string; command: string; env?: Record<string, string> | undefined; sandbox?: SandboxConfig | undefined; network?: SandboxNetwork | undefined; publish?: string[] | undefined };
+
+function preflight(opts: Launch): { argv: string[] } | { error: string } {
+  if (!opts.cwd || !path.isAbsolute(opts.cwd)) return { error: 'cwd 缺失或不是绝对路径' };
   const argv = splitCommand(opts.command);
-  if (!argv || argv.length === 0) {
-    return Promise.resolve({ exitCode: -1, durationMs: 0, output: '不支持管道/重定向/链式命令/变量展开', truncated: false, timedOut: false });
+  if (!argv || argv.length === 0) return { error: '不支持管道/重定向/链式命令/变量展开' };
+  if (!WHITELIST.has(argv[0]!)) return { error: `命令 ${argv[0]} 不在白名单` };
+  if (opts.sandbox) {
+    if (!SANDBOX_IMAGE.test(opts.sandbox.image)) return { error: `容器沙箱镜像名不合法：${opts.sandbox.image}` };
+    if (argv[0] === 'git') {
+      const denied = sandboxGitDenied(argv);
+      if (denied) return { error: denied };
+    }
   }
-  if (!WHITELIST.has(argv[0]!)) {
-    return Promise.resolve({ exitCode: -1, durationMs: 0, output: `命令 ${argv[0]} 不在白名单`, truncated: false, timedOut: false });
+  return { argv };
+}
+
+function launch(opts: Launch, argv: string[]) {
+  const detached = process.platform !== 'win32';
+  if (opts.sandbox && argv[0] !== 'git') {
+    const name = `aw-${crypto.randomUUID()}`;
+    const uid = process.getuid?.();
+    const args = dockerRunArgs({
+      name, sandbox: opts.sandbox, cwd: opts.cwd, argv, env: opts.env, publish: opts.publish,
+      network: opts.network ?? (isDependencyChange(argv) || argv[0] === 'npx' ? 'bridge' : 'none'),
+      gitFile: existsSync(path.join(opts.cwd, '.git')),
+      user: uid === undefined ? undefined : `${uid}:${process.getgid?.() ?? uid}`,
+    });
+    const child = spawn(dockerBin(), args, { cwd: opts.cwd, env: scrubEnv(), windowsHide: true, detached });
+    return {
+      child, sandboxed: true,
+      // 杀 docker 客户端不会停容器，必须按名字删
+      kill: () => {
+        execFile(dockerBin(), ['rm', '-f', name], { windowsHide: true, timeout: 30_000 }, () => {});
+        killTree(child.pid);
+      },
+    };
   }
-  const isWin = process.platform === 'win32';
-  const cmdLine = isWin ? `${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}` : '';
+  const env = scrubEnv(opts.env);
+  const child = process.platform === 'win32'
+    ? spawn(argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '), [], { cwd: opts.cwd, env, shell: true, windowsHide: true })
+    : spawn(argv[0]!, argv.slice(1), { cwd: opts.cwd, env, windowsHide: true, detached });
+  return { child, sandboxed: false, kill: () => killTree(child.pid) };
+}
+
+// docker run 自身失败的退出码（守护进程 / 镜像 / 入口不可用）统一成 127，验收按环境错误处理
+const dockerExit = (code: number) => ([125, 126, 127].includes(code) ? 127 : code);
+const launchError = (sandboxed: boolean, e: unknown) => (sandboxed ? `容器沙箱启动失败（docker 不可用？）：${String(e)}` : String(e));
+
+export function runCommand(opts: Launch & { timeoutSec: number }): Promise<ExecResult> {
+  const pre = preflight(opts);
+  if ('error' in pre) return Promise.resolve({ exitCode: -1, durationMs: 0, output: pre.error, truncated: false, timedOut: false });
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const env = scrubEnv(opts.env);
-    const child = isWin
-      ? spawn(cmdLine, [], { cwd: opts.cwd, env, shell: true, windowsHide: true })
-      : spawn(argv[0]!, argv.slice(1), { cwd: opts.cwd, env, windowsHide: true });
+    const { child, sandboxed, kill } = launch(opts, pre.argv);
     let out = '';
     child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
     child.stderr.on('data', (d: Buffer) => { out += d.toString(); });
     let killed = false;
-    const timer = setTimeout(() => { killed = true; killTree(child.pid); }, opts.timeoutSec * 1000);
+    const timer = setTimeout(() => { killed = true; kill(); }, opts.timeoutSec * 1000);
     child.on('error', (e) => {
       clearTimeout(timer);
-      resolve({ exitCode: -1, durationMs: Date.now() - t0, output: String(e), truncated: false, timedOut: false });
+      resolve({ exitCode: -1, durationMs: Date.now() - t0, output: launchError(sandboxed, e), truncated: false, timedOut: false });
     });
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       const timedOut = killed || signal === 'SIGTERM' || signal === 'SIGKILL';
-      resolve({ exitCode: code ?? -1, durationMs: Date.now() - t0, output: clip(out), truncated: out.length > OUTPUT_LIMIT, timedOut });
+      const exitCode = code === null ? -1 : sandboxed ? dockerExit(code) : code;
+      resolve({ exitCode, durationMs: Date.now() - t0, output: clip(out), truncated: out.length > OUTPUT_LIMIT, timedOut });
     });
   });
+}
+
+// 常驻进程（视觉验收用的 dev server）：同样走白名单，返回 stop；输出只留尾部用于报错
+export function startBackground(opts: Launch): { ok: true; stop: () => void; tail: () => string; exited: () => number | null } | { ok: false; error: string } {
+  const pre = preflight(opts);
+  if ('error' in pre) return { ok: false, error: pre.error };
+  // 沙箱里的服务要被宿主浏览器访问，只能走 bridge；端口只发布到回环
+  const { child, sandboxed, kill } = launch({ ...opts, network: 'bridge' }, pre.argv);
+  let out = '';
+  let code: number | null = null;
+  const keep = (d: Buffer) => { out = (out + d.toString()).slice(-4096); };
+  child.stdout?.on('data', keep);
+  child.stderr?.on('data', keep);
+  child.on('close', (c) => { code = c ?? -1; });
+  child.on('error', (e) => { out += launchError(sandboxed, e); code = -1; });
+  return { ok: true, stop: kill, tail: () => out, exited: () => code };
 }
 
 function killTree(pid?: number) {
   if (!pid) return;
   try {
-    if (process.platform === 'win32') execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { windowsHide: true });
+    if (process.platform === 'win32') execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore' });
     else process.kill(-pid, 'SIGKILL');
   } catch { /* already dead */ }
 }

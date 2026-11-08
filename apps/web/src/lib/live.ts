@@ -3,8 +3,8 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 // 按顺序取第一个匹配：run_step 很频繁，只刷新脉搏和时间线
 const RULES: [prefix: string, keys: string[]][] = [
-  ['task_', ['tasks', 'task', 'project-tasks', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse', 'task-branch']],
-  ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline', 'task-branch', 'remote']],
+  ['task_', ['tasks', 'task', 'project-tasks', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse', 'task-branch', 'files', 'file']],
+  ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline', 'task-branch', 'remote', 'files', 'file']],
   ['inbox_', ['inbox', 'overview', 'projects']],
   ['message_', ['timeline', 'thread-messages']],
   ['thread_', ['thread', 'thread-messages']],
