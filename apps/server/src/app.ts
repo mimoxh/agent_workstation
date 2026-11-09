@@ -73,6 +73,8 @@ import {
 } from './usecases/repo.js';
 import { confirmGates } from './usecases/gates.js';
 import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, saveDesign, saveDesignSystem } from './usecases/designs.js';
+import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, transitionBug } from './usecases/qa.js';
+import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, listQaSources } from './repositories/qa.js';
 import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
@@ -91,6 +93,8 @@ const modelConfigBody = z.object({
   chain: z.array(z.string()),
   prices: z.record(z.string(), z.object({ input: z.number().min(0), output: z.number().min(0) })),
 });
+
+const qaHandoffBody = z.object({ targetWorkstationId: z.string().optional(), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional() });
 
 // 校验失败也返回 { error: string }，前端只需要处理一种错误形状
 const body = <T extends z.ZodType>(schema: T) =>
@@ -123,7 +127,7 @@ async function holdSSE(stream: SSEStreamingApi, subscribe: (close: () => void) =
   for (const off of offs) off();
 }
 
-const LIVE_PREFIXES = ['task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_'];
+const LIVE_PREFIXES = ['qa_', 'task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_'];
 
 export function createApp(db: DB) {
   const app = new Hono<Env>();
@@ -352,6 +356,70 @@ export function createApp(db: DB) {
     })
     .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional() })), async (c) => {
       const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
+    })
+
+    // ---- 测试台 ----
+    .get('/projects/:id/qa-sources', async (c) => c.json(await listQaSources(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/overview', async (c) => c.json(await getQaOverview(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/runs', async (c) => c.json(await listQaRuns(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/qa/runs', body(z.object({ suiteId: z.string().min(1), ref: z.string().optional() })), async (c) => {
+      const r = await startRun(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), trigger: 'human' });
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .post('/workstations/:id/qa/suites', body(z.object({ id: z.string().optional(), baseVersion: z.number().int().optional(), data: z.object({ name: z.string().trim().min(1, '请填名称'), command: z.string().trim().min(1, '请填命令'), report_path: z.string().trim().min(1, '请填报告路径'), coverage_path: z.string().trim().optional(), timeout_sec: z.number().int().positive().optional(), auto_run: z.boolean().optional(), description: z.string().optional() }) })), async (c) => {
+      const r = await saveSuite(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .get('/workstations/:id/qa/flaky', async (c) => c.json(await getQaFlaky(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/coverage', async (c) => c.json(await getQaCoverage(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/automated', async (c) => c.json(await getAutomatedCases(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/handoffs', async (c) => c.json(await bugTaskStatuses(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/qa/cases/:key/history', async (c) => c.json(await getCaseHistory(c.get('actor'), c.get('db'), c.req.param('id'), c.req.param('key'))))
+    .get('/workstations/:id/qa/plans/:planId', async (c) => {
+      const r = await getQaPlanDetail(c.get('actor'), c.get('db'), c.req.param('id'), c.req.param('planId'));
+      return r ? c.json(r) : fail(c, { status: 404, error: '测试计划不存在' });
+    })
+    .get('/qa-runs/:id', async (c) => {
+      const r = await getQaRunDetail(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r ? c.json(r) : fail(c, { status: 404, error: '运行不存在' });
+    })
+    .post('/qa-runs/:id/retry', async (c) => {
+      const r = await retryRun(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .post('/qa-runs/:id/cancel', async (c) => {
+      const r = await cancelQaRun(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-runs/:id/triage', async (c) => {
+      const r = await requestTriage(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-plans/:id/start', async (c) => {
+      const r = await startPlan(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-plans/:id/manual', body(z.object({ caseId: z.string().min(1), status: z.enum(['passed', 'failed', 'blocked', 'skipped']), note: z.string().optional() })), async (c) => {
+      const { caseId, ...input } = c.req.valid('json');
+      const r = await recordManualResult(c.get('actor'), c.get('db'), c.req.param('id'), caseId, input);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-plans/:id/sign', body(z.object({ note: z.string().optional(), override: z.boolean().optional() })), async (c) => {
+      const r = await signPlan(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-bugs/:id/transition', body(z.object({ event: z.enum(['confirm', 'dev_done', 'verify_pass', 'verify_fail', 'reject', 'reopen']), note: z.string().optional() })), async (c) => {
+      const { event, note } = c.req.valid('json');
+      const r = await transitionBug(c.get('actor'), c.get('db'), c.req.param('id'), event, note);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/qa-bugs/:id/handoff', body(qaHandoffBody), async (c) => {
+      const r = await handoffBug(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
+    })
+    .post('/qa-cases/:id/handoff', body(qaHandoffBody), async (c) => {
+      const r = await handoffCase(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
     })
 

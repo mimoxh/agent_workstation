@@ -31,6 +31,7 @@
     "ai": "^7.0.156",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
+    "fast-xml-parser": "^5.11.2",
     "hono": "^4.13.14",
     "p-queue": "^10.0.0",
     "pixelmatch": "^8.0.0",

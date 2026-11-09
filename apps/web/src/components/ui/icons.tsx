@@ -39,6 +39,13 @@ const PATHS = {
   palette: 'M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 2-.8 2-1.8 0-1.5-1.2-1.7-1.2-3 0-.9.7-1.5 1.7-1.5h2.3c2.1 0 3.7-1.5 3.7-3.7 0-3.9-3.8-7-8.5-7zM8 11.5h.01M10.5 8h.01M15 8.5h.01',
   sliders: 'M5 7h9M18 7h1M5 17h1M10 17h9M16 5v4M8 15v4',
   info: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 8h.01',
+  flask: 'M10 3h4M11 3v6L5.5 18a1.5 1.5 0 0 0 1.3 2.3h10.4a1.5 1.5 0 0 0 1.3-2.3L13 9V3M8 15h8',
+  pulse: 'M3 12h4l2.5-6 4 12 2.5-6H21',
+  play: 'M7 5v14l11-7z',
+  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  bug: 'M9 8a3 3 0 0 1 6 0M8 10h8v5a4 4 0 0 1-8 0zM12 10v9M4 9l4 2M20 9l-4 2M4 19l4-2M20 19l-4-2M3.5 14H8M16 14h4.5',
+  wave: 'M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0',
+  shield: 'M12 3.5 5 6v5.5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -64,5 +71,7 @@ export const PANEL_ICON: Record<string, IconName> = {
   tokens: 'sliders',
 };
 
-export const panelIcon = (type: string | null | undefined, entity?: string | null): IconName =>
-  entity === 'TestRun' ? 'check' : entity === 'ADR' ? 'decision' : entity === 'Milestone' ? 'flag' : PANEL_ICON[type ?? ''] ?? 'doc';
+const QUALITY_ICON: Record<string, IconName> = { overview: 'pulse', runs: 'play', cases: 'list', plans: 'flag', bugs: 'bug', flaky: 'wave', coverage: 'shield' };
+
+export const panelIcon = (type: string | null | undefined, entity?: string | null, panelId?: string | null): IconName =>
+  type === 'quality' ? (QUALITY_ICON[panelId ?? ''] ?? 'flask') : entity === 'TestRun' ? 'check' : entity === 'ADR' ? 'decision' : entity === 'Milestone' ? 'flag' : PANEL_ICON[type ?? ''] ?? 'doc';

@@ -112,6 +112,7 @@ export const INBOX_LABEL: Record<string, string> = {
   human_request: '请求决策',
   budget: '预算超限',
   gate_confirm: '阶段确认',
+  qa_regression: '回归失败',
 };
 
 export const TRIGGER_LABEL: Record<string, string> = {

@@ -49,7 +49,7 @@ export function flatWorkstations(project: ProjectDetail) {
   return out;
 }
 
-const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : pluginId === 'design' ? 'palette' : 'doc');
+const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : pluginId === 'design' ? 'palette' : pluginId === 'qa' ? 'flask' : 'doc');
 
 function LiveDot() {
   const live = useLiveConnected();
@@ -347,7 +347,7 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
       <Group label="功能" title="功能">
         {(ws.data?.blocks ?? []).map((b) => (
           <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && (loc.panel === b.panelId || (!loc.panel && b.id === home?.id)))} data-testid={`side-panel-${b.name}`}>
-            <Icon name={panelIcon(b.panelType, b.entityType)} className="text-muted" /><span className="truncate">{b.name}</span>
+            <Icon name={panelIcon(b.panelType, b.entityType, b.panelId)} className="text-muted" /><span className="truncate">{b.name}</span>
             {b.panelType === 'diff' && <Count n={stat?.pendingReviews ?? 0} tone="cool" />}
           </Link>
         ))}

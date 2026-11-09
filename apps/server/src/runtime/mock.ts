@@ -40,6 +40,8 @@ function taskInfo(prompt: Options['prompt']): { module: string; seed: number } {
   return { module: mod, seed };
 }
 
+const lastToolOutput = (prompt: Options['prompt']) => JSON.stringify(prompt.filter((m) => m.role === 'tool').at(-1) ?? '').replaceAll('\\"', '"');
+
 function toolCall(name: string, args: unknown, id: string): Result['content'][number] {
   return { type: 'tool-call', toolCallId: id, toolName: name, input: JSON.stringify(args) };
 }
@@ -103,12 +105,23 @@ export function createScriptedMock() {
       if (CONVERSATION_TRIGGERS.has(trigger)) {
         const user = userText(options.prompt);
         const lastLine = user.split('\n').filter(Boolean).at(-1) ?? '';
-        if (toolRounds > 0) return done(trigger === 'moderated' && tpl === 'pm' ? '已起草任务，确认后派发（mock）。' : tpl === 'designer' ? '设计稿已更新（mock）。' : '');
+        if (tpl === 'failure-analyst' && toolRounds === 1) {
+          const runId = userText(options.prompt).match(/分析测试运行 ([0-9a-f-]{36})/)?.[1];
+          const fingerprint = lastToolOutput(options.prompt).match(/"fingerprint":"([0-9a-f]+)"/)?.[1];
+          if (runId && fingerprint) return calls([['save_triage', { runId, groups: [{ fingerprint, category: 'product_bug', confidence: 'medium', summary: '断言失败，疑似产品缺陷（mock）', evidence: '报错原文（mock）' }] }]]);
+        }
+        if (toolRounds > 0) return done(trigger === 'moderated' && tpl === 'pm' ? '已起草任务，确认后派发（mock）。' : tpl === 'designer' ? '设计稿已更新（mock）。' : tpl === 'failure-analyst' ? '已完成失败分析（mock）。' : tpl === 'case-designer' ? '用例草稿已保存（mock）。' : tpl === 'qa-lead' ? '质量现状已汇总（mock）。' : '');
         if (trigger === 'conclude') return calls([['record_decision', { summary: '结论：按当前方案推进（mock）。' }]]);
         if (trigger === 'block_triage') {
           if (user.includes('需人决策')) return calls([['escalate_block', { reason: '需要人来决定（mock）' }]]);
           return calls([['resolve_block', { note: '按默认方案继续（mock）' }]]);
         }
+        if (tpl === 'failure-analyst') {
+          const runId = user.match(/分析测试运行 ([0-9a-f-]{36})/)?.[1];
+          return runId ? calls([['get_test_run', { runId }]]) : done('需要运行 id（mock）。');
+        }
+        if (tpl === 'case-designer') return calls([['save_test_cases', { cases: [{ title: '空输入时提示必填（mock）', priority: 'p1', steps: [{ action: '提交空表单', expected: '显示必填提示' }] }] }]]);
+        if (tpl === 'qa-lead') return calls([['qa_overview', {}]]);
         if (trigger === 'moderated') {
           if (tpl === 'designer') return designerTurn(user, calls);
           if (tpl === 'pm') return calls([['create_task', { title: lastLine.split('] ').at(-1)?.slice(0, 30) || '新任务（mock）', intent: '由对话起草（mock）' }]]);

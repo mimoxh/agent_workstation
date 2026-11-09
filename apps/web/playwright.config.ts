@@ -16,6 +16,7 @@ const e2eRepo = path.join(e2eDir, 'repo');
   writeFileSync(path.join(e2eRepo, 'package.json'), JSON.stringify({ name: 'fixture', private: true, scripts: { build: 'node check.js' } }));
   writeFileSync(path.join(e2eRepo, 'check.js'), 'process.exit(0);\n');
   writeFileSync(path.join(e2eRepo, 'src', 'board', 'index.txt'), 'board\n');
+  writeFileSync(path.join(e2eRepo, 'qa-run.js'), `require('fs').writeFileSync('junit.xml', '<testsuites><testsuite name="login"><testcase classname="login" name="accepts valid password" time="0.1"/><testcase classname="login" name="rejects empty password" time="0.2"><failure message="expected 200 to be 400">at login.test.js:12</failure></testcase></testsuite></testsuites>'); process.exit(1);\n`);
   writeFileSync(path.join(e2eRepo, '.gitignore'), 'data/\n');
   const g = (args: string[]) => execFileSync('git', args, { cwd: e2eRepo, stdio: 'pipe' });
   g(['init', '-b', 'main']);

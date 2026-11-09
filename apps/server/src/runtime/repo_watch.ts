@@ -4,6 +4,7 @@ import type { DB } from '../db/client.js';
 import { proposal, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { logEvent } from '../usecases/core.js';
+import { qaTick } from '../usecases/qa.js';
 import { postStatus } from '../usecases/threads.js';
 import { platformHeadOf } from './dev_workflow.js';
 import { devSettings, git } from './git.js';
@@ -64,6 +65,7 @@ export async function checkRepos(db: DB) {
     try { await checkWorkstation(db, ws); } catch (e) { console.error('[repo-watch]', ws.id, String(e)); }
   }
   try { await checkSubmittedBranches(db); } catch (e) { console.error('[repo-watch] branches', String(e)); }
+  await qaTick(db);
 }
 
 // 人点了「知道了」：清掉外部提交提示

@@ -13,6 +13,7 @@ import { escalateTask, reportBlocked } from '../coordination.js';
 import type { AgentRow, RunRow, TaskRow, ThreadRow } from '../types.js';
 import { designTools } from './design.js';
 import { devTools } from './dev.js';
+import { qaTools } from './qa.js';
 
 // 讨论线程里的 run 没有任务；依赖任务的工具统一由 executeTool 拦下
 export interface RunCtx {
@@ -270,7 +271,7 @@ const tools: Record<string, ToolDef> = {
 };
 
 export function allTools(): Record<string, ToolDef> {
-  return { ...tools, ...devTools, ...designTools };
+  return { ...tools, ...devTools, ...designTools, ...qaTools };
 }
 
 export function toolSchemasFor(agentTools: string[]): { name: string; description: string; parameters: z.ZodType; largeOutput: boolean }[] {

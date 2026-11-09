@@ -39,6 +39,18 @@ export const BUILTIN_TOOLS = [
   'comment_design',
   'resolve_design_comments',
   'read_design_handoff',
+  'qa_overview',
+  'list_test_suites',
+  'run_test_suite',
+  'get_test_run',
+  'get_case_history',
+  'list_flaky_tests',
+  'read_repo_file',
+  'search_repo',
+  'save_triage',
+  'save_test_cases',
+  'draft_bug',
+  'save_plan_summary',
 ] as const;
 
 export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:knowledge'] as const;

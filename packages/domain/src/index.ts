@@ -27,5 +27,21 @@ export {
   tweakCssValue,
 } from './design.js';
 export type { DesignToken, DesignTweak, DesignTweakType, TextEditResult, TokenGroup } from './design.js';
+export {
+  BUG_STATUSES,
+  DEFAULT_CRITERIA,
+  FLAKY_WINDOW,
+  bugTransition,
+  caseKey,
+  compareRuns,
+  computeVerdict,
+  errorFingerprint,
+  flakiness,
+  isBugOpen,
+  isFailing,
+  normalizeError,
+  reconcileBug,
+} from './qa.js';
+export type { BugEvent, BugStatus, CaseSample, CompareCase, Flakiness, QaCaseStatus, QaRunStatus, RunComparison, Verdict, VerdictCriteria, VerdictInput, VerdictLevel, VerdictReason } from './qa.js';
 export { costMicros, firstBreach } from './budget.js';
 export type { Budget, BudgetBreach, BudgetLevel, BudgetScope, Usage } from './budget.js';

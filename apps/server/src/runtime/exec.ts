@@ -138,7 +138,7 @@ function launch(opts: Launch, argv: string[]) {
 const dockerExit = (code: number) => ([125, 126, 127].includes(code) ? 127 : code);
 const launchError = (sandboxed: boolean, e: unknown) => (sandboxed ? `容器沙箱启动失败（docker 不可用？）：${String(e)}` : String(e));
 
-export function runCommand(opts: Launch & { timeoutSec: number }): Promise<ExecResult> {
+export function runCommand(opts: Launch & { timeoutSec: number; signal?: AbortSignal | undefined }): Promise<ExecResult> {
   const pre = preflight(opts);
   if ('error' in pre) return Promise.resolve({ exitCode: -1, durationMs: 0, output: pre.error, truncated: false, timedOut: false });
   const t0 = Date.now();
@@ -148,7 +148,10 @@ export function runCommand(opts: Launch & { timeoutSec: number }): Promise<ExecR
     child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
     child.stderr.on('data', (d: Buffer) => { out += d.toString(); });
     let killed = false;
-    const timer = setTimeout(() => { killed = true; kill(); }, opts.timeoutSec * 1000);
+    const stop = () => { killed = true; kill(); };
+    const timer = setTimeout(stop, opts.timeoutSec * 1000);
+    if (opts.signal?.aborted) stop();
+    else opts.signal?.addEventListener('abort', stop, { once: true });
     child.on('error', (e) => {
       clearTimeout(timer);
       resolve({ exitCode: -1, durationMs: Date.now() - t0, output: launchError(sandboxed, e), truncated: false, timedOut: false });

@@ -15,6 +15,7 @@ apps/
 │     │  ├ panels/   其余板块渲染器（改动审阅 / 测试 / 实体 / 文件 / 知识库 / 预览 / 编制 / 设置）
 │     │  ├ workstation/  工作台屏幕（大群 / 板块）、板块注册表、控制台总览
 │     │  ├ design/   设计台：画布、沙箱 iframe 与检查脚本、评论 / 旋钮、设计系统、交接
+│     │  ├ qa/       测试台：质量总览、运行、用例库、测试计划、缺陷、不稳定用例、覆盖率
 │     │  ├ timeline/ 协作时间线、交接与结论卡
 │     │  ├ team/     团队脉搏
 │     │  ├ task/     任务头、右栏
@@ -28,13 +29,13 @@ apps/
    └ src/
       ├ db/         schema / client / migrate / seed（AW_DB_PATH 可改，默认可 :memory:）
       ├ repositories/  仓储层（读）
-      ├ usecases/   用例（写）：core / flow / tasks / workstations / threads / proposals / inbox / entities / knowledge / projects / backup / repo
+      ├ usecases/   用例（写）：core / flow / tasks / workstations / threads / proposals / inbox / entities / knowledge / projects / backup / repo / designs / qa
       ├ runtime/    Agent 运行时：调度、发言调度、协调、循环、工具、dev 工作流、预算、模型路由
       └ app.ts      路由（/api 前缀）+ AppType 导出
 packages/
 ├ domain/         纯函数领域层：task-state 状态机、权限、@ 解析、三级预算
 ├ plugin-spec/    manifest 的 Zod schema 与校验（改了要 build，server 读 dist）
-└ plugins/        内置插件 pm、dev、design
+└ plugins/        内置插件 pm、dev、design、qa
 ```
 
 ## 命令
@@ -56,6 +57,7 @@ packages/
 - usecases 与 runtime 互相引用：`usecases/index.ts` 用具名导出，不要用 `export *`；runtime 从具体模块导入。
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
 - 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
+- 测试台不写仓库，改代码一律交接给开发台；测试报告是被测代码写的，按不可信处理。套件命令只能人审定，Agent 按 id 运行（docs/PLUGINS/QA.md）。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
 
 

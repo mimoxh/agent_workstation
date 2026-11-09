@@ -83,6 +83,9 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
   const [test, setTest] = useState('pnpm test');
   const chosen = pluginId || options[0]?.id || '';
   const plugin = options.find((p) => p.id === chosen);
+  const devStations = project.workstations.filter((w) => w.pluginId === 'dev');
+  const [qaSourcePick, setQaSource] = useState('');
+  const qaSource = qaSourcePick || devStations[0]?.id || '';
 
   const mount = useMutation({
     meta: { silent: true },
@@ -94,6 +97,7 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
             pluginId: chosen,
             name: name.trim(),
             ...(chosen === 'dev' ? { settings: { repoPath: repoPath.trim(), targetBranch: 'develop', baseBranch: 'main', commands: devCommands(build, test) } } : {}),
+            ...(chosen === 'qa' && qaSource ? { settings: { sourceWorkstationId: qaSource } } : {}),
           },
         }),
       ),
@@ -121,6 +125,13 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
             </Field>
             <CommandFields build={build} test={test} onBuild={setBuild} onTest={setTest} />
           </>
+        )}
+        {chosen === 'qa' && (
+          <Field label="被测的开发台" hint={devStations.length ? '测试台读它的仓库、目标分支和安装命令，缺陷也派给它' : '这个项目还没有开发工作台，挂载后要先挂一个才能运行测试'}>
+            <Select value={qaSource} onChange={(e) => setQaSource(e.target.value)} data-testid="mount-qa-source">
+              {devStations.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </Select>
+          </Field>
         )}
       </DialogForm>
     </Dialog>

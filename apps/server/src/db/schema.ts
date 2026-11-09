@@ -258,7 +258,63 @@ export const artifact = sqliteTable('artifact', {
   createdAt: text('created_at').notNull(),
 });
 
-// kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request
+// 测试台的一次套件运行。config_json 是发起时的命令快照：套件之后被改，这次跑的仍是当时审定的命令
+export const qaRun = sqliteTable(
+  'qa_run',
+  {
+    id: text('id').primaryKey(),
+    workstationId: text('workstation_id').notNull().references(() => workstation.id),
+    suiteId: text('suite_id').notNull(),
+    suiteName: text('suite_name').notNull(),
+    configJson: text('config_json').notNull(),
+    planId: text('plan_id'),
+    ref: text('ref').notNull(),
+    commitSha: text('commit_sha').notNull(),
+    status: text('status').notNull().default('queued'),
+    trigger: text('trigger').notNull(),
+    actorType: text('actor_type'),
+    actorId: text('actor_id'),
+    total: integer('total').notNull().default(0),
+    passed: integer('passed').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    errored: integer('errored').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    durationMs: integer('duration_ms'),
+    coverageJson: text('coverage_json'),
+    outputArtifactId: text('output_artifact_id'),
+    error: text('error'),
+    envError: integer('env_error').notNull().default(0),
+    retryOf: text('retry_of'),
+    triageJson: text('triage_json'),
+    createdAt: text('created_at').notNull(),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+  },
+  (t) => [index('idx_qa_run_ws').on(t.workstationId, t.createdAt), index('idx_qa_run_suite').on(t.workstationId, t.suiteId, t.createdAt)],
+);
+
+export const qaCaseResult = sqliteTable(
+  'qa_case_result',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id').notNull().references(() => qaRun.id),
+    workstationId: text('workstation_id').notNull().references(() => workstation.id),
+    suiteId: text('suite_id').notNull(),
+    caseKey: text('case_key').notNull(),
+    classname: text('classname').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull(),
+    durationMs: integer('duration_ms').notNull().default(0),
+    failureMessage: text('failure_message'),
+    failureDetail: text('failure_detail'),
+    fingerprint: text('fingerprint'),
+    commitSha: text('commit_sha').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('idx_qa_case_key').on(t.workstationId, t.caseKey, t.createdAt), index('idx_qa_case_run').on(t.runId)],
+);
+
+// kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request / qa_regression
 export const inboxItem = sqliteTable('inbox_item', {
   id: text('id').primaryKey(),
   workspaceId: text('workspace_id').notNull(),

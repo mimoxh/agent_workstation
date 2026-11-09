@@ -8,6 +8,7 @@ import type { DB } from '../db/client.js';
 import { agent, artifact, entity, message, proposal, reviewComment, run, task, thread, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { buildPermCtx, logEvent, manifestOf } from '../usecases/core.js';
+import { qaContextOf } from '../repositories/qa.js';
 import { designContextOf } from '../usecases/designs.js';
 import { pushInbox, pushRunFailure } from '../usecases/inbox.js';
 import { threadAgents } from '../usecases/threads.js';
@@ -240,6 +241,7 @@ async function buildThreadContext(db: DB, a: AgentRow, th: ThreadRow, manifest: 
     threadMessages: msgs.map((m) => ({ senderId: names.get(m.senderId ?? '') ?? m.senderId, senderType: m.senderType, content: m.content, kind: m.kind, note: focusNote(m.metaJson) })),
     dispatchTargets: await dispatchTargetsOf(db, a),
     designs: manifest?.entities.Design ? await designContextOf(db, a.workstationId) : undefined,
+    quality: manifest?.entities.TestSuite ? await qaContextOf(db, a.workstationId) : undefined,
   });
 }
 

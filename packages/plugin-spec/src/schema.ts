@@ -63,7 +63,7 @@ export const stageDefSchema = z.object({
   activeAgents: z.array(z.string()).optional(),
 });
 
-export const PANEL_TYPES = ['table', 'board', 'tree', 'doc', 'graph', 'timeline', 'form', 'detail', 'diff', 'preview', 'knowledge', 'canvas', 'tokens'] as const;
+export const PANEL_TYPES = ['table', 'board', 'tree', 'doc', 'graph', 'timeline', 'form', 'detail', 'diff', 'preview', 'knowledge', 'canvas', 'tokens', 'quality'] as const;
 
 export const panelDefSchema = z.object({
   id: z.string(),

@@ -27,7 +27,7 @@ function requireWt(ctx: ToolCtx) {
 }
 
 // 路径必须落在 worktree 内（防 .. / 符号链接逃逸 / .git）；root 必须是绝对路径，否则拒绝
-function safePath(wt: string, p: string): string | null {
+export function safePath(wt: string, p: string): string | null {
   if (!wt || !path.isAbsolute(wt)) return null;
   if (p.includes('\0') || path.isAbsolute(p)) return null;
   const abs = path.join(wt, p);

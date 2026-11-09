@@ -11,6 +11,7 @@ import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { WsProposalsPanel } from '@/components/panels/ProposalReview';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { WsTestRunsPanel } from '@/components/panels/TestRuns';
+import { QualityPanel } from '@/components/qa/QualityPanel';
 import { WsThread } from '@/components/chat/Thread';
 import { PageHeader } from '@/components/layout/Page';
 import { TeamPulse } from '@/components/team/TeamPulse';
@@ -21,7 +22,7 @@ import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 
-export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; design?: string }
+export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; design?: string; item?: string }
 
 const STATUSES: StatusFilter[] = ['open', 'attention', 'done'];
 
@@ -29,6 +30,7 @@ export const parseWsSearch = (s: Record<string, unknown>): WsSearch => ({
   ...(typeof s.panel === 'string' ? { panel: s.panel } : {}),
   ...(typeof s.q === 'string' && s.q ? { q: s.q } : {}),
   ...(typeof s.design === 'string' && s.design ? { design: s.design } : {}),
+  ...(typeof s.item === 'string' && s.item ? { item: s.item } : {}),
   ...(STATUSES.includes(s.status as StatusFilter) ? { status: s.status as StatusFilter } : {}),
 });
 
@@ -54,6 +56,8 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
       return <KnowledgePanel projectId={project.id} />;
     case 'tokens':
       return <DesignSystemPanel ws={ws} project={project} />;
+    case 'quality':
+      return <QualityPanel block={block} ws={ws} project={project} />;
     case 'preview':
       return <PreviewPanel wsId={ws.id} config={{ ...parseJson<{ urlField?: string; baselineField?: string }>(block.configJson, {}), ...(block.entityType ? { entity: block.entityType } : {}) }} />;
     default:
@@ -135,7 +139,7 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
   else if (block?.panelType === 'canvas') content = <DesignStudio ws={ws} project={project} openId={search.design} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { design: id } : {}) })} />;
   else if (block) {
     content = (
-      <PanelFrame icon={panelIcon(block.panelType, block.entityType)} title={block.name ?? block.panelId ?? ''} desc={ws.name}>
+      <PanelFrame icon={panelIcon(block.panelType, block.entityType, block.panelId)} title={block.name ?? block.panelId ?? ''} desc={ws.name}>
         {renderPanel(block, ws, project, { q: search.q, status: search.status }, onFilter)}
       </PanelFrame>
     );

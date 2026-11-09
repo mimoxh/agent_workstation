@@ -39,6 +39,35 @@ const fetchChunk = async (id: string) => unwrap(await api.knowledge.chunks[':id'
 const fetchPlugins = async () => unwrap(await api.plugins.$get());
 const fetchModels = async () => unwrap(await api.models.$get());
 const fetchDesignSystem = async (id: string) => unwrap(await api.workstations[':id']['design-system'].$get({ param: { id } }));
+const fetchQaOverview = async (id: string) => unwrap(await api.workstations[':id'].qa.overview.$get({ param: { id } }));
+const fetchQaRuns = async (id: string) => unwrap(await api.workstations[':id'].qa.runs.$get({ param: { id } }));
+const fetchQaRun = async (id: string) => unwrap(await api['qa-runs'][':id'].$get({ param: { id } }));
+const fetchQaFlaky = async (id: string) => unwrap(await api.workstations[':id'].qa.flaky.$get({ param: { id } }));
+const fetchQaCoverage = async (id: string) => unwrap(await api.workstations[':id'].qa.coverage.$get({ param: { id } }));
+const fetchQaAutomated = async (id: string) => unwrap(await api.workstations[':id'].qa.automated.$get({ param: { id } }));
+const fetchQaHandoffs = async (id: string) => unwrap(await api.workstations[':id'].qa.handoffs.$get({ param: { id } }));
+const fetchQaHistory = async (id: string, key: string) => unwrap(await api.workstations[':id'].qa.cases[':key'].history.$get({ param: { id, key } }));
+const fetchQaPlan = async (id: string, planId: string) => unwrap(await api.workstations[':id'].qa.plans[':planId'].$get({ param: { id, planId } }));
+
+export type QaOverview = Awaited<ReturnType<typeof fetchQaOverview>>;
+export type QaRunRow = Awaited<ReturnType<typeof fetchQaRuns>>[number];
+export type QaRunDetail = Awaited<ReturnType<typeof fetchQaRun>>;
+export type QaCaseRow = QaRunDetail['results'][number];
+export type QaCluster = QaRunDetail['clusters'][number];
+export type QaFlaky = Awaited<ReturnType<typeof fetchQaFlaky>>;
+export type QaCoverageSuite = Awaited<ReturnType<typeof fetchQaCoverage>>['suites'][number];
+export type QaAutomatedCase = Awaited<ReturnType<typeof fetchQaAutomated>>[number];
+export type QaPlanDetail = Awaited<ReturnType<typeof fetchQaPlan>>;
+
+export const useQaOverview = (id: string) => useQuery({ queryKey: ['qa', 'overview', id], queryFn: () => fetchQaOverview(id) });
+export const useQaRuns = (id: string) => useQuery({ queryKey: ['qa', 'runs', id], queryFn: () => fetchQaRuns(id) });
+export const useQaRun = (id: string) => useQuery({ queryKey: ['qa', 'run', id], queryFn: () => fetchQaRun(id) });
+export const useQaFlaky = (id: string) => useQuery({ queryKey: ['qa', 'flaky', id], queryFn: () => fetchQaFlaky(id) });
+export const useQaCoverage = (id: string) => useQuery({ queryKey: ['qa', 'coverage', id], queryFn: () => fetchQaCoverage(id) });
+export const useQaAutomated = (id: string) => useQuery({ queryKey: ['qa', 'automated', id], queryFn: () => fetchQaAutomated(id) });
+export const useQaHandoffs = (id: string) => useQuery({ queryKey: ['qa', 'handoffs', id], queryFn: () => fetchQaHandoffs(id) });
+export const useQaHistory = (id: string, key: string) => useQuery({ queryKey: ['qa', 'history', id, key], queryFn: () => fetchQaHistory(id, key) });
+export const useQaPlan = (id: string, planId: string) => useQuery({ queryKey: ['qa', 'plan', id, planId], queryFn: () => fetchQaPlan(id, planId) });
 
 export type ProjectSummary = Awaited<ReturnType<typeof fetchProjects>>[number];
 export type ProjectDetail = Awaited<ReturnType<typeof fetchProject>>;

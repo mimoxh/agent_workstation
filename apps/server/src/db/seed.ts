@@ -10,9 +10,29 @@ import type { Actor } from '@aw/domain';
 const now = () => new Date().toISOString();
 const HUMAN: Actor = { type: 'human', id: 'local' };
 
+// 老库也要补登记：后来新增的内置插件没有这一行，启停开关会更新不到
+async function registerPlugins(db: DB) {
+  const known = new Set((await db.select({ pluginId: pluginInstall.pluginId }).from(pluginInstall)).map((p) => p.pluginId));
+  for (const m of pluginRegistry.values()) {
+    if (known.has(m.id)) continue;
+    await db.insert(pluginInstall).values({
+      id: crypto.randomUUID(),
+      workspaceId: 'default',
+      pluginId: m.id,
+      version: m.version,
+      source: 'builtin',
+      enabled: 1,
+      createdAt: now(),
+    });
+  }
+}
+
 export async function seed(db: DB) {
   const w = await db.select().from(workspace).where(eq(workspace.id, 'default'));
-  if (w.length > 0) return; // 已播种，幂等退出
+  if (w.length > 0) {
+    await registerPlugins(db);
+    return; // 已播种，幂等退出
+  }
 
   await db.insert(workspace).values({ id: 'default', name: '默认工作区', createdAt: now() });
   await db.insert(appUser).values({ id: 'local', workspaceId: 'default', name: '本地用户', createdAt: now() });
@@ -25,18 +45,7 @@ export async function seed(db: DB) {
     createdAt: now(),
   });
 
-  // builtin 插件登记
-  for (const m of pluginRegistry.values()) {
-    await db.insert(pluginInstall).values({
-      id: crypto.randomUUID(),
-      workspaceId: 'default',
-      pluginId: m.id,
-      version: m.version,
-      source: 'builtin',
-      enabled: 1,
-      createdAt: now(),
-    });
-  }
+  await registerPlugins(db);
 
   const root = await mountWorkstation(HUMAN, db, {
     projectId: 'proj-aw',

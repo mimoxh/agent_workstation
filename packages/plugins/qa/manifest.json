@@ -1,0 +1,136 @@
+{
+  "id": "qa",
+  "name": "测试工作台",
+  "version": "1.0.0",
+  "description": "任务之上的质量台：用例库、测试计划、版本回归、不稳定识别、覆盖率、缺陷闭环和发布结论。结果由平台执行并解析，代码改动交给开发台",
+  "steward": "qa-lead",
+  "entities": {
+    "TestSuite": {
+      "label": "测试套件",
+      "description": "一条可执行的测试命令及其报告位置。命令由人审定，Agent 只能按 id 运行",
+      "titleField": "name",
+      "writeMode": "propose",
+      "fields": {
+        "name": { "type": "string", "label": "名称", "required": true },
+        "command": { "type": "string", "label": "命令", "required": true, "description": "在仓库根目录执行，不能用管道和变量" },
+        "report_path": { "type": "string", "label": "JUnit 报告路径", "required": true, "description": "相对仓库根目录" },
+        "coverage_path": { "type": "string", "label": "覆盖率报告路径", "description": "coverage-summary.json 或 lcov.info" },
+        "timeout_sec": { "type": "number", "label": "超时(秒)" },
+        "auto_run": { "type": "boolean", "label": "目标分支更新时自动运行" },
+        "description": { "type": "text", "label": "说明" }
+      }
+    },
+    "TestCase": {
+      "label": "测试用例",
+      "description": "手工或自动化用例。AI 生成的先是草稿，人审后入库",
+      "titleField": "title",
+      "writeMode": "direct",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "module": { "type": "string", "label": "模块" },
+        "priority": { "type": "enum", "label": "优先级", "enum": ["p0", "p1", "p2"] },
+        "status": { "type": "enum", "label": "状态", "enum": ["draft", "active", "deprecated"] },
+        "preconditions": { "type": "text", "label": "前置条件" },
+        "steps": { "type": "json", "label": "步骤", "description": "[{ action, expected }]" },
+        "requirement": { "type": "text", "label": "需求来源" },
+        "automation_key": { "type": "string", "label": "自动化用例标识" },
+        "automation_name": { "type": "string", "label": "自动化用例名" },
+        "handoff": { "type": "json", "label": "交接记录" }
+      }
+    },
+    "TestPlan": {
+      "label": "测试计划",
+      "description": "面向一个版本：要跑的套件、手工用例、准出标准和结论",
+      "titleField": "name",
+      "writeMode": "direct",
+      "fields": {
+        "name": { "type": "string", "label": "名称", "required": true },
+        "version": { "type": "string", "label": "版本" },
+        "ref": { "type": "string", "label": "分支或提交" },
+        "status": { "type": "enum", "label": "状态", "enum": ["draft", "running", "signed"] },
+        "suites": { "type": "json", "label": "套件" },
+        "cases": { "type": "json", "label": "手工用例" },
+        "criteria": { "type": "json", "label": "准出标准" },
+        "manual_results": { "type": "json", "label": "手工结果" },
+        "run_ids": { "type": "json", "label": "运行" },
+        "summary": { "type": "markdown", "label": "结论摘要" },
+        "signoff": { "type": "json", "label": "签字" }
+      }
+    },
+    "BugReport": {
+      "label": "缺陷",
+      "description": "从失败里确认下来的问题，派给开发台修复，回归后自动验证",
+      "titleField": "title",
+      "writeMode": "direct",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "severity": { "type": "enum", "label": "严重度", "enum": ["p0", "p1", "p2", "p3"], "required": true },
+        "status": { "type": "enum", "label": "状态", "enum": ["draft", "open", "fixing", "verifying", "verified", "reopened", "wontfix"] },
+        "module": { "type": "string", "label": "模块" },
+        "steps": { "type": "text", "label": "复现步骤" },
+        "expected": { "type": "text", "label": "期望" },
+        "actual": { "type": "text", "label": "实际" },
+        "run_id": { "type": "string", "label": "运行" },
+        "case_key": { "type": "string", "label": "自动化用例标识" },
+        "case_name": { "type": "string", "label": "用例" },
+        "handoff": { "type": "json", "label": "交接记录" },
+        "verifying_since": { "type": "date", "label": "开始验证" },
+        "note": { "type": "text", "label": "备注" }
+      }
+    },
+    "TestQuarantine": {
+      "label": "隔离记录",
+      "description": "被隔离的不稳定用例：仍然运行和展示，但不计入发布结论",
+      "titleField": "name",
+      "writeMode": "propose",
+      "fields": {
+        "name": { "type": "string", "label": "用例", "required": true },
+        "case_key": { "type": "string", "label": "用例标识", "required": true },
+        "reason": { "type": "text", "label": "原因" },
+        "status": { "type": "enum", "label": "状态", "enum": ["active", "released"] }
+      }
+    }
+  },
+  "panels": [
+    { "id": "overview", "type": "quality", "entity": "TestSuite", "title": "质量总览", "editableBy": ["human"], "config": { "view": "overview", "home": true } },
+    { "id": "runs", "type": "quality", "entity": "TestSuite", "title": "测试运行", "editableBy": ["human", "agent"], "config": { "view": "runs" } },
+    { "id": "cases", "type": "quality", "entity": "TestCase", "title": "用例库", "editableBy": ["human", "agent"], "config": { "view": "cases" } },
+    { "id": "plans", "type": "quality", "entity": "TestPlan", "title": "测试计划", "editableBy": ["human", "agent"], "config": { "view": "plans" } },
+    { "id": "bugs", "type": "quality", "entity": "BugReport", "title": "缺陷", "editableBy": ["human", "agent"], "config": { "view": "bugs" } },
+    { "id": "flaky", "type": "quality", "entity": "TestQuarantine", "title": "不稳定用例", "editableBy": ["human"], "config": { "view": "flaky" } },
+    { "id": "coverage", "type": "quality", "entity": "TestSuite", "title": "覆盖率", "editableBy": ["human"], "config": { "view": "coverage" } },
+    { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }
+  ],
+  "agents": [
+    {
+      "id": "qa-lead", "promptFile": "lead.md",
+      "name": "测试负责人",
+      "role": "排测试计划、跑回归、汇总质量状况并起草发布结论，对外代表",
+      "tools": ["qa_overview", "list_test_suites", "run_test_suite", "get_test_run", "list_flaky_tests", "list_entities", "read_entity", "save_plan_summary", "search_knowledge", "send_message", "record_decision", "request_human"],
+      "triggers": ["mentioned"]
+    },
+    {
+      "id": "case-designer", "promptFile": "case-designer.md",
+      "name": "用例设计",
+      "role": "从需求和代码设计测试用例，只产出草稿，由人审后入库",
+      "tools": ["list_entities", "read_entity", "read_repo_file", "search_repo", "save_test_cases", "search_knowledge", "send_message"],
+      "triggers": ["mentioned"]
+    },
+    {
+      "id": "failure-analyst", "promptFile": "failure-analyst.md",
+      "name": "失败分析",
+      "role": "读失败输出和代码，判断根因类别并给证据，起草缺陷",
+      "tools": ["get_test_run", "get_case_history", "read_repo_file", "search_repo", "save_triage", "draft_bug", "list_entities", "search_knowledge", "send_message"],
+      "triggers": ["mentioned"]
+    }
+  ],
+  "tasks": [],
+  "modules": {
+    "conversation": { "defaultMode": "moderated", "maxTurns": 8, "summaryEvery": 100 },
+    "knowledge": { "scope": "project", "acceptedTypes": ["md", "txt"], "retrieval": { "strategy": "fts", "topK": 5, "maxTokens": 3000 }, "citation": "preferred" }
+  },
+  "defaults": {
+    "writeMode": "direct",
+    "taskBudget": { "tokens": 200000, "minutes": 20 }
+  }
+}
