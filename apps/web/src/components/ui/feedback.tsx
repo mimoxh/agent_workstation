@@ -47,7 +47,7 @@ export function Popover({ trigger, children, align = 'right', className }: { tri
     <div ref={ref} className="relative">
       {trigger(open, () => setOpen((v) => !v))}
       {open && (
-        <div className={cn('absolute top-[calc(100%+6px)] z-30 animate-rise rounded-card bg-paper p-1.5 shadow-[var(--shadow-pop)]', align === 'right' ? 'right-0' : 'left-0', className)}>
+        <div className={cn('absolute top-[calc(100%+6px)] z-30 animate-pop rounded-card bg-paper p-1.5 shadow-[var(--shadow-pop)]', align === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left', className)}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -59,7 +59,7 @@ export function MenuItem({ danger, className, ...props }: React.ButtonHTMLAttrib
   return (
     <button
       type="button"
-      className={cn('block w-full whitespace-nowrap rounded-[4px] px-2.5 py-1.5 text-left text-sm hover:bg-hover', danger ? 'text-bad' : 'text-ink-2', className)}
+      className={cn('block w-full whitespace-nowrap rounded-chip px-2.5 py-1.5 text-left text-sm hover:bg-hover', danger ? 'text-bad' : 'text-ink-2', className)}
       {...props}
     />
   );

@@ -67,7 +67,7 @@ export function CommandPalette({ project, onClose }: { project: ProjectDetail; o
               type="button"
               onMouseEnter={() => setActive(i)}
               onClick={item.go}
-              className={cn('flex w-full items-center gap-3 rounded-[4px] px-2.5 py-1.5 text-left', i === active && 'bg-hover')}
+              className={cn('flex w-full items-center gap-3 rounded-chip px-2.5 py-1.5 text-left', i === active && 'bg-hover')}
             >
               <span className="w-12 shrink-0 text-xs text-muted">{item.group}</span>
               <span className="min-w-0 flex-1 truncate text-sm text-ink-2">{item.label}</span>

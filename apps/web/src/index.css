@@ -43,8 +43,13 @@
   --shadow-card: 0 0 0 1px rgb(15 15 15 / 0.07), 0 2px 4px rgb(15 15 15 / 0.07);
   --shadow-pop: 0 0 0 1px rgb(15 15 15 / 0.05), 0 3px 6px rgb(15 15 15 / 0.1), 0 9px 24px rgb(15 15 15 / 0.2);
 
-  --radius-card: 8px;
-  --radius-pill: 6px;
+  /* 圆角四档：chip 标签与菜单项，pill 控件，card 卡片，pop 浮层 */
+  --radius-chip: 6px;
+  --radius-pill: 9px;
+  --radius-card: 12px;
+  --radius-pop: 16px;
+
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
   --text-xs: 0.78rem;
   --text-xs--line-height: 1.45;
@@ -61,12 +66,27 @@
   --text-page: 2.25rem;
   --text-page--line-height: 1.2;
 
-  --animate-rise: rise 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  --animate-rise: rise 240ms var(--ease-soft) both;
+  --animate-pop: pop 200ms var(--ease-soft) both;
+  --animate-fade: fade 200ms ease-out both;
   --animate-pulse-soft: pulse-soft 1.8s ease-in-out infinite;
 
   @keyframes rise {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  --animate-slide-in: slide-in 240ms var(--ease-soft) both;
+  @keyframes slide-in {
+    from { transform: translateX(-100%); }
+    to { transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
   @keyframes pulse-soft {
     50% { opacity: 0.45; }
@@ -133,6 +153,10 @@
     font-weight: 600;
     letter-spacing: -0.01em;
   }
+  /* 可交互元素默认带过渡，悬停与选中不再跳变；组件里写了 transition-* 的以组件为准 */
+  a, button, summary, input, select, textarea, [role="tab"], [role="menuitem"], [role="option"] {
+    transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, opacity 160ms ease-out;
+  }
   button {
     cursor: pointer;
   }
@@ -161,13 +185,17 @@
     background: var(--color-rule-2);
     border: 3px solid transparent;
     background-clip: content-box;
-    border-radius: 6px;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-faint);
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   dialog::backdrop {
     background: var(--color-scrim);
+    animation: var(--animate-fade);
   }
 }
 

@@ -24,7 +24,7 @@ function Lanes({ detail, projectId }: { detail: TaskDetail; projectId: string })
               </div>
               {stages.length > 0 && (
                 <span className="flex gap-1" aria-label={`阶段 ${at + 1}/${stages.length}`}>
-                  {stages.map((s, i) => <i key={s.id} className={cn('h-[3px] w-4 rounded-sm', finished || i < at ? 'bg-cool' : i === at ? 'bg-accent' : 'bg-rule')} />)}
+                  {stages.map((s, i) => <i key={s.id} className={cn('h-[3px] w-4 rounded-full', finished || i < at ? 'bg-cool' : i === at ? 'bg-accent' : 'bg-rule')} />)}
                 </span>
               )}
             </li>
@@ -70,7 +70,7 @@ function RelatedPanels({ detail, ws, projectId }: { detail: TaskDetail; ws: Work
       <h2 className="pb-1.5 text-xs font-semibold text-faint">本阶段相关板块</h2>
       <div className="flex flex-wrap gap-1.5">
         {panels.map((b) => (
-          <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className="rounded-[3px] bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3">
+          <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3">
             {b.name}
           </Link>
         ))}

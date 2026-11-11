@@ -40,7 +40,7 @@ function RepoStatus({ wsId, baseBranch }: { wsId: string; baseBranch: string }) 
         <span className="text-muted">{d.error ?? ('empty' in d && d.empty ? '空仓库：第一次运行任务时平台会初始化并建一个初始提交，可以用 scaffold 任务从零搭项目' : `当前检出 ${d.branch}`)}</span>
       </p>
       {drift?.external && (
-        <div className="space-y-1.5 rounded-[4px] bg-accent-soft px-3 py-2 text-sm text-ink-2" data-testid="repo-drift">
+        <div className="space-y-1.5 rounded-chip bg-accent-soft px-3 py-2 text-sm text-ink-2" data-testid="repo-drift">
           <p>目标分支在工作台之外有新提交（{drift.external.commits.length} 个），进行中的任务分支可能需要同步。</p>
           <ul className="measured space-y-0.5 text-xs text-muted">{drift.external.commits.map((c) => <li key={c}>{c}</li>)}</ul>
           <Button type="button" size="sm" variant="quiet" disabled={ack.isPending} onClick={() => ack.mutate()}>知道了</Button>

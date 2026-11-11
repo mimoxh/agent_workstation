@@ -110,7 +110,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
 export function InboxEntry({ item, projectId, compact }: { item: InboxRow; projectId: string; compact?: boolean }) {
   const open = item.status === 'open';
   return (
-    <article className="space-y-1.5 rounded-[4px] px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
+    <article className="space-y-1.5 rounded-chip px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
       <div className="flex items-center gap-2">
         <Badge tone={TONE[item.kind] ?? 'neutral'}>{INBOX_LABEL[item.kind] ?? item.kind}</Badge>
         {item.taskId ? (

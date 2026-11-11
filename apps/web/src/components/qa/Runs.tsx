@@ -252,7 +252,7 @@ function CaseTree({ results, onCase }: { results: QaCaseRow[]; onCase: (c: QaCas
             <ul className="pb-1.5">
               {rows.map((c) => (
                 <li key={c.id}>
-                  <button type="button" onClick={() => onCase(c)} className="flex w-full items-center gap-2 rounded-[3px] px-1 py-1 text-left text-sm transition-colors duration-150 hover:bg-hover" data-testid="qa-case-row">
+                  <button type="button" onClick={() => onCase(c)} className="flex w-full items-center gap-2 rounded-chip px-1 py-1 text-left text-sm transition-colors duration-150 hover:bg-hover" data-testid="qa-case-row">
                     <Badge tone={CASE_TONE[c.status] ?? 'neutral'}>{CASE_LABEL[c.status] ?? c.status}</Badge>
                     <span className="min-w-0 flex-1 truncate text-ink-2">{c.name}</span>
                     {c.isNew && <Badge tone="bad">新增</Badge>}

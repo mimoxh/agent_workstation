@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 // 文档页：居中正文列；看板、表格这类宽内容用 wide 撑满
 export function Page({ wide, className, testId, children }: { wide?: boolean; className?: string; testId?: string; children: ReactNode }) {
   return (
-    <div className={cn('px-5 pb-16 md:px-10 lg:px-14', className)} data-testid={testId}>
+    <div className={cn('animate-fade px-5 pb-16 md:px-10 lg:px-14', className)} data-testid={testId}>
       <div className={cn('mx-auto w-full', wide ? 'max-w-none' : 'max-w-[54rem]')}>{children}</div>
     </div>
   );
@@ -13,7 +13,7 @@ export function Page({ wide, className, testId, children }: { wide?: boolean; cl
 
 export function PageIcon({ icon, children }: { icon?: IconName; children?: ReactNode }) {
   return (
-    <div aria-hidden className="grid size-12 place-items-center rounded-[10px] border border-rule bg-paper-2 text-base font-semibold text-muted">
+    <div aria-hidden className="grid size-12 place-items-center rounded-card border border-rule bg-paper-2 text-base font-semibold text-muted">
       {icon ? <Icon name={icon} className="size-6 stroke-[1.5]" /> : children}
     </div>
   );
@@ -60,7 +60,7 @@ export function Callout({ icon = 'doc', tone, children, className, testId }: { i
   const bg = { amber: 'bg-accent-soft', cool: 'bg-cool-soft', ok: 'bg-ok-soft', bad: 'bg-bad-soft' }[tone ?? 'amber'];
   const fg = { amber: 'text-accent', cool: 'text-cool', ok: 'text-ok', bad: 'text-bad' }[tone ?? 'amber'];
   return (
-    <div className={cn('grid grid-cols-[1.25rem_minmax(0,1fr)] gap-2.5 rounded-[4px] px-4 py-3 text-sm text-ink-2', tone ? bg : 'bg-paper-2', className)} data-testid={testId}>
+    <div className={cn('grid grid-cols-[1.25rem_minmax(0,1fr)] gap-2.5 rounded-chip px-4 py-3 text-sm text-ink-2', tone ? bg : 'bg-paper-2', className)} data-testid={testId}>
       <Icon name={icon} className={cn('mt-0.5 size-[18px]', tone ? fg : 'text-muted')} />
       <div className="min-w-0">{children}</div>
     </div>

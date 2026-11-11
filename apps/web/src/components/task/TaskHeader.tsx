@@ -50,7 +50,7 @@ function StageRail({ detail }: { detail: TaskDetail }) {
         const here = !finished && i === cur;
         const at = enteredAt(s.id);
         return (
-          <li key={s.id} aria-current={here ? 'step' : undefined} className={cn('flex items-baseline gap-1 rounded-[3px] text-sm', here ? 'bg-cool-tag px-1.5 font-medium text-cool-tag-ink' : done ? 'text-muted' : 'text-faint')}>
+          <li key={s.id} aria-current={here ? 'step' : undefined} className={cn('flex items-baseline gap-1 rounded-chip text-sm', here ? 'bg-cool-tag px-1.5 font-medium text-cool-tag-ink' : done ? 'text-muted' : 'text-faint')}>
             {done && <span aria-hidden className="measured text-xs text-ok">✓</span>}
             {s.name}
             {at && <span className={cn('measured text-xs', here ? 'text-cool-tag-ink/70' : 'text-faint')}>{clock(at).slice(0, 5)}</span>}
@@ -164,7 +164,7 @@ function CounterNote({ task }: { task: BoardTask }) {
   const result = parseJson<{ reason?: string; counter?: { input?: Record<string, unknown>; acceptance?: { run?: string }[] } }>(task.resultJson, {});
   if (!result.reason) return null;
   return (
-    <section className="rounded-[4px] bg-accent-soft px-4 py-3 text-sm text-ink-2" aria-label="目标台的回复">
+    <section className="rounded-chip bg-accent-soft px-4 py-3 text-sm text-ink-2" aria-label="目标台的回复">
       <p className="text-xs text-muted">{task.status === 'countered' ? '反提案' : '目标台回复'}</p>
       <p className="whitespace-pre-wrap">{result.reason}</p>
       {result.counter?.input && <p className="mt-1 text-muted">建议输入 <code>{JSON.stringify(result.counter.input)}</code></p>}
@@ -266,10 +266,10 @@ export function TaskHeader({
       <div className="mt-3 space-y-2 empty:hidden">
         <CounterNote task={task} />
         {task.blockedReason && (
-          <p className="whitespace-pre-wrap rounded-[4px] bg-accent-soft px-4 py-3 text-sm text-ink-2" data-testid="blocked-reason">{task.blockedReason}</p>
+          <p className="whitespace-pre-wrap rounded-chip bg-accent-soft px-4 py-3 text-sm text-ink-2" data-testid="blocked-reason">{task.blockedReason}</p>
         )}
         {inbox.length > 0 && (
-          <div className="divide-y divide-rule rounded-[4px] border border-rule-2" aria-label="待你确认">
+          <div className="divide-y divide-rule rounded-chip border border-rule-2" aria-label="待你确认">
             {inbox.map((i) => <InboxEntry key={i.id} item={i} projectId={projectId} />)}
           </div>
         )}

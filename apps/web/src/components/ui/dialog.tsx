@@ -32,7 +32,7 @@ export function Dialog({
       onMouseDown={(e) => {
         if (e.target === ref.current) onClose();
       }}
-      className={cn('m-auto max-h-[85dvh] w-[30rem] max-w-[calc(100vw-2rem)] animate-rise overflow-y-auto rounded-card border-0 bg-paper p-0 text-ink shadow-[var(--shadow-pop)]', className)}
+      className={cn('m-auto max-h-[85dvh] w-[30rem] max-w-[calc(100vw-2rem)] animate-pop overflow-y-auto rounded-pop border-0 bg-paper p-0 text-ink shadow-[var(--shadow-pop)]', className)}
     >
       <div className="p-5">
         <h2 className="mb-4 text-title font-semibold text-ink">{title}</h2>

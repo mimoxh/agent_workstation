@@ -38,18 +38,18 @@ function Entry({ item, projectId, names, stages }: { item: TimelineItem; project
       );
     case 'proposal':
       return (
-        <article className="ml-[2.375rem] flex items-center gap-2 rounded-[4px] border border-rule-2 px-3.5 py-2.5" data-testid="proposal-card">
+        <article className="ml-[2.375rem] flex items-center gap-2 rounded-chip border border-rule-2 px-3.5 py-2.5" data-testid="proposal-card">
           <Badge tone={PROPOSAL_TONE[item.status] ?? 'neutral'}>{PROPOSAL_LABEL[item.status] ?? item.status}</Badge>
           <span className="min-w-0 flex-1 truncate text-sm text-ink-2">{item.reason ?? '改动提案'}</span>
           <span className="shrink-0 text-xs text-muted">{item.authorName}</span>
           <span className="measured shrink-0 text-xs text-muted">{clock(item.at)}</span>
-          <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: item.taskId }} search={{ view: 'changes' }} className="shrink-0 rounded-[4px] px-1.5 text-sm font-medium text-ink hover:bg-hover">审阅</Link>
+          <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: item.taskId }} search={{ view: 'changes' }} className="shrink-0 rounded-chip px-1.5 text-sm font-medium text-ink hover:bg-hover">审阅</Link>
         </article>
       );
     case 'test': {
       const ok = item.passed === item.total;
       return (
-        <article className="ml-[2.375rem] flex items-baseline gap-2 rounded-[4px] border border-rule-2 px-3.5 py-2.5" data-testid="test-card">
+        <article className="ml-[2.375rem] flex items-baseline gap-2 rounded-chip border border-rule-2 px-3.5 py-2.5" data-testid="test-card">
           <Badge tone={ok ? 'ok' : 'bad'}>{ok ? '验收通过' : '验收失败'}</Badge>
           <span className="measured text-xs text-muted">{item.passed}/{item.total}</span>
           {!ok && <code className="min-w-0 flex-1 truncate text-sm text-ink-2">{item.failed.join('、')}</code>}

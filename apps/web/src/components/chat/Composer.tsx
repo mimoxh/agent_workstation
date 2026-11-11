@@ -73,7 +73,7 @@ export function Composer({ threadId, hint, placeholder, actions, wide, meta }: {
         <ul className="absolute bottom-full left-0 right-0 mb-1 rounded-card bg-paper p-1 shadow-[var(--shadow-pop)]" role="listbox" aria-label="提及成员">
           {candidates.map((c, i) => (
             <li key={c.id} role="option" aria-selected={i === active}>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(c.name); }} className={cn('w-full rounded-[4px] px-2 py-1 text-left text-sm', i === active ? 'bg-hover text-ink' : 'text-ink-2')}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(c.name); }} className={cn('w-full rounded-chip px-2 py-1 text-left text-sm', i === active ? 'bg-hover text-ink' : 'text-ink-2')}>
                 {c.name}
               </button>
             </li>

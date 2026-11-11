@@ -55,7 +55,7 @@ function AllInboxPage() {
           if (mine.length === 0) return null;
           return (
             <section key={p.id} aria-label={p.name} data-testid="inbox-group">
-              <SectionTitle aside={<Link to="/projects/$projectId" params={{ projectId: p.id }} className="rounded-[4px] px-1.5 text-sm text-muted hover:bg-hover hover:text-ink">打开项目</Link>}>{p.name}</SectionTitle>
+              <SectionTitle aside={<Link to="/projects/$projectId" params={{ projectId: p.id }} className="rounded-chip px-1.5 text-sm text-muted hover:bg-hover hover:text-ink">打开项目</Link>}>{p.name}</SectionTitle>
               <div className="divide-y divide-rule border-y border-rule">
                 {mine.map((i) => <InboxEntry key={i.id} item={i} projectId={p.id} />)}
               </div>

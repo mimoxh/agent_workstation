@@ -26,7 +26,7 @@ function Citation({ id }: { id: string }) {
   const chunk = useChunk(open ? id : null);
   return (
     <>
-      <button type="button" className="mx-0.5 rounded-[3px] bg-tag px-1 text-xs text-tag-ink hover:bg-paper-3" onClick={() => setOpen(true)} data-testid="citation">引用</button>
+      <button type="button" className="mx-0.5 rounded-chip bg-tag px-1 text-xs text-tag-ink hover:bg-paper-3" onClick={() => setOpen(true)} data-testid="citation">引用</button>
       {open && (
         <Dialog title={chunk.data?.sourceName ?? '引用'} onClose={() => setOpen(false)} testId="citation-dialog">
           {chunk.data && <p className="mb-2 text-xs text-muted">{chunk.data.anchor.headingPath.join(' › ')}</p>}
@@ -119,7 +119,7 @@ export function DecisionCard({ m, foldedCount, children }: { m: MessageLike; fol
   const meta = parseJson<{ openQuestions?: string | null }>(m.metaJson, {});
   const propose = useMutation({ mutationFn: async () => unwrap(await api.messages[':id']['propose-adr'].$post({ param: { id: m.id } })) });
   return (
-    <article className="rounded-[4px] bg-ok-soft px-4 py-3" data-testid="decision-card">
+    <article className="rounded-chip bg-ok-soft px-4 py-3" data-testid="decision-card">
       <p className="flex items-baseline gap-2 text-xs text-muted">
         <span className="font-semibold text-ok">结论</span>
         <span className="measured ml-auto shrink-0">{clock(m.at)}</span>

@@ -14,7 +14,7 @@ export type BadgeTone = keyof typeof tones;
 export function Badge({ tone = 'neutral', className, ...props }: HTMLAttributes<HTMLSpanElement> & { tone?: BadgeTone }) {
   return (
     <span
-      className={cn('inline-flex min-h-5 shrink-0 items-center whitespace-nowrap rounded-[3px] px-1.5 text-xs', tones[tone], className)}
+      className={cn('inline-flex min-h-5 shrink-0 items-center whitespace-nowrap rounded-chip px-1.5 text-xs', tones[tone], className)}
       {...props}
     />
   );

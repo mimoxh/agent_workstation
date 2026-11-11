@@ -36,7 +36,7 @@ function ProjectTable({ p }: { p: ProjectSummary }) {
     <section className="mt-5" aria-label={p.name}>
       <div className="mb-1 flex flex-wrap items-baseline gap-x-2.5">
         <Link to="/projects/$projectId" params={{ projectId: p.id }} className="flex items-center gap-2 text-[1.05rem] font-semibold text-ink hover:underline" data-testid="project-card">
-          <span aria-hidden className="grid size-5 place-items-center rounded-[4px] bg-primary text-[11px] text-primary-ink">{p.name.slice(0, 1).toUpperCase()}</span>
+          <span aria-hidden className="grid size-5 place-items-center rounded-chip bg-primary text-[11px] text-primary-ink">{p.name.slice(0, 1).toUpperCase()}</span>
           {p.name}
         </Link>
         {p.goal && <span className="min-w-0 truncate text-sm text-muted">{p.goal}</span>}
@@ -60,9 +60,9 @@ function ProjectTable({ p }: { p: ProjectSummary }) {
               return (
                 <tr key={ws.id} tabIndex={0} className="cursor-pointer hover:bg-hover" onClick={() => void navigate({ to: '/projects/$projectId/ws/$wsId', params: { projectId: p.id, wsId: ws.id } })} onKeyDown={(e) => { if (e.key === 'Enter') void navigate({ to: '/projects/$projectId/ws/$wsId', params: { projectId: p.id, wsId: ws.id } }); }}>
                   <td className={cn(td, 'pl-0.5')}>{parent && <span className="text-faint">{parent} / </span>}<span className="font-medium text-ink">{ws.name}</span></td>
-                  <td className={cn(td, 'max-sm:hidden')}><span className="rounded-[3px] bg-tag px-1.5 py-0.5 text-xs text-tag-ink">{ws.pluginId ?? '—'}</span></td>
+                  <td className={cn(td, 'max-sm:hidden')}><span className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink">{ws.pluginId ?? '—'}</span></td>
                   <td className={cn(td, 'text-right tabular-nums text-ink-2')}>{s?.tasks.active ?? 0}</td>
-                  <td className={cn(td, 'text-right tabular-nums')}>{attention > 0 ? <span className="rounded-[3px] bg-accent-tag px-1.5 py-0.5 text-xs text-accent-tag-ink">{attention}</span> : <span className="text-faint">0</span>}</td>
+                  <td className={cn(td, 'text-right tabular-nums')}>{attention > 0 ? <span className="rounded-chip bg-accent-tag px-1.5 py-0.5 text-xs text-accent-tag-ink">{attention}</span> : <span className="text-faint">0</span>}</td>
                   <td className={cn(td, 'text-right tabular-nums max-sm:hidden', s?.running ? 'text-cool' : 'text-faint')}>{s?.running ?? 0}</td>
                   <td className={cn(td, 'text-right tabular-nums text-ink-2 max-sm:hidden')}>{s?.pendingReviews ?? 0}</td>
                 </tr>
@@ -91,12 +91,12 @@ function PmPanel({ projects }: { projects: ProjectSummary[] }) {
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-rule px-3.5">
         <span aria-hidden className="grid size-5 place-items-center rounded-full bg-tag text-[9px] font-semibold text-tag-ink">PM</span>
         <h2 className="text-sm font-semibold text-ink">项目经理</h2>
-        {current && <Link to="/pm/$projectId" params={{ projectId: current }} className="ml-auto rounded-[4px] px-1.5 py-0.5 text-sm text-muted hover:bg-hover hover:text-ink">展开</Link>}
+        {current && <Link to="/pm/$projectId" params={{ projectId: current }} className="ml-auto rounded-chip px-1.5 py-0.5 text-sm text-muted hover:bg-hover hover:text-ink">展开</Link>}
       </div>
       {projects.length > 1 && (
         <div className="flex flex-wrap gap-0.5 px-3.5 pt-2.5" role="group" aria-label="选择项目">
           {projects.map((p) => (
-            <button key={p.id} type="button" aria-pressed={p.id === current} onClick={() => setPicked(p.id)} className={cn('h-6 rounded-[4px] px-2 text-xs', p.id === current ? 'bg-paper-3 text-ink' : 'text-muted hover:bg-hover hover:text-ink')}>
+            <button key={p.id} type="button" aria-pressed={p.id === current} onClick={() => setPicked(p.id)} className={cn('h-6 rounded-chip px-2 text-xs', p.id === current ? 'bg-paper-3 text-ink' : 'text-muted hover:bg-hover hover:text-ink')}>
               {p.name}
             </button>
           ))}
@@ -132,7 +132,7 @@ export function ConsoleOverview() {
               <Stat icon="ledger" label="累计用量" value={tokens(sum((o) => o.tokens))} />
             </dl>
           )}
-          <SectionTitle aside={items.length > 5 ? <Link to="/inbox" className="rounded-[4px] px-1.5 text-sm text-muted hover:bg-hover hover:text-ink">查看全部 {items.length} 条</Link> : null}>需要你</SectionTitle>
+          <SectionTitle aside={items.length > 5 ? <Link to="/inbox" className="rounded-chip px-1.5 text-sm text-muted hover:bg-hover hover:text-ink">查看全部 {items.length} 条</Link> : null}>需要你</SectionTitle>
           {items.length === 0 ? (
             <p className="border-t border-rule py-3 text-sm text-muted">没有待处理项，Agent 正常推进时不会打扰你。</p>
           ) : (

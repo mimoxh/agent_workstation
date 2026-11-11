@@ -81,7 +81,7 @@ function InboxButton({ projectId }: { projectId: string }) {
           <div className="max-h-[60vh] overflow-y-auto">
             {items.slice(0, 6).map((i) => <InboxEntry key={i.id} item={i} projectId={i.projectId ?? projectId} compact />)}
           </div>
-          <Link to="/inbox" onClick={close} className="block rounded-[4px] px-2 py-1.5 text-sm text-ink-2 hover:bg-hover">
+          <Link to="/inbox" onClick={close} className="block rounded-chip px-2 py-1.5 text-sm text-ink-2 hover:bg-hover">
             打开收件箱
           </Link>
         </>
@@ -100,7 +100,7 @@ function ProjectSwitcher({ current }: { current: ProjectDetail | undefined }) {
         className="w-72"
         trigger={(open, toggle) => (
           <button type="button" aria-expanded={open} aria-haspopup="menu" onClick={toggle} data-testid="project-switcher" className="flex h-8 max-w-60 shrink-0 items-center gap-2 rounded-pill px-1.5 font-semibold text-ink hover:bg-hover max-sm:max-w-28">
-            <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-[4px] bg-primary text-xs text-primary-ink">{(current?.name ?? 'A').slice(0, 1).toUpperCase()}</span>
+            <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-chip bg-primary text-xs text-primary-ink">{(current?.name ?? 'A').slice(0, 1).toUpperCase()}</span>
             <span className="truncate text-sm">{current?.name ?? '选择项目'}</span>
             <Icon name="chev" className="size-3 text-faint" />
           </button>
@@ -116,9 +116,9 @@ function ProjectSwitcher({ current }: { current: ProjectDetail | undefined }) {
                 to="/projects/$projectId"
                 params={{ projectId: p.id }}
                 onClick={() => { rememberProject(p.id); close(); }}
-                className={cn('flex items-center gap-2.5 rounded-[4px] px-2 py-1.5 hover:bg-hover', p.id === current?.id && 'bg-hover')}
+                className={cn('flex items-center gap-2.5 rounded-chip px-2 py-1.5 hover:bg-hover', p.id === current?.id && 'bg-hover')}
               >
-                <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-[4px] bg-tag text-xs font-semibold text-tag-ink">{p.name.slice(0, 1).toUpperCase()}</span>
+                <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-chip bg-tag text-xs font-semibold text-tag-ink">{p.name.slice(0, 1).toUpperCase()}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-ink">{p.name}</span>
                   <span className="block text-xs text-muted">{p.workstationCount} 个工作台</span>
@@ -127,7 +127,7 @@ function ProjectSwitcher({ current }: { current: ProjectDetail | undefined }) {
               </Link>
             ))}
             <div className="my-1 h-px bg-rule" />
-            <button type="button" role="menuitem" onClick={() => { close(); setCreating(true); }} className="flex w-full items-center gap-2.5 rounded-[4px] px-2 py-1.5 text-sm text-ink-2 hover:bg-hover">
+            <button type="button" role="menuitem" onClick={() => { close(); setCreating(true); }} className="flex w-full items-center gap-2.5 rounded-chip px-2 py-1.5 text-sm text-ink-2 hover:bg-hover">
               <Icon name="plus" className="text-muted" />新建项目
             </button>
           </div>
@@ -140,8 +140,8 @@ function ProjectSwitcher({ current }: { current: ProjectDetail | undefined }) {
 
 const tabClass = (on: boolean) =>
   cn(
-    'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:bg-ink',
-    on ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink',
+    'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink after:transition-[scale,opacity] after:duration-200 after:ease-out',
+    on ? 'font-medium text-ink after:scale-x-100 after:opacity-100' : 'text-muted after:scale-x-50 after:opacity-0 hover:text-ink',
   );
 
 function WsTabs({ project, active }: { project: ProjectDetail; active: string | undefined }) {
@@ -255,7 +255,7 @@ function Count({ n, tone = 'amber' }: { n: number; tone?: 'amber' | 'cool' }) {
 function SideHead({ icon, title, sub }: { icon: IconName; title: string; sub: ReactNode }) {
   return (
     <div className="flex items-center gap-2 px-2 pb-1 pt-1">
-      <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-[4px] bg-tag text-tag-ink"><Icon name={icon} className="size-[14px]" /></span>
+      <span aria-hidden className="grid size-[22px] shrink-0 place-items-center rounded-chip bg-tag text-tag-ink"><Icon name={icon} className="size-[14px]" /></span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-ink">{title}</span>
         <span className="block truncate text-xs text-muted">{sub}</span>
@@ -288,11 +288,11 @@ function ConsoleSidebar() {
       <Group
         label="项目"
         title="项目"
-        action={<button type="button" aria-label="新建项目" onClick={() => setCreating(true)} className="grid size-5 place-items-center rounded-[4px] text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/side:opacity-100"><Icon name="plus" className="size-3.5" /></button>}
+        action={<button type="button" aria-label="新建项目" onClick={() => setCreating(true)} className="grid size-5 place-items-center rounded-chip text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/side:opacity-100"><Icon name="plus" className="size-3.5" /></button>}
       >
         {list.map((p) => (
           <Link key={p.id} to="/projects/$projectId" params={{ projectId: p.id }} onClick={() => rememberProject(p.id)} className={navClass(false)}>
-            <span aria-hidden className="grid size-[18px] shrink-0 place-items-center rounded-[4px] bg-tag text-[10px] font-semibold text-tag-ink">{p.name.slice(0, 1).toUpperCase()}</span>
+            <span aria-hidden className="grid size-[18px] shrink-0 place-items-center rounded-chip bg-tag text-[10px] font-semibold text-tag-ink">{p.name.slice(0, 1).toUpperCase()}</span>
             <span className="truncate">{p.name}</span>
             <span className="ml-auto shrink-0 text-xs text-faint">{p.workstationCount} 台</span>
           </Link>
@@ -400,13 +400,13 @@ function Frame({ project, activeWs, onConsole, sidebar, children }: { project: P
       <TopBar project={project} activeWs={activeWs} onConsole={onConsole} onMenu={() => setSideOpen((v) => !v)} onMount={() => setMounting(true)} onPalette={() => setPalette(true)} />
       <ModelBanner />
       <div className="relative flex min-h-0 flex-1">
-        {sideOpen && <button type="button" aria-label="关闭侧栏" className="fixed inset-x-0 bottom-0 top-11 z-30 bg-scrim md:hidden" onClick={() => setSideOpen(false)} />}
+        {sideOpen && <button type="button" aria-label="关闭侧栏" className="fixed inset-x-0 bottom-0 top-11 z-30 animate-fade bg-scrim md:hidden" onClick={() => setSideOpen(false)} />}
         <aside
           aria-label="导航"
           data-testid="sidebar"
           className={cn(
             'flex w-60 shrink-0 flex-col gap-3.5 overflow-y-auto border-r border-rule bg-paper-2 p-2 max-md:fixed max-md:bottom-0 max-md:left-0 max-md:top-11 max-md:z-40 max-md:shadow-[var(--shadow-pop)]',
-            !sideOpen && 'max-md:hidden',
+            sideOpen ? 'max-md:animate-slide-in' : 'max-md:hidden',
           )}
         >
           {sidebar}

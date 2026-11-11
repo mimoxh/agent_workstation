@@ -25,7 +25,7 @@ function Ticks({ stages, current, finished }: { stages: string[]; current: strin
   return (
     <span className="inline-flex shrink-0 gap-1" aria-label={`阶段 ${idx + 1}/${stages.length}`}>
       {stages.map((s, i) => (
-        <i key={s} className={cn('h-[3px] w-2.5 rounded-sm', finished || i < idx ? 'bg-cool' : i === idx ? 'bg-accent' : 'bg-rule')} />
+        <i key={s} className={cn('h-[3px] w-2.5 rounded-full', finished || i < idx ? 'bg-cool' : i === idx ? 'bg-accent' : 'bg-rule')} />
       ))}
     </span>
   );
