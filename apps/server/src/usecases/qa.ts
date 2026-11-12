@@ -1,23 +1,23 @@
 import { bugTransition, compareRuns, computeVerdict, isBugOpen, isFailing, reconcileBug, type Actor, type BugEvent, type VerdictCriteria } from '@aw/domain';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { artifact, entity, qaCaseResult, qaRun, task, workstation } from '../db/schema.js';
-import { devSettings, git, type DevSettings } from '../runtime/git.js';
+import { artifact, entity, eventLog, proposal, qaCaseResult, qaRun, task, workstation } from '../db/schema.js';
+import { devSettings, git, isAncestor, type DevSettings } from '../runtime/git.js';
 import { abortQaRun, commandProblem, DEFAULT_TIMEOUT_SEC, enqueueQaRun, reportPathProblem, type RunConfig } from '../runtime/qa/runner.js';
 import { logEvent } from './core.js';
 import { createEntity, updateEntity } from './entities.js';
 import { pushInbox } from './inbox.js';
 import { createTaskUc } from './tasks.js';
-import { postThreadMessage, wsThreadOf } from './threads.js';
+import { PLATFORM as PLATFORM_SENDER, postMessage, postStatus, postThreadMessage, wsThreadOf } from './threads.js';
 
 const now = () => new Date().toISOString();
 const PLATFORM = { type: 'human', id: 'local' } as const;
 const err = (error: string, status: 400 | 404 | 409 = 400) => ({ kind: 'error' as const, status, error });
 
-export interface SuiteData { name: string; command: string; report_path: string; coverage_path?: string | null | undefined; timeout_sec?: number | null | undefined; auto_run?: boolean | null | undefined; description?: string | null | undefined }
+export interface SuiteData { name: string; command: string; report_path: string; coverage_path?: string | null | undefined; timeout_sec?: number | null | undefined; auto_run?: boolean | null | undefined; schedule?: 'off' | 'hourly' | 'every6h' | 'daily' | null | undefined; schedule_at?: string | null | undefined; description?: string | null | undefined }
 export interface CaseData { title: string; module?: string; priority?: string; status?: string; preconditions?: string; steps?: { action: string; expected: string }[]; requirement?: string; automation_key?: string; automation_name?: string; handoff?: HandoffRecord }
 export interface ManualResult { status: 'passed' | 'failed' | 'blocked' | 'skipped'; note?: string | undefined; at: string }
-export interface PlanData { name: string; version?: string; ref?: string; status?: 'draft' | 'running' | 'signed'; suites?: string[]; cases?: string[]; criteria?: Partial<VerdictCriteria>; manual_results?: Record<string, ManualResult>; run_ids?: Record<string, string>; summary?: string; signoff?: { at: string; level: string; note?: string | undefined; artifactId: string; override: boolean } }
+export interface PlanData { name: string; version?: string; ref?: string; status?: 'draft' | 'running' | 'signed'; suites?: string[]; cases?: string[]; criteria?: Partial<VerdictCriteria>; manual_results?: Record<string, ManualResult>; run_ids?: Record<string, string>; summary?: string; milestone?: string | null | undefined; signoff?: { at: string; level: string; note?: string | undefined; artifactId: string; override: boolean } }
 export interface BugData { title: string; severity: string; status?: string; module?: string; steps?: string; expected?: string; actual?: string; run_id?: string; case_key?: string; case_name?: string; handoff?: HandoffRecord; verifying_since?: string; note?: string }
 export interface HandoffRecord { taskId: string; workstationId: string; artifactId: string }
 export interface QuarantineData { name: string; case_key: string; reason?: string; status?: string }
@@ -81,7 +81,7 @@ export async function saveSuite(actor: Actor, db: DB, wsId: string, input: { id?
   return updateEntity(actor, db, input.id, { data, baseVersion: input.baseVersion ?? row.version, reason: '修改套件' });
 }
 
-export async function startRun(actor: Actor, db: DB, wsId: string, input: { suiteId: string; ref?: string | undefined; trigger: 'human' | 'agent' | 'auto' | 'plan' | 'retry'; retryOf?: string | undefined; planId?: string | undefined; commitSha?: string | undefined }) {
+export async function startRun(actor: Actor, db: DB, wsId: string, input: { suiteId: string; ref?: string | undefined; trigger: 'human' | 'agent' | 'auto' | 'plan' | 'retry' | 'schedule' | 'acceptance'; retryOf?: string | undefined; planId?: string | undefined; commitSha?: string | undefined }) {
   const row = await typedEntity(db, input.suiteId, 'TestSuite');
   if (!row || row.workstationId !== wsId) return err('套件不存在', 404);
   const suite = dataOf<SuiteData>(row);
@@ -134,7 +134,7 @@ export async function recoverQaRuns(db: DB) {
 }
 
 async function previousRun(db: DB, r: typeof qaRun.$inferSelect) {
-  const rows = await db.select().from(qaRun).where(and(eq(qaRun.workstationId, r.workstationId), eq(qaRun.suiteId, r.suiteId), inArray(qaRun.status, ['passed', 'failed']))).orderBy(desc(qaRun.createdAt)).limit(40);
+  const rows = await db.select().from(qaRun).where(and(eq(qaRun.workstationId, r.workstationId), eq(qaRun.suiteId, r.suiteId), inArray(qaRun.status, ['passed', 'failed']), ne(qaRun.trigger, 'acceptance'))).orderBy(desc(qaRun.createdAt)).limit(40);
   const earlier = rows.filter((x) => x.id !== r.id && x.createdAt < r.createdAt);
   return earlier.find((x) => x.ref === r.ref) ?? earlier[0] ?? null;
 }
@@ -144,7 +144,7 @@ export async function afterQaRun(db: DB, runId: string) {
   const r = (await db.select().from(qaRun).where(eq(qaRun.id, runId)))[0];
   if (!r) return;
   await reconcileBugs(db, r.workstationId);
-  if (r.trigger !== 'auto' || r.status !== 'failed') return;
+  if ((r.trigger !== 'auto' && r.trigger !== 'schedule') || r.status !== 'failed') return;
   const base = await previousRun(db, r);
   const [cur, prev] = await Promise.all([
     db.select({ caseKey: qaCaseResult.caseKey, status: qaCaseResult.status }).from(qaCaseResult).where(eq(qaCaseResult.runId, r.id)),
@@ -153,7 +153,57 @@ export async function afterQaRun(db: DB, runId: string) {
   const added = compareRuns(cur, prev).newFailures.length;
   if (added === 0) return;
   const ws = (await db.select().from(workstation).where(eq(workstation.id, r.workstationId)))[0];
-  if (ws) await pushInbox(db, ws.projectId, { kind: 'qa_regression', refType: 'qa_run', refId: r.id, payload: { reason: `自动回归「${r.suiteName}」在 ${r.commitSha.slice(0, 7)} 新增 ${added} 个失败` } });
+  const source = await qaSourceOf(db, r.workstationId);
+  const suspects: { taskId: string; title: string }[] = [];
+  if (source.ok) {
+    // 可疑范围：本次运行提交里包含的合并、且基线提交还不包含，且未回滚过
+    const done = await db.select().from(task).where(and(eq(task.workstationId, source.workstationId), eq(task.status, 'done'))).orderBy(desc(task.createdAt)).limit(50);
+    for (const cand of done) {
+      const cr = cand.codeRefJson ? (JSON.parse(cand.codeRefJson) as { merge_sha?: string; revert_sha?: string }) : null;
+      if (!cr?.merge_sha || cr.revert_sha) continue;
+      if (!(await isAncestor(source.settings.repoPath, cr.merge_sha, r.commitSha))) continue;
+      if (base && (await isAncestor(source.settings.repoPath, cr.merge_sha, base.commitSha))) continue;
+      suspects.push({ taskId: cand.id, title: cand.title });
+    }
+  }
+  if (ws) await pushInbox(db, ws.projectId, { kind: 'qa_regression', refType: 'qa_run', refId: r.id, payload: { reason: `自动回归「${r.suiteName}」在 ${r.commitSha.slice(0, 7)} 新增 ${added} 个失败`, suspects } });
+  for (const s of suspects) await postStatus(db, s.taskId, `自动回归「${r.suiteName}」在 ${r.commitSha.slice(0, 7)} 新增 ${added} 个失败，这次合并在可疑范围内`);
+}
+
+// 合并后的质量回声：这个任务合进去之后，绑定同一开发台的各测试套件有没有在它之上的提交跑过
+export async function taskQuality(db: DB, taskId: string) {
+  const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+  if (!t) return null;
+  const ref = t.codeRefJson ? (JSON.parse(t.codeRefJson) as { merge_sha?: string; revert_sha?: string }) : {};
+  if (!ref.merge_sha) return { merged: false as const };
+  const ps = await db.select({ id: proposal.id }).from(proposal).where(eq(proposal.taskId, taskId));
+  let mergedAt: string | null = null;
+  if (ps.length) {
+    const ev = (await db.select({ createdAt: eventLog.createdAt }).from(eventLog)
+      .where(and(eq(eventLog.action, 'proposal_merged'), eq(eventLog.targetType, 'proposal'), inArray(eventLog.targetId, ps.map((p) => p.id))))
+      .orderBy(desc(eventLog.createdAt)).limit(1))[0];
+    mergedAt = ev?.createdAt ?? null;
+  }
+  const qaWss = await db.select().from(workstation).where(and(eq(workstation.projectId, t.projectId), eq(workstation.pluginId, 'qa')));
+  const sources = [];
+  for (const ws of qaWss) {
+    const source = await qaSourceOf(db, ws.id);
+    if (!source.ok || source.workstationId !== t.workstationId) continue;
+    const suites = await entitiesOf<SuiteData>(db, ws.id, 'TestSuite');
+    const rows = [];
+    for (const s of suites) {
+      const runs = await db.select().from(qaRun)
+        .where(and(eq(qaRun.workstationId, ws.id), eq(qaRun.suiteId, s.row.id), inArray(qaRun.status, ['passed', 'failed', 'error']), ...(mergedAt ? [gte(qaRun.createdAt, mergedAt)] : [])))
+        .orderBy(qaRun.createdAt).limit(50);
+      let hit: (typeof runs)[number] | null = null;
+      for (const run of runs) {
+        if (await isAncestor(source.settings.repoPath, ref.merge_sha, run.commitSha)) { hit = run; break; }
+      }
+      rows.push({ suiteId: s.row.id, name: s.data.name, autoRun: s.data.auto_run !== false, run: hit ? { id: hit.id, status: hit.status, passed: hit.passed, failed: hit.failed, total: hit.total, commitSha: hit.commitSha } : null });
+    }
+    sources.push({ qaWorkstationId: ws.id, name: ws.name, suites: rows });
+  }
+  return { merged: true as const, mergeSha: ref.merge_sha, reverted: !!ref.revert_sha, sources };
 }
 
 export async function reconcileBugs(db: DB, wsId: string) {
@@ -347,7 +397,23 @@ export async function signPlan(actor: Actor, db: DB, id: string, input: { note?:
   ].filter(Boolean).join('\n\n');
   const artifactId = await freeze(db, row.workstationId, 'qa_report', d.name, md, { planId: id, version: row.version + 1, verdict });
   const signoff = { at: now(), level: verdict.level, note: input.note, artifactId, override: !!input.override };
-  return updateEntity(actor, db, id, { data: { ...d, status: 'signed', signoff } as unknown as Record<string, unknown>, baseVersion: row.version, reason: '签字' });
+  const saved = await updateEntity(actor, db, id, { data: { ...d, status: 'signed', signoff } as unknown as Record<string, unknown>, baseVersion: row.version, reason: '签字' });
+  if (saved.kind !== 'ok') return saved;
+  await announcePlanSigned(db, row.workstationId, id, d, verdict.level, verdict.passRate, input, artifactId);
+  return saved;
+}
+
+// 签字同步到根工作台：项目经理在进展报告里引用里程碑的测试结论
+async function announcePlanSigned(db: DB, qaWsId: string, planId: string, d: PlanData, level: string, passRate: number | null, input: { note?: string | undefined; override?: boolean | undefined }, artifactId: string) {
+  const qaWs = (await db.select().from(workstation).where(eq(workstation.id, qaWsId)))[0];
+  const root = qaWs ? (await db.select().from(workstation).where(and(eq(workstation.projectId, qaWs.projectId), isNull(workstation.parentId))))[0] : null;
+  if (!root) return;
+  const milestone = d.milestone ? (await db.select().from(entity).where(eq(entity.id, d.milestone)))[0] : null;
+  const milestoneName = milestone ? (dataOf<{ name?: string }>(milestone).name ?? d.milestone) : null;
+  const text = `测试计划「${d.name}」已签字：结论 ${VERDICT_TEXT[level] ?? '未知'} · 通过率 ${passRate === null ? '无数据' : `${(passRate * 100).toFixed(1)}%`}${input.override ? ` · 人工放行：${input.note}` : ''}${milestoneName ? ` · 里程碑「${milestoneName}」` : ''}`;
+  const th = await wsThreadOf(db, root.id);
+  await postMessage(db, th.id, PLATFORM_SENDER, text, 'decision', { planId, qaWorkstationId: qaWsId, level, artifactId, milestoneId: d.milestone ?? null });
+  await logEvent(db, PLATFORM, 'qa_plan_signed', 'entity', planId, { level, milestoneId: d.milestone ?? null });
 }
 
 export async function requestTriage(actor: Actor, db: DB, runId: string) {

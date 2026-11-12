@@ -155,3 +155,31 @@ export function reconcileBug(input: { status: string; devTaskStatus: string | nu
   }
   return null;
 }
+
+export type QaSchedule = 'off' | 'hourly' | 'every6h' | 'daily';
+
+const atToday = (at: string | null | undefined, now: Date) => {
+  const m = /^(\d{2}):(\d{2})$/.exec((at ?? '').trim());
+  const hh = m ? Number(m[1]) : NaN;
+  const mm = m ? Number(m[2]) : NaN;
+  const valid = Number.isInteger(hh) && Number.isInteger(mm) && hh <= 23 && mm <= 59;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), valid ? hh : 9, valid ? mm : 0);
+};
+
+// 定时套件的下次触发点：daily 用本机时间的 HH:MM，schedule_at 缺失或非法按 09:00
+export function nextScheduledAt(schedule: string | null | undefined, scheduleAt: string | null | undefined, lastScheduledAt: string | null, now: Date): Date | null {
+  const last = lastScheduledAt ? new Date(lastScheduledAt) : null;
+  if (schedule === 'hourly') return last ? new Date(last.getTime() + 3600_000) : now;
+  if (schedule === 'every6h') return last ? new Date(last.getTime() + 6 * 3600_000) : now;
+  if (schedule === 'daily') {
+    const todayAt = atToday(scheduleAt, now);
+    const ranToday = last !== null && last.getTime() >= todayAt.getTime();
+    return ranToday ? new Date(todayAt.getTime() + 24 * 3600_000) : todayAt;
+  }
+  return null;
+}
+
+export function scheduleDue(schedule: string | null | undefined, scheduleAt: string | null | undefined, lastScheduledAt: string | null, now: Date): boolean {
+  const next = nextScheduledAt(schedule, scheduleAt, lastScheduledAt, now);
+  return next !== null && now.getTime() >= next.getTime();
+}

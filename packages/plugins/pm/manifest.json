@@ -1,7 +1,7 @@
 {
   "id": "pm",
   "name": "项目管理",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "根工作台：任务立项、派发、依赖与验收",
   "entities": {
     "Milestone": {
@@ -13,11 +13,42 @@
         "due": { "type": "date", "label": "截止日期" },
         "status": { "type": "enum", "label": "状态", "enum": ["未开始", "进行中", "已完成"] }
       }
+    },
+    "Risk": {
+      "label": "风险",
+      "description": "项目风险登记，Agent 提案、人确认",
+      "titleField": "title",
+      "writeMode": "propose",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "level": { "type": "enum", "label": "等级", "required": true, "enum": ["高", "中", "低"] },
+        "impact": { "type": "text", "label": "影响" },
+        "mitigation": { "type": "text", "label": "应对" },
+        "owner": { "type": "string", "label": "负责人" },
+        "status": { "type": "enum", "label": "状态", "enum": ["未处理", "应对中", "已关闭"] }
+      }
+    },
+    "StatusReport": {
+      "label": "进展报告",
+      "description": "周期性的项目进展汇总",
+      "titleField": "title",
+      "writeMode": "direct",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "period": { "type": "string", "label": "周期" },
+        "summary": { "type": "markdown", "label": "摘要", "required": true },
+        "highlights": { "type": "text", "label": "进展" },
+        "issues": { "type": "text", "label": "问题与风险" },
+        "next": { "type": "text", "label": "下一步" }
+      }
     }
   },
   "panels": [
     { "id": "board", "type": "board", "entity": "system:task", "title": "任务看板", "editableBy": ["human", "agent"], "config": { "field": "status" } },
     { "id": "miles", "type": "timeline", "entity": "Milestone", "title": "里程碑", "editableBy": ["human"] },
+    { "id": "gantt", "type": "gantt", "entity": "system:task", "title": "甘特图", "editableBy": ["human"] },
+    { "id": "risks", "type": "table", "entity": "Risk", "title": "风险登记", "editableBy": ["human", "agent"] },
+    { "id": "reports", "type": "table", "entity": "StatusReport", "title": "进展报告", "editableBy": ["human", "agent"] },
     { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }
   ],
   "agents": [
@@ -26,7 +57,7 @@
       "name": "项目经理",
       "role": "拆解目标、起草任务契约、分派任务、跟踪阻塞",
       "promptFile": "pm.md",
-      "tools": ["read_entity", "list_entities", "search_workstation", "search_knowledge", "create_task", "dispatch_task", "send_message", "record_decision", "request_human", "respond_task"],
+      "tools": ["read_entity", "list_entities", "propose_entity", "search_workstation", "search_knowledge", "create_task", "dispatch_task", "list_tasks", "plan_task", "project_status", "send_message", "record_decision", "request_human", "respond_task"],
       "triggers": ["mentioned", "task_assigned"]
     }
   ],

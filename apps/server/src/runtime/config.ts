@@ -12,6 +12,8 @@ export interface ProviderConfig {
   model: string;
   baseUrl?: string | undefined;
   apiKey?: string | undefined;
+  // 能看懂图片输入：view_design 这类工具才会把截图塞进工具结果
+  vision?: boolean | undefined;
 }
 
 export interface ModelConfig {

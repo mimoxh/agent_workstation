@@ -155,7 +155,7 @@ test('架构决策与里程碑：人工维护实体并留版本', async ({ page 
   await page.goto(`/projects/proj-aw/ws/${root.id}`);
   await expect(page).toHaveURL(/\/projects\/proj-aw$/);
   await tab(page, '里程碑').click();
-  await expect(page.getByTestId('entity-panel-Milestone')).toBeVisible();
+  await expect(page.getByTestId('milestone-panel')).toBeVisible();
 });
 
 test('新建项目、挂载工作台、看板筛选写进 URL', async ({ page }) => {

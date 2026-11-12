@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { filterTasks } from '../components/board/filter';
-import { fromChecks, toChecks } from '../components/board/schemaForm';
+import { fromChecks, parseChecks, qaSuiteChecks, toChecks } from '../components/board/schemaForm';
 import { mentionQuery } from '../components/chat/mention';
 import { foldByDecision } from '../components/timeline/fold';
+import { layoutGantt } from '../components/pm/gantt';
 import { parseDiff } from './diff';
 import { duration, parseJson, seconds, tokens, when } from './format';
 import { keysFor } from './live';
-import { applyDraft, commentsPrompt, downloadName, exportDoc, parseFrameEvent, previewDoc, tweakVars } from '../components/design/model';
+import { applyDraft, commentsPrompt, compareDesigns, downloadName, exportDoc, parseFrameEvent, previewDoc, tweakVars } from '../components/design/model';
 
 describe('parseDiff', () => {
   const patch = [
@@ -57,7 +58,7 @@ describe('parseDiff', () => {
 
 describe('filterTasks', () => {
   const names = { ws: { w1: '开发' }, agent: { a1: '前端开发' } };
-  const t = (title: string, status: string, extra: Partial<{ inputJson: string; assigneeId: string }> = {}) => ({ title, status, inputJson: null, assigneeId: null, ...extra });
+  const t = (title: string, status: string, extra: Partial<{ inputJson: string; assigneeId: string; dueAt: string; dependsOn: string[] }> = {}) => ({ title, status, inputJson: null, assigneeId: null, dueAt: null, dependsOn: [], ...extra });
   const tasks = [
     t('看板筛选', 'in_progress', { inputJson: '{"module":"apps/web"}', assigneeId: 'a1' }),
     t('修复登录', 'blocked'),
@@ -78,6 +79,26 @@ describe('filterTasks', () => {
     expect(titles({ status: 'done' })).toEqual(['已合并', '废弃']);
   });
   it('搜索与状态同时生效', () => expect(titles({ q: '看板', status: 'done' })).toEqual([]));
+  it('按负责人筛：指定 Agent 与未指派', () => {
+    expect(titles({ assignee: 'a1' })).toEqual(['看板筛选']);
+    expect(titles({ assignee: 'none' })).toEqual(['修复登录', '已合并', '废弃']);
+  });
+  it('标记筛：逾期与等待前置', () => {
+    const ts = [
+      t('超期在做', 'in_progress', { dueAt: '2020-01-01' }),
+      t('超期已结', 'done', { dueAt: '2020-01-01' }),
+      t('等前置', 'draft', { dependsOn: ['d1', 'd2'] }),
+      t('等已好', 'draft', { dependsOn: ['d2'] }),
+    ];
+    const deps = new Map([
+      ['d1', 'in_progress'],
+      ['d2', 'done'],
+    ]);
+    const pick = (f: Parameters<typeof filterTasks>[1]) => filterTasks(ts, f, names, deps).map((x) => x.title);
+    expect(pick({ flag: 'overdue' })).toEqual(['超期在做']);
+    expect(pick({ flag: 'waiting' })).toEqual(['等前置']);
+    expect(pick({ flag: 'waiting', status: 'done' })).toEqual([]);
+  });
 });
 
 describe('验收命令', () => {
@@ -87,6 +108,42 @@ describe('验收命令', () => {
     expect(fromChecks(JSON.stringify(checks))).toBe('pnpm build\npnpm test');
   });
   it('坏 JSON 不抛错', () => expect(fromChecks('{')).toBe(''));
+
+  it('非命令检查不进文本框，保存时原样带过去', () => {
+    const json = JSON.stringify([
+      { kind: 'command', run: 'pnpm test', expect: { exitCode: 0 } },
+      { kind: 'qa_suite', suite: 's1' },
+      { kind: 'visual' },
+      { kind: 'manual', run: '手动跑一遍' },
+    ]);
+    // 文本框只编辑命令类；manual 带 run 也不该出现在编辑文本里
+    expect(fromChecks(json)).toBe('pnpm test');
+    const extras = parseChecks(json).filter((c) => c.kind !== 'command');
+    const saved = toChecks('pnpm build', extras);
+    expect(saved).toEqual([
+      { kind: 'command', run: 'pnpm build', expect: { exitCode: 0 } },
+      { kind: 'qa_suite', suite: 's1' },
+      { kind: 'visual' },
+      { kind: 'manual', run: '手动跑一遍' },
+    ]);
+  });
+
+  it('qa_suite 勾选集合从 checks 里往返还原', () => {
+    const json = JSON.stringify([{ kind: 'qa_suite', suite: 's1' }, { kind: 'command', run: 'x' }, { kind: 'qa_suite' }, { kind: 'qa_suite', suite: 's2' }]);
+    expect(qaSuiteChecks(json).map((c) => c.suite)).toEqual(['s1', 's2']);
+    // 勾掉 s1 留 s2，另加 s3
+    const kept = qaSuiteChecks(json).filter((c) => c.suite === 's2');
+    const saved = toChecks('', [...parseChecks(json).filter((c) => c.kind !== 'command' && c.kind !== 'qa_suite'), ...kept, { kind: 'qa_suite', suite: 's3' }]);
+    expect(qaSuiteChecks(JSON.stringify(saved)).map((c) => c.suite)).toEqual(['s2', 's3']);
+    expect(saved.map((c) => c.kind)).toEqual(['qa_suite', 'qa_suite']);
+  });
+
+  it('qa_ 事件同时刷新质量、任务回声、项目状态和实体列表', () => {
+    for (const action of ['qa_run_finished', 'qa_plan_signed']) {
+      const keys = keysFor(action);
+      for (const k of ['qa', 'task-quality', 'project-status', 'entities']) expect(keys).toContain(k);
+    }
+  });
 });
 
 describe('mentionQuery', () => {
@@ -148,6 +205,41 @@ describe('format', () => {
   });
 });
 
+describe('甘特图布局', () => {
+  const t = (id: string, startAt: string | null, dueAt: string | null, status = 'in_progress', createdAt = '2026-01-01T00:00:00Z') => ({ id, title: id, status, workstationId: 'w1', startAt, dueAt, createdAt });
+
+  it('范围包住任务与里程碑并留边，条按日定位', () => {
+    const l = layoutGantt({
+      tasks: [t('a', '2026-01-10', '2026-01-15'), t('b', null, '2026-01-12', 'draft', '2026-01-05T00:00:00Z')],
+      milestones: [{ id: 'm1', name: 'v1', due: '2026-01-20' }],
+      today: '2026-01-11',
+      pad: 2,
+    });
+    // 最早 01-05（b 的创建日），最晚 01-20（里程碑）→ 各留 2 天 = 01-03 ~ 01-22
+    expect(l.days).toBe(20);
+    const a = l.bars.find((b) => b.task.id === 'a')!;
+    expect([a.left, a.width]).toEqual([7, 6]);
+    const b = l.bars.find((x) => x.task.id === 'b')!;
+    expect([b.left, b.width]).toEqual([2, 8]);
+    expect(l.milestones[0]!.pos).toBe(17);
+    expect(l.today).toBe(8);
+  });
+
+  it('没有截止的任务不进图，逾期任务标记 overdue，开始晚于截止时退化为截止日', () => {
+    const l = layoutGantt({
+      tasks: [t('x', '2026-02-10', '2026-02-01'), t('y', null, null), t('z', null, '2026-01-01', 'in_progress')],
+      milestones: [],
+      today: '2026-02-05',
+      pad: 0,
+    });
+    expect(l.bars).toHaveLength(2);
+    expect(l.bars.find((b) => b.task.id === 'x')!.width).toBe(1);
+    expect(l.bars.find((b) => b.task.id === 'z')!.overdue).toBe(true);
+    const l2 = layoutGantt({ tasks: [t('z', null, '2026-01-01', 'done')], milestones: [], today: '2026-02-05', pad: 0 });
+    expect(l2.bars[0]!.overdue).toBe(false);
+  });
+});
+
 describe('实时失效映射', () => {
   it('任务变更刷新看板、详情和收件箱', () => {
     expect(keysFor('task_status_changed')).toEqual(expect.arrayContaining(['tasks', 'task', 'inbox']));
@@ -190,5 +282,13 @@ describe('设计稿', () => {
 
   it('下载文件名去掉非法字符', () => {
     expect(downloadName('落地页 / 方向A', 3)).toBe('落地页-方向A-v3.html');
+  });
+
+  it('对比候选：当前稿在前，同组方向随后，别组的稿不进来', () => {
+    const d = (id: string, group?: string) => ({ id, data: { group } });
+    const list = [d('a', '落地页'), d('b', '落地页'), d('c'), d('e', '别的')];
+    expect(compareDesigns(list, 'a').map((x) => x.id)).toEqual(['a', 'b']);
+    expect(compareDesigns(list, 'c').map((x) => x.id)).toEqual(['c']);
+    expect(compareDesigns(list, 'nope')).toEqual([]);
   });
 });

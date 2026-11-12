@@ -132,6 +132,6 @@ export function DesignStudio({ ws, project, openId, onOpen }: { ws: WorkstationD
   if (entities.isError) return <ErrorState error={entities.error} onRetry={() => void entities.refetch()} />;
   if (!rows || !system.data) return <Loading />;
   const open = designs.find((d) => d.id === openId);
-  if (open) return <DesignCanvas key={open.id} design={open} comments={comments.filter((c) => c.design === open.id)} tokens={system.data.tokens} ws={ws} project={project} running={running} onBack={() => onOpen(undefined)} />;
+  if (open) return <DesignCanvas key={open.id} design={open} designs={designs} comments={comments.filter((c) => c.design === open.id)} tokens={system.data.tokens} ws={ws} project={project} running={running} onBack={() => onOpen(undefined)} />;
   return <Gallery designs={designs} tokens={system.data.tokens} ws={ws} project={project} running={running} onOpen={onOpen} />;
 }

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ErrorState, Loading } from '@/components/ui/feedback';
-import { Input } from '@/components/ui/input';
-import { nameMaps, useOverview, useWsTasks, type BoardTask, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
+import { Input, Select } from '@/components/ui/input';
+import { nameMaps, useOverview, useProjectTasks, useWsTasks, type BoardTask, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useTaskActions } from './actions';
+import { BatchBar, useBatch } from './BatchBar';
 import { BoardColumn } from './BoardColumn';
-import { filterTasks, FILTERS, type BoardFilter } from './filter';
+import { filterTasks, FILTERS, FLAGS, type BoardFilter } from './filter';
 import { COLUMNS } from './labels';
 import { TaskCard } from './TaskCard';
 import { TaskDialog } from './TaskDialog';
@@ -52,8 +53,11 @@ export function TaskBoard({
   const stageNames = useOverview(project.id).data?.stageNames ?? {};
   const stages = (ws.manifest?.stages ?? []).map((s) => s.id);
   const all = tasks.data ?? [];
-  const shown = filterTasks(all, filter, names);
+  // 前置任务可能在别的工作台，用项目任务表解析完成状态
+  const depStatus = new Map((useProjectTasks(project.id).data ?? []).map((t) => [t.id, t.status]));
+  const shown = filterTasks(all, filter, names, depStatus);
   const cols = columnsOf(ws, groupBy, all);
+  const batch = useBatch(ws.id, all);
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="task-board">
@@ -83,8 +87,37 @@ export function TaskBoard({
             );
           })}
         </div>
+        <Select
+          className="h-8 w-36"
+          aria-label="按负责人筛选"
+          data-testid="board-assignee"
+          value={filter.assignee ?? ''}
+          onChange={(e) => onFilter({ ...filter, assignee: e.target.value || undefined })}
+        >
+          <option value="">全部负责人</option>
+          <option value="none">未指派</option>
+          {(ws.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </Select>
+        <div className="flex gap-0.5" role="group" aria-label="按标记筛选">
+          {FLAGS.map((f) => {
+            const on = filter.flag === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={on}
+                data-testid={`board-flag-${f.id}`}
+                onClick={() => onFilter({ ...filter, flag: on ? undefined : f.id })}
+                className={cn('min-h-8 rounded-pill px-2.5 text-sm transition-colors duration-150', on ? 'bg-paper-3 font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
         {shown.length !== all.length && <span className="measured text-xs text-muted">{shown.length} / {all.length}</span>}
         <span className="flex-1" />
+        <Button variant="quiet" aria-pressed={batch.active} onClick={() => (batch.active ? batch.exit() : batch.setActive(true))} data-testid="batch-toggle" className="aria-pressed:bg-paper-3 aria-pressed:text-ink">多选</Button>
         <Button variant="primary" onClick={() => setCreating(true)} data-testid="new-task">新建任务</Button>
       </div>
       {tasks.isLoading && <Loading />}
@@ -107,7 +140,9 @@ export function TaskBoard({
                     pending={actions.pendingId === t.id}
                     canDispatch={actions.canDispatch}
                     canAssign={actions.canAssign}
+                    depStatus={depStatus}
                     onAction={actions.run}
+                    selection={batch.active && batch.selectable(t) ? { checked: batch.picked.has(t.id), onToggle: () => batch.toggle(t.id) } : undefined}
                   />
                 ))}
               </BoardColumn>
@@ -116,6 +151,7 @@ export function TaskBoard({
           <div className="min-w-0 flex-1" />
         </div>
       )}
+      {batch.active && <BatchBar batch={batch} />}
       {creating && <TaskDialog ws={ws} onClose={() => setCreating(false)} />}
       {actions.dialogs}
     </div>

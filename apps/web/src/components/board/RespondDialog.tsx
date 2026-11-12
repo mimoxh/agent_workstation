@@ -5,7 +5,7 @@ import { Field, Input, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson } from '@/lib/format';
 import type { BoardTask } from '@/lib/queries';
-import { toChecks } from './schemaForm';
+import { parseChecks, toChecks } from './schemaForm';
 
 // 拒绝 / 反提案：理由必填；反提案可改 module 与验收命令，重新派发时生效
 export function RespondDialog({ action, task, onClose }: { action: 'reject' | 'counter'; task: BoardTask; onClose: () => void }) {
@@ -18,7 +18,7 @@ export function RespondDialog({ action, task, onClose }: { action: 'reject' | 'c
   const respond = useMutation({
     meta: { silent: true },
     mutationFn: async () => {
-      const checks = toChecks(acceptance);
+      const checks = toChecks(acceptance, parseChecks(task.acceptanceJson).filter((c) => c.kind !== 'command'));
       return unwrap(
         await api.tasks[':id'].respond.$post({
           param: { id: task.id },

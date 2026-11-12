@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { api, unwrap } from '@/lib/api';
 import { useDispatchTargets, useWorkstation, type BoardTask, type ProjectDetail } from '@/lib/queries';
+import { PlanDialog } from '@/components/pm/PlanDialog';
 import { AssignDialog } from './AssignDialog';
 import { DispatchDialog } from './DispatchDialog';
 import { EVENT_LABEL } from './labels';
@@ -15,6 +16,7 @@ export type TaskAction =
   | { kind: 'dispatch' }
   | { kind: 'assign' }
   | { kind: 'edit' }
+  | { kind: 'plan' }
   | { kind: 'accept' }
   | { kind: 'reject' }
   | { kind: 'counter' };
@@ -23,6 +25,7 @@ const LABEL: Record<Exclude<TaskAction['kind'], 'event'>, string> = {
   dispatch: EVENT_LABEL.dispatch,
   assign: '指派 Agent',
   edit: '编辑',
+  plan: '排期与依赖',
   accept: EVENT_LABEL.accept,
   reject: EVENT_LABEL.reject,
   counter: EVENT_LABEL.counter,
@@ -51,6 +54,7 @@ export function taskActions(task: Pick<BoardTask, 'status' | 'assigneeType' | 'c
     if (event === 'approve' && task.codeRefJson) continue;
     out.push({ kind: 'event', event });
   }
+  if (status !== 'done' && status !== 'cancelled') out.push({ kind: 'plan' });
   return out;
 }
 
@@ -80,6 +84,7 @@ export function useTaskActions(project: ProjectDetail | undefined, wsId: string 
   if (dialog?.action.kind === 'dispatch') dialogs = <DispatchDialog task={dialog.task} targets={targets} onClose={close} />;
   if (dialog?.action.kind === 'assign') dialogs = <AssignDialog task={dialog.task} agents={agents} onClose={close} />;
   if (dialog?.action.kind === 'edit' && ws.data) dialogs = <TaskDialog ws={ws.data} task={dialog.task} onClose={close} />;
+  if (dialog?.action.kind === 'plan' && project) dialogs = <PlanDialog projectId={project.id} task={dialog.task} onClose={close} />;
   if (dialog?.action.kind === 'reject' || dialog?.action.kind === 'counter') {
     dialogs = <RespondDialog action={dialog.action.kind} task={dialog.task} onClose={close} />;
   }

@@ -38,6 +38,10 @@ export async function gitOk(cwd: string, args: string[], timeoutMs?: number) {
   return r;
 }
 
+export async function isAncestor(cwd: string, a: string, b: string) {
+  return (await git(cwd, ['merge-base', '--is-ancestor', a, b])).code === 0;
+}
+
 export interface DevSettings {
   repoPath: string;
   targetBranch: string;

@@ -31,7 +31,9 @@ import {
   listTasks,
   listTestRuns,
 } from './repositories/index.js';
+import { getProjectStatus } from './repositories/plan.js';
 import { mergeProviders, publicModelConfig, readModelConfig, writeModelConfig } from './runtime/config.js';
+import { liveSnapshot } from './runtime/live_output.js';
 import { cancelRun } from './runtime/loop.js';
 import { defaultModelRef, loadModels, modelRegistry, reloadModels, sanitizeError } from './runtime/models.js';
 import { scheduler, triggerRun } from './runtime/scheduler.js';
@@ -43,6 +45,7 @@ import {
   createTaskUc,
   dispatchTask,
   interruptTask,
+  planTask,
   releaseTask,
   respondTask,
   setStage,
@@ -72,9 +75,10 @@ import {
   taskBranchStatus,
 } from './usecases/repo.js';
 import { confirmGates } from './usecases/gates.js';
-import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, saveDesign, saveDesignSystem } from './usecases/designs.js';
-import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, transitionBug } from './usecases/qa.js';
-import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, listQaSources } from './repositories/qa.js';
+import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, renderableDesign, saveDesign, saveDesignSystem } from './usecases/designs.js';
+import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from './runtime/design_render.js';
+import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, taskQuality, transitionBug } from './usecases/qa.js';
+import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, listQaSources, qaGateSuites } from './repositories/qa.js';
 import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
@@ -88,6 +92,7 @@ const modelConfigBody = z.object({
     model: z.string().trim().min(1, '模型名不能为空'),
     baseUrl: z.string().optional(),
     apiKey: z.string().optional(),
+    vision: z.boolean().optional(),
   })),
   defaultModel: z.string().optional(),
   chain: z.array(z.string()),
@@ -159,6 +164,29 @@ export function createApp(db: DB) {
         ]);
       }),
     )
+
+    // ---- 命令实时输出：先给快照，再推本 channel 的 start / chunk / end ----
+    .get('/live/:channel', (c) => {
+      const channel = c.req.param('channel');
+      if (!/^(task|qa):[\w-]+$/.test(channel)) return c.json({ error: 'channel 不合法' }, 400);
+      return streamSSE(c, async (stream) => {
+        // 先挂监听再发快照，中间的 start/chunk/end 不会漏
+        const match = (p: Record<string, unknown>) => p.channel === channel;
+        const offs = [
+          events.on('live_start', async (p) => {
+            if (match(p)) await stream.writeSSE({ event: 'start', data: JSON.stringify(p.stream) });
+          }),
+          events.on('live_output', async (p) => {
+            if (match(p)) await stream.writeSSE({ event: 'chunk', data: JSON.stringify({ streamId: p.streamId, chunk: p.chunk }) });
+          }),
+          events.on('live_end', async (p) => {
+            if (match(p)) await stream.writeSSE({ event: 'end', data: JSON.stringify({ streamId: p.streamId, exitCode: p.exitCode }) });
+          }),
+        ];
+        await stream.writeSSE({ event: 'snapshot', data: JSON.stringify({ streams: liveSnapshot(channel) }) });
+        await holdSSE(stream, () => offs);
+      });
+    })
 
     // ---- 项目 ----
     .get('/plugins', async (c) => c.json(await listPlugins(c.get('actor'), c.get('db'))))
@@ -232,6 +260,10 @@ export function createApp(db: DB) {
       return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
     })
     .get('/projects/:id/tasks', async (c) => c.json(await listProjectTasks(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .get('/projects/:id/status', async (c) => {
+      const d = await getProjectStatus(c.get('actor'), c.get('db'), c.req.param('id'));
+      return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
+    })
     .get('/projects/:id/runs', async (c) => c.json(await listRuns(c.get('actor'), c.get('db'), { projectId: c.req.param('id') })))
     .post(
       '/projects/:id/workstations',
@@ -312,6 +344,10 @@ export function createApp(db: DB) {
           acceptance: z.array(jsonRecord).optional(),
           parentId: z.string().optional(),
           assigneeAgentId: z.string().optional(),
+          startAt: z.string().nullable().optional(),
+          dueAt: z.string().nullable().optional(),
+          milestoneId: z.string().nullable().optional(),
+          dependsOn: z.array(z.string()).optional(),
         }),
       ),
       async (c) => {
@@ -354,7 +390,23 @@ export function createApp(db: DB) {
       const r = await importDesignTokens(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ count: r.count }) : fail(c, r);
     })
-    .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional() })), async (c) => {
+    .get('/designs/:id/export', async (c) => {
+      const format = c.req.query('format') === 'pdf' ? 'pdf' : 'png';
+      const viewport = (Object.keys(VIEWPORTS) as ViewportName[]).includes(c.req.query('viewport') as ViewportName) ? (c.req.query('viewport') as ViewportName) : 'desktop';
+      const v = c.req.query('version');
+      const doc = await renderableDesign(c.get('db'), c.req.param('id'), v ? Number(v) : undefined);
+      if (!doc) return fail(c, { status: 404, error: '设计稿不存在' });
+      let buf: Buffer;
+      try {
+        buf = await renderDesign(doc.html, { width: VIEWPORTS[viewport], format });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split('\n')[0]! : String(e);
+        return fail(c, BROWSER_MISSING.test(msg) ? { status: 409, error: '本机没有可用的 Chromium，运行 pnpm exec playwright install chromium 后重试' } : { status: 502, error: `渲染失败：${msg}` });
+      }
+      const name = encodeURIComponent(`${doc.title}-v${doc.version}`);
+      return c.body(new Uint8Array(buf), 200, { 'content-type': format === 'pdf' ? 'application/pdf' : 'image/png', 'content-disposition': `attachment; filename*=UTF-8''${name}.${format}` });
+    })
+    .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional(), qaCases: z.boolean().optional() })), async (c) => {
       const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
     })
@@ -367,7 +419,8 @@ export function createApp(db: DB) {
       const r = await startRun(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), trigger: 'human' });
       return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
     })
-    .post('/workstations/:id/qa/suites', body(z.object({ id: z.string().optional(), baseVersion: z.number().int().optional(), data: z.object({ name: z.string().trim().min(1, '请填名称'), command: z.string().trim().min(1, '请填命令'), report_path: z.string().trim().min(1, '请填报告路径'), coverage_path: z.string().trim().optional(), timeout_sec: z.number().int().positive().optional(), auto_run: z.boolean().optional(), description: z.string().optional() }) })), async (c) => {
+    .get('/workstations/:id/qa-gate-suites', async (c) => c.json(await qaGateSuites(c.get('actor'), c.get('db'), c.req.param('id'))))
+    .post('/workstations/:id/qa/suites', body(z.object({ id: z.string().optional(), baseVersion: z.number().int().optional(), data: z.object({ name: z.string().trim().min(1, '请填名称'), command: z.string().trim().min(1, '请填命令'), report_path: z.string().trim().min(1, '请填报告路径'), coverage_path: z.string().trim().optional(), timeout_sec: z.number().int().positive().optional(), auto_run: z.boolean().optional(), schedule: z.enum(['off', 'hourly', 'every6h', 'daily']).optional(), schedule_at: z.string().regex(/^\d{2}:\d{2}$/).optional(), description: z.string().optional() }) })), async (c) => {
       const r = await saveSuite(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
     })
@@ -464,6 +517,21 @@ export function createApp(db: DB) {
         return r.kind === 'ok' ? c.json(r.task!) : fail(c, r);
       },
     )
+    .patch(
+      '/tasks/:id/plan',
+      body(
+        z.object({
+          startAt: z.string().nullable().optional(),
+          dueAt: z.string().nullable().optional(),
+          milestoneId: z.string().nullable().optional(),
+          dependsOn: z.array(z.string()).optional(),
+        }),
+      ),
+      async (c) => {
+        const r = await planTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+        return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
+      },
+    )
     .post('/tasks/:id/assign', body(z.object({ agentId: z.string().min(1), reason: z.string().optional() })), async (c) => {
       const r = await assignTask(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json(r.task) : fail(c, r);
@@ -496,6 +564,10 @@ export function createApp(db: DB) {
       return c.json({ ok: true });
     })
     .get('/tasks/:id/branch', async (c) => c.json({ branch: await taskBranchStatus(c.get('db'), c.req.param('id')) }))
+    .get('/tasks/:id/quality', async (c) => {
+      const q = await taskQuality(c.get('db'), c.req.param('id'));
+      return q ? c.json(q) : c.json({ error: '任务不存在' }, 404);
+    })
     .post('/tasks/:id/sync', async (c) => {
       const r = await syncTask(c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ status: r.status, files: 'files' in r ? r.files : [] }) : fail(c, r);

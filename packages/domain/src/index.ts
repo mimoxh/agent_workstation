@@ -39,9 +39,13 @@ export {
   flakiness,
   isBugOpen,
   isFailing,
+  nextScheduledAt,
   normalizeError,
   reconcileBug,
+  scheduleDue,
 } from './qa.js';
-export type { BugEvent, BugStatus, CaseSample, CompareCase, Flakiness, QaCaseStatus, QaRunStatus, RunComparison, Verdict, VerdictCriteria, VerdictInput, VerdictLevel, VerdictReason } from './qa.js';
+export type { BugEvent, BugStatus, CaseSample, CompareCase, Flakiness, QaCaseStatus, QaRunStatus, QaSchedule, RunComparison, Verdict, VerdictCriteria, VerdictInput, VerdictLevel, VerdictReason } from './qa.js';
+export { isOverdue, localDate, wouldCreateCycle } from './plan.js';
+export type { DepEdge } from './plan.js';
 export { costMicros, firstBreach } from './budget.js';
 export type { Budget, BudgetBreach, BudgetLevel, BudgetScope, Usage } from './budget.js';

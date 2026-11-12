@@ -6,6 +6,7 @@ import { Composer } from '@/components/chat/Composer';
 import { TaskProposalsPanel } from '@/components/panels/ProposalReview';
 import { TaskTestRunsPanel } from '@/components/panels/TestRuns';
 import { RunTable } from '@/components/run/RunTable';
+import { StreamBlocks, useLiveOutput } from '@/components/run/LiveOutput';
 import { TaskHeader } from '@/components/task/TaskHeader';
 import { TaskSide } from '@/components/task/TaskSide';
 import { Timeline } from '@/components/timeline/Timeline';
@@ -17,7 +18,7 @@ import { api, unwrap } from '@/lib/api';
 import { nameMaps, useInbox, useProject, useTask, useTaskProposals, useTaskRuns, useTaskTestRuns, useWorkstation, type RunRow, type TaskDetail, type WsAgent } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-const VIEWS = ['timeline', 'changes', 'tests', 'runs'] as const;
+const VIEWS = ['timeline', 'changes', 'tests', 'runs', 'output'] as const;
 type ViewId = (typeof VIEWS)[number];
 
 export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
@@ -114,6 +115,7 @@ function TaskPage() {
   const testRuns = useTaskTestRuns(taskId);
   const inbox = useInbox(projectId);
   const actions = useTaskActions(project.data, ownerWsId);
+  const liveStreams = useLiveOutput(`task:${taskId}`);
 
   if (detail.isLoading) return <Loading />;
   if (detail.isError || !detail.data) return <ErrorState error={detail.error ?? new Error('任务不存在')} />;
@@ -129,7 +131,9 @@ function TaskPage() {
     changes: <>改动 <span className="measured text-xs">{proposalRows.length}</span></>,
     tests: <>验收 <span className="measured text-xs">{testRows.length}</span></>,
     runs: <>运行 <span className="measured text-xs">{runRows.length}</span></>,
+    output: '实时输出',
   };
+  const liveRunning = liveStreams.some((s) => !s.done);
 
   return (
     <div className="flex h-full min-h-0" data-testid="task-page">
@@ -164,6 +168,11 @@ function TaskPage() {
                     {labels[v]}
                   </button>
                 ))}
+                {liveRunning && view !== 'output' && (
+                  <button type="button" onClick={() => void navigate({ search: { view: 'output' } })} className="ml-auto h-9 px-2.5 text-xs font-medium text-cool hover:underline" data-testid="task-live-link">
+                    命令运行中 · 查看输出
+                  </button>
+                )}
               </nav>
             </div>
           </div>
@@ -172,6 +181,7 @@ function TaskPage() {
             {view === 'changes' && <TaskProposalsPanel taskId={taskId} projectId={projectId} />}
             {view === 'tests' && <TaskTestRunsPanel taskId={taskId} projectId={projectId} />}
             {view === 'runs' && <RunsView taskId={taskId} projectId={projectId} runs={runRows} agents={[...(owner.data?.agents ?? []), ...(exec.data && exec.data.id !== owner.data?.id ? exec.data.agents : [])]} />}
+            {view === 'output' && <div className="px-4 md:px-10 lg:px-14"><div className="mx-auto max-w-[54rem]"><StreamBlocks streams={liveStreams} /></div></div>}
           </div>
         </div>
         <TaskComposer detail={d} running={runRows.some((r) => r.status === 'running')} />

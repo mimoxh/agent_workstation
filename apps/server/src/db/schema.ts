@@ -90,10 +90,28 @@ export const task = sqliteTable(
     resultJson: text('result_json'),
     blockedReason: text('blocked_reason'),
     feedbackCount: integer('feedback_count').notNull().default(0),
+    startAt: text('start_at'),
     dueAt: text('due_at'),
+    milestoneId: text('milestone_id'),
+    pendingAssigneeId: text('pending_assignee_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('idx_task_ws_status').on(t.workstationId, t.status)],
+);
+
+// 前置依赖（A 等 B）：B 完成后草稿态的 A 才会被放行派发
+export const taskDependency = sqliteTable(
+  'task_dependency',
+  {
+    taskId: text('task_id')
+      .notNull()
+      .references(() => task.id),
+    dependsOnId: text('depends_on_id')
+      .notNull()
+      .references(() => task.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.dependsOnId] }), index('idx_dep_on').on(t.dependsOnId)],
 );
 
 export const agent = sqliteTable('agent', {

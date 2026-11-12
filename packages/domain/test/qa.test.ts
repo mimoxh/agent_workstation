@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bugTransition, caseKey, compareRuns, computeVerdict, errorFingerprint, flakiness, isBugOpen, normalizeError, reconcileBug } from '../src/qa.js';
+import { bugTransition, caseKey, compareRuns, computeVerdict, errorFingerprint, flakiness, isBugOpen, normalizeError, nextScheduledAt, reconcileBug, scheduleDue } from '../src/qa.js';
 
 const run = (status: string, commitSha = 'c') => ({ status, commitSha });
 
@@ -100,5 +100,44 @@ describe('缺陷状态机', () => {
     expect(reconcileBug({ status: 'verifying', devTaskStatus: 'done', caseStatus: 'passed' })).toBe('verify_pass');
     expect(reconcileBug({ status: 'verifying', devTaskStatus: 'done', caseStatus: 'failed' })).toBe('verify_fail');
     expect(reconcileBug({ status: 'verifying', devTaskStatus: 'done', caseStatus: null })).toBeNull();
+  });
+});
+
+describe('定时套件', () => {
+  const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi);
+
+  it('hourly/every6h 按间隔，没跑过立即到期', () => {
+    const now = at(2026, 1, 10, 12, 0);
+    expect(scheduleDue('hourly', null, null, now)).toBe(true);
+    expect(scheduleDue('hourly', null, at(2026, 1, 10, 11, 30).toISOString(), now)).toBe(false);
+    expect(scheduleDue('hourly', null, at(2026, 1, 10, 10, 59).toISOString(), now)).toBe(true);
+    expect(scheduleDue('every6h', null, at(2026, 1, 10, 6, 0).toISOString(), now)).toBe(true);
+    expect(scheduleDue('every6h', null, at(2026, 1, 10, 6, 1).toISOString(), now)).toBe(false);
+    expect(scheduleDue('off', null, null, now)).toBe(false);
+    expect(scheduleDue('weird', null, null, now)).toBe(false);
+  });
+
+  it('daily 按本机时间 HH:MM，跨过零点才再次到期', () => {
+    const before = at(2026, 1, 10, 8, 59);
+    const after = at(2026, 1, 10, 9, 0);
+    expect(scheduleDue('daily', '09:00', null, before)).toBe(false);
+    expect(scheduleDue('daily', '09:00', null, after)).toBe(true);
+    // 今天已跑过，哪怕再晚也不再触发；到明天同一时刻才到期
+    const ran = at(2026, 1, 10, 9, 5).toISOString();
+    expect(scheduleDue('daily', '09:00', ran, at(2026, 1, 10, 23, 0))).toBe(false);
+    expect(scheduleDue('daily', '09:00', ran, at(2026, 1, 11, 8, 59))).toBe(false);
+    expect(scheduleDue('daily', '09:00', ran, at(2026, 1, 11, 9, 0))).toBe(true);
+    // schedule_at 缺失/非法按 09:00
+    expect(scheduleDue('daily', null, null, at(2026, 1, 10, 8, 0))).toBe(false);
+    expect(scheduleDue('daily', null, null, at(2026, 1, 10, 9, 0))).toBe(true);
+    expect(scheduleDue('daily', 'junk', null, at(2026, 1, 10, 9, 0))).toBe(true);
+  });
+
+  it('nextScheduledAt 给出下一次触发点', () => {
+    const now = at(2026, 1, 10, 12, 0);
+    expect(nextScheduledAt('off', null, null, now)).toBeNull();
+    expect(nextScheduledAt('hourly', null, at(2026, 1, 10, 11, 0).toISOString(), now)!.getTime()).toBe(at(2026, 1, 10, 12, 0).getTime());
+    expect(nextScheduledAt('daily', '09:00', null, now)!.getTime()).toBe(at(2026, 1, 10, 9, 0).getTime());
+    expect(nextScheduledAt('daily', '09:00', at(2026, 1, 10, 9, 5).toISOString(), now)!.getTime()).toBe(at(2026, 1, 11, 9, 0).getTime());
   });
 });

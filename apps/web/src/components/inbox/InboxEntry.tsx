@@ -109,6 +109,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
 
 export function InboxEntry({ item, projectId, compact }: { item: InboxRow; projectId: string; compact?: boolean }) {
   const open = item.status === 'open';
+  const suspects = item.kind === 'qa_regression' ? (JSON.parse(item.payloadJson ?? '{}') as { suspects?: { taskId: string; title: string }[] }).suspects ?? [] : [];
   return (
     <article className="space-y-1.5 rounded-chip px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
       <div className="flex items-center gap-2">
@@ -128,6 +129,17 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
         <p className="text-sm text-ink-2"><code>{item.command}</code>{!compact && item.cwd && <span className="measured ml-2 text-xs text-muted">{item.cwd}</span>}</p>
       )}
       {item.detail && <p className={compact ? 'line-clamp-2 text-xs text-muted' : 'whitespace-pre-wrap text-sm text-muted'}>{item.detail}</p>}
+      {suspects.length > 0 && (
+        <p className="text-xs text-muted">
+          可疑任务：
+          {suspects.map((s, i) => (
+            <span key={s.taskId}>
+              {i > 0 && '、'}
+              <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: s.taskId }} className="text-ink-2 hover:underline">{s.title}</Link>
+            </span>
+          ))}
+        </p>
+      )}
       {open && <div className="flex flex-wrap items-center gap-1.5"><Actions item={item} projectId={projectId} /></div>}
     </article>
   );

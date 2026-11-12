@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { qaRun } from '../../db/schema.js';
+import { artifact, qaRun, workstation } from '../../db/schema.js';
 import { getCaseHistory, getQaFlaky, getQaOverview, getQaRunDetail } from '../../repositories/qa.js';
 import { draftBug, entitiesOf, qaSourceOf, saveCaseDrafts, savePlanSummary, saveTriage, startRun, type SuiteData, type TriageGroup } from '../../usecases/qa.js';
 import { git } from '../git.js';
@@ -177,6 +177,21 @@ export const qaTools: Record<string, ToolDef> = {
     execute: async (ctx, a) => {
       const r = await draftBug(ctx.actor, ctx.db, ctx.agent.workstationId, a as { title: string; severity: string });
       return r.kind === 'ok' ? { bugId: r.id, status: 'draft' } : failed(r);
+    },
+  },
+  read_design_snapshot: {
+    taskless: true,
+    description: '读取设计交接快照：冻结的整页 HTML、备注和设计稿元信息',
+    right: 'observe',
+    resultLimit: FILE_LIMIT * 2,
+    parameters: z.object({ artifactId: z.string().describe('交接消息里的快照 artifactId') }),
+    execute: async (ctx, a) => {
+      const row = (await ctx.db.select().from(artifact).where(eq(artifact.id, String(a.artifactId))))[0];
+      const me = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      const from = row ? (await ctx.db.select().from(workstation).where(eq(workstation.id, row.workstationId!)))[0] : undefined;
+      if (!row || row.type !== 'design_handoff' || !from || !me || from.projectId !== me.projectId) return { error: '设计交接快照不存在' };
+      const meta = JSON.parse(row.metaJson ?? '{}') as { designId?: string; version?: number; brief?: string | null; note?: string | null };
+      return { title: row.name, html: row.ref ?? '', note: meta.note ?? meta.brief ?? null, designId: meta.designId ?? null, version: meta.version ?? null };
     },
   },
   save_plan_summary: {

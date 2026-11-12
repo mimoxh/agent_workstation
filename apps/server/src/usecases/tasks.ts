@@ -2,9 +2,9 @@ import type { Actor, TaskEvent } from '@aw/domain';
 import { can, descendantIds, TERMINAL, transition, type TaskStatus } from '@aw/domain';
 import { validateInput as validateSchema } from '@aw/plugin-spec';
 import { parseScope } from '../runtime/scope.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { agent, inboxItem, project, task, workstation } from '../db/schema.js';
+import { agent, inboxItem, project, task, taskDependency, workstation } from '../db/schema.js';
 import { lastAcceptancePassed, sendBack, submitChange } from '../runtime/dev_workflow.js';
 import { cancelRunsOfTask } from '../runtime/loop.js';
 import { modelGate } from '../runtime/models.js';
@@ -13,6 +13,7 @@ import { buildPermCtx, logEvent, manifestOf, mergeAcceptance } from './core.js';
 import { taskFlow } from './flow.js';
 import { confirmGates, describeGates, gatesBetween } from './gates.js';
 import { closeInboxFor, pushInbox } from './inbox.js';
+import { unmetDependencies, unmetDepText, validatePlan } from './plan.js';
 import { postHandoff, postStatus } from './threads.js';
 
 // 声明了 module 的任务类型：范围必须解析得出来（路径、逗号分隔多个或 .），否则写工具会全部拒绝
@@ -30,11 +31,40 @@ const uid = () => crypto.randomUUID();
 const nameOfWs = async (db: DB, id: string | null) => (id ? (await db.select().from(workstation).where(eq(workstation.id, id)))[0]?.name : undefined) ?? '工作台';
 const nameOfAgent = async (db: DB, id: string | null) => (id ? (await db.select().from(agent).where(eq(agent.id, id)))[0]?.name : undefined) ?? 'Agent';
 
+// 子任务开工三件套：task_assigned 事件（调度器据此起 run）、父任务自动 start、交接消息
+export async function kickoffSubtask(
+  actor: Actor,
+  db: DB,
+  t: { id: string; title: string; parentId: string | null },
+  assignee: { id: string; name: string },
+) {
+  await logEvent(db, actor, 'task_assigned', 'task', t.id, {
+    assigneeType: 'agent',
+    assigneeId: assignee.id,
+  });
+  if (!t.parentId) return;
+  const parent = (await db.select().from(task).where(eq(task.id, t.parentId)))[0];
+  if (!parent) return;
+  const pr = transition(parent.status as TaskStatus, 'start');
+  if (pr.ok) {
+    const changed = await db
+      .update(task)
+      .set({ status: pr.to })
+      .where(and(eq(task.id, parent.id), eq(task.status, parent.status)));
+    if (changed.changes > 0) {
+      await logEvent(db, actor, 'task_status_changed', 'task', parent.id, { to: pr.to });
+    }
+  }
+  const from = actor.id === 'platform' ? '平台' : actor.type === 'agent' ? await nameOfAgent(db, actor.id) : '本地用户';
+  await postHandoff(db, parent.id, `${from} 把「${t.title}」交给 ${assignee.name}`, { from, to: assignee.name, next: '实现并提交改动', refs: { taskId: t.id } });
+  await rollupStage(db, actor, parent.id);
+}
+
 export async function createTaskUc(
   actor: Actor,
   db: DB,
   wsId: string,
-  input: { title: string; intent?: string | undefined; typeId?: string | undefined; input?: Record<string, unknown> | undefined; acceptance?: unknown[] | undefined; parentId?: string | undefined; assigneeAgentId?: string | undefined; stage?: string | undefined },
+  input: { title: string; intent?: string | undefined; typeId?: string | undefined; input?: Record<string, unknown> | undefined; acceptance?: unknown[] | undefined; parentId?: string | undefined; assigneeAgentId?: string | undefined; stage?: string | undefined; startAt?: string | null | undefined; dueAt?: string | null | undefined; milestoneId?: string | null | undefined; dependsOn?: string[] | undefined },
 ) {
   const wsRows = await db.select().from(workstation).where(eq(workstation.id, wsId));
   const ws = wsRows[0];
@@ -72,9 +102,17 @@ export async function createTaskUc(
     acceptance = mergeAcceptance(acceptance, taskType.acceptance ?? []);
   }
 
-  // 子任务语义：assigneeAgentId 时平台代派发 draft→dispatched
+  const badPlan = await validatePlan(db, ws.projectId, null, input);
+  if (badPlan) return { kind: 'error' as const, status: 400 as const, error: badPlan };
+
+  // 子任务语义：assigneeAgentId 时平台代派发 draft→dispatched；前置未完成则留下待指派，放行时补发
+  const deps = [...new Set(input.dependsOn ?? [])];
+  const unmetDeps = deps.length > 0
+    ? (await db.select({ id: task.id, status: task.status }).from(task).where(inArray(task.id, deps))).filter((d) => d.status !== 'done')
+    : [];
   let status = 'draft';
   let assignee: typeof agent.$inferSelect | undefined;
+  let pendingAssigneeId: string | null = null;
   if (input.assigneeAgentId) {
     assignee = (await db.select().from(agent).where(eq(agent.id, input.assigneeAgentId)))[0];
     if (!assignee || assignee.workstationId !== wsId) {
@@ -84,9 +122,13 @@ export async function createTaskUc(
     if (actor.type === 'agent' && !can(actor, 'invoke', { type: 'workstation', id: wsId }, ctx)) {
       return { kind: 'error' as const, status: 403 as const, error: '无 invoke 权' };
     }
-    const r = transition('draft', 'dispatch');
-    if (!r.ok) return { kind: 'error' as const, status: 500 as const, error: r.error };
-    status = r.to;
+    if (unmetDeps.length > 0) {
+      pendingAssigneeId = input.assigneeAgentId;
+    } else {
+      const r = transition('draft', 'dispatch');
+      if (!r.ok) return { kind: 'error' as const, status: 500 as const, error: r.error };
+      status = r.to;
+    }
   }
   if (input.parentId) {
     const parents = await db.select().from(task).where(eq(task.id, input.parentId));
@@ -122,35 +164,20 @@ export async function createTaskUc(
     acceptanceJson: acceptance ? JSON.stringify(acceptance) : null,
     status,
     stage,
-    assigneeType: input.assigneeAgentId ? 'agent' : null,
-    assigneeId: input.assigneeAgentId ?? null,
+    assigneeType: input.assigneeAgentId && !pendingAssigneeId ? 'agent' : null,
+    assigneeId: input.assigneeAgentId && !pendingAssigneeId ? input.assigneeAgentId : null,
+    startAt: input.startAt ?? null,
+    dueAt: input.dueAt ?? null,
+    milestoneId: input.milestoneId ?? null,
+    pendingAssigneeId,
     createdAt: now(),
   });
+  for (const dep of deps) {
+    await db.insert(taskDependency).values({ taskId: id, dependsOnId: dep, createdAt: now() });
+  }
   await logEvent(db, actor, 'task_created', 'task', id, { workstationId: wsId });
-  if (input.assigneeAgentId) {
-    await logEvent(db, actor, 'task_assigned', 'task', id, {
-      assigneeType: 'agent',
-      assigneeId: input.assigneeAgentId,
-    });
-    // 父任务在首个子任务创建时自动 start（走状态机 + 条件更新）
-    if (input.parentId) {
-      const parent = (await db.select().from(task).where(eq(task.id, input.parentId)))[0];
-      if (parent) {
-        const pr = transition(parent.status as TaskStatus, 'start');
-        if (pr.ok) {
-          const changed = await db
-            .update(task)
-            .set({ status: pr.to })
-            .where(and(eq(task.id, parent.id), eq(task.status, parent.status)));
-          if (changed.changes > 0) {
-            await logEvent(db, actor, 'task_status_changed', 'task', parent.id, { to: pr.to });
-          }
-        }
-        const from = actor.type === 'agent' ? await nameOfAgent(db, actor.id) : '本地用户';
-        await postHandoff(db, parent.id, `${from} 把「${input.title}」交给 ${assignee!.name}`, { from, to: assignee!.name, next: '实现并提交改动', refs: { taskId: id } });
-        await rollupStage(db, actor, parent.id);
-      }
-    }
+  if (input.assigneeAgentId && !pendingAssigneeId) {
+    await kickoffSubtask(actor, db, { id, title: input.title, parentId: input.parentId ?? null }, assignee!);
   }
   const rows = await db.select().from(task).where(eq(task.id, id));
   return { kind: 'ok' as const, task: rows[0] };
@@ -165,6 +192,8 @@ export async function dispatchTask(
   const rows = await db.select().from(task).where(eq(task.id, taskId));
   const t = rows[0];
   if (!t) return { kind: 'not_found' as const, status: 404 as const, error: '任务不存在' };
+  const unmet = await unmetDependencies(db, taskId);
+  if (unmet.length > 0) return { kind: 'invalid' as const, status: 409 as const, error: unmetDepText(unmet) };
   const noModel = await modelGate();
   if (noModel) return { kind: 'error' as const, status: 409 as const, error: noModel };
   const ctx = await buildPermCtx(actor, db);
@@ -385,6 +414,8 @@ export async function updateTask(
 export async function assignTask(actor: Actor, db: DB, taskId: string, body: { agentId: string; reason?: string | undefined }) {
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!t) return { kind: 'not_found' as const, status: 404 as const, error: '任务不存在' };
+  const unmet = await unmetDependencies(db, taskId);
+  if (unmet.length > 0) return { kind: 'invalid' as const, status: 409 as const, error: unmetDepText(unmet) };
   const a = (await db.select().from(agent).where(eq(agent.id, body.agentId)))[0];
   if (!a || a.workstationId !== t.workstationId) return { kind: 'error' as const, status: 400 as const, error: 'Agent 不属于任务所在工作台' };
   const noModel = await modelGate();

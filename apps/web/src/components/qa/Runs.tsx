@@ -1,6 +1,8 @@
+import { nextScheduledAt } from '@aw/domain';
 import { useMutation } from '@tanstack/react-query';
 import { Fragment, useMemo, useState } from 'react';
 import { Segmented } from '@/components/design/panes';
+import { LiveOutput } from '@/components/run/LiveOutput';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
@@ -9,10 +11,10 @@ import { Icon } from '@/components/ui/icons';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { seconds, when } from '@/lib/format';
-import { useArtifact, useQaHistory, useQaRun, useQaRuns, type QaCaseRow, type QaCluster, type QaRunDetail } from '@/lib/queries';
+import { useArtifact, useQaHistory, useQaOverview, useQaRun, useQaRuns, type QaCaseRow, type QaCluster, type QaRunDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { PassBar, StatusStrip } from './charts';
-import { CASE_LABEL, CASE_TONE, CONFIDENCE_LABEL, RUN_LABEL, RUN_TONE, TRIAGE_LABEL, TRIGGER_LABEL, isActive, useDocs, type Doc, type SuiteData } from './model';
+import { CASE_LABEL, CASE_TONE, CONFIDENCE_LABEL, RUN_LABEL, RUN_TONE, SCHEDULE_LABEL, TRIAGE_LABEL, TRIGGER_LABEL, isActive, useDocs, type Doc, type SuiteData } from './model';
 import { NewBugDialog, ROW, Scroll, TABLE, TD, TH, Toolbar, type BugDraft, type QaProps } from './shared';
 
 const CASE_LIMIT = 500;
@@ -47,12 +49,14 @@ function SuiteDialog({ wsId, suite, onClose }: { wsId: string; suite: Doc<SuiteD
   const [coverage, setCoverage] = useState(d?.coverage_path ?? '');
   const [timeout, setTimeoutSec] = useState(String(d?.timeout_sec ?? 900));
   const [auto, setAuto] = useState(d?.auto_run ?? false);
+  const [schedule, setSchedule] = useState<NonNullable<SuiteData['schedule']>>(d?.schedule ?? 'off');
+  const [scheduleAt, setScheduleAt] = useState(d?.schedule_at ?? '09:00');
   const [description, setDescription] = useState(d?.description ?? '');
   const save = useMutation({
     meta: { silent: true },
     mutationFn: async () => unwrap(await api.workstations[':id'].qa.suites.$post({
       param: { id: wsId },
-      json: { ...(suite ? { id: suite.id, baseVersion: suite.version } : {}), data: { name: name.trim(), command: command.trim(), report_path: report.trim(), ...(coverage.trim() ? { coverage_path: coverage.trim() } : {}), ...(Number(timeout) > 0 ? { timeout_sec: Math.floor(Number(timeout)) } : {}), auto_run: auto, description } },
+      json: { ...(suite ? { id: suite.id, baseVersion: suite.version } : {}), data: { name: name.trim(), command: command.trim(), report_path: report.trim(), ...(coverage.trim() ? { coverage_path: coverage.trim() } : {}), ...(Number(timeout) > 0 ? { timeout_sec: Math.floor(Number(timeout)) } : {}), auto_run: auto, schedule, ...(schedule === 'daily' ? { schedule_at: scheduleAt.trim() || '09:00' } : {}), description } },
     })),
     onSuccess: onClose,
   });
@@ -73,14 +77,40 @@ function SuiteDialog({ wsId, suite, onClose }: { wsId: string; suite: Doc<SuiteD
         <label className="flex items-center gap-2 text-sm text-ink-2">
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="qa-suite-auto" />目标分支有新提交时自动运行
         </label>
+        <Field label="定时运行" hint="在目标分支上按节奏跑，结果计入回归">
+          <Select value={schedule} onChange={(e) => setSchedule(e.target.value as NonNullable<SuiteData['schedule']>)} data-testid="qa-suite-schedule">
+            <option value="off">关闭</option>
+            <option value="hourly">每小时</option>
+            <option value="every6h">每 6 小时</option>
+            <option value="daily">每天</option>
+          </Select>
+        </Field>
+        {schedule === 'daily' && (
+          <Field label="每日时间" hint="HH:MM，本机时间">
+            <Input className="measured" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} placeholder="09:00" data-testid="qa-suite-schedule-at" />
+          </Field>
+        )}
         <Field label="说明"><Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       </DialogForm>
     </Dialog>
   );
 }
 
+const fmtNext = (d: Date) => `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+// 例：定时：每天 09:00 · 下次 11-12 09:00
+function scheduleLine(d: SuiteData, lastScheduledAt: string | null | undefined) {
+  const s = d.schedule;
+  if (!s || s === 'off') return null;
+  const at = s === 'daily' ? ` ${d.schedule_at ?? '09:00'}` : '';
+  const next = nextScheduledAt(s, d.schedule_at, lastScheduledAt ?? null, new Date());
+  return `定时：${SCHEDULE_LABEL[s] ?? s}${at}${next ? ` · 下次 ${fmtNext(next)}` : ''}`;
+}
+
 function Suites({ wsId, autoOpen }: { wsId: string; autoOpen: boolean }) {
   const { docs, isLoading } = useDocs<SuiteData>(wsId, 'TestSuite');
+  const overview = useQaOverview(wsId);
+  const meta = useMemo(() => new Map((overview.data?.suites ?? []).map((s) => [s.id, s])), [overview.data]);
   const [editing, setEditing] = useState<Doc<SuiteData> | 'new' | null>(autoOpen ? 'new' : null);
   if (isLoading) return <Loading />;
   return (
@@ -89,7 +119,7 @@ function Suites({ wsId, autoOpen }: { wsId: string; autoOpen: boolean }) {
       {docs.length === 0 ? <Empty title="还没有套件">建一个会生成 JUnit 报告的测试命令。</Empty> : (
         <div className="overflow-x-auto">
           <table className={TABLE}>
-            <thead><tr className="border-b border-rule"><th className={TH}>名称</th><th className={TH}>命令</th><th className={TH}>报告</th><th className={TH}>自动运行</th></tr></thead>
+            <thead><tr className="border-b border-rule"><th className={TH}>名称</th><th className={TH}>命令</th><th className={TH}>报告</th><th className={TH}>自动运行</th><th className={TH}>定时</th></tr></thead>
             <tbody>
               {docs.map((s) => (
                 <tr key={s.id} className={ROW} onClick={() => setEditing(s)} data-testid="qa-suite-row">
@@ -97,6 +127,7 @@ function Suites({ wsId, autoOpen }: { wsId: string; autoOpen: boolean }) {
                   <td className={TD}><code className="measured text-xs">{s.data.command}</code></td>
                   <td className={TD}><code className="measured text-xs">{s.data.report_path}</code></td>
                   <td className={TD}>{s.data.auto_run ? <Badge tone="cool">开</Badge> : <span className="text-faint">关</span>}</td>
+                  <td className={cn(TD, 'text-xs')}>{scheduleLine(s.data, meta.get(s.id)?.lastScheduledAt) ?? <span className="text-faint">关</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -318,6 +349,11 @@ function RunDetail({ id, wsId, go }: { id: string; wsId: string; go: QaProps['go
       <p className="mt-1 text-xs text-muted">
         <code className="measured">{d.config.command}</code> · {TRIGGER_LABEL[r.trigger] ?? r.trigger} · {when(r.createdAt)}{r.durationMs !== null ? ` · ${seconds(r.durationMs / 1000)}` : ''}
       </p>
+      {active && (
+        <section className="mt-4" data-testid="qa-live">
+          <LiveOutput channel={`qa:${r.id}`} />
+        </section>
+      )}
       {r.total > 0 && <p className="measured mt-3 text-sm text-ink-2" data-testid="qa-run-counts">{r.passed} 通过 · {failing} 失败 · {r.skipped} 跳过 · 共 {r.total}</p>}
       {r.error && <p className="mt-3 rounded-pill bg-bad-soft p-2.5 text-sm text-bad" data-testid="qa-run-error">{r.envError ? '环境问题：' : ''}{r.error}</p>}
       {d.comparison && <Compare c={d.comparison} />}

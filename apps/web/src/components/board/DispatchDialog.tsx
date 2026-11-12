@@ -4,8 +4,8 @@ import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson } from '@/lib/format';
-import { useModels, type BoardTask, type DispatchTarget } from '@/lib/queries';
-import { FIELD_LABEL, fieldsOf, fromChecks, toChecks } from './schemaForm';
+import { useModels, useQaGateSuites, type BoardTask, type DispatchTarget } from '@/lib/queries';
+import { FIELD_LABEL, fieldsOf, fromChecks, parseChecks, qaSuiteChecks, toChecks } from './schemaForm';
 
 // 派发到子孙工作台：类型与字段取目标插件的 tasks 声明
 export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; targets: DispatchTarget[]; onClose: () => void }) {
@@ -16,6 +16,9 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
   const [module, setModule] = useState(typeof input.module === 'string' ? input.module : '');
   const [enums, setEnums] = useState<Record<string, string>>({});
   const [acceptance, setAcceptance] = useState(fromChecks(task.acceptanceJson));
+  const otherChecks = parseChecks(task.acceptanceJson).filter((c) => c.kind !== 'command' && c.kind !== 'qa_suite');
+  const [suites, setSuites] = useState<string[]>(qaSuiteChecks(task.acceptanceJson).map((c) => c.suite!));
+  const gates = useQaGateSuites(targetId).data ?? [];
   const [reason, setReason] = useState('');
   const [budget, setBudget] = useState('');
   const cloud = useModels().data?.models.filter((m) => !m.local).map((m) => m.id) ?? [];
@@ -28,7 +31,7 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
   const dispatch = useMutation({
     meta: { silent: true },
     mutationFn: async () => {
-      const checks = toChecks(acceptance);
+      const checks = toChecks(acceptance, [...otherChecks, ...suites.map((suite) => ({ kind: 'qa_suite', suite }))]);
       return unwrap(
         await api.tasks[':id'].dispatch.$post({
           param: { id: task.id },
@@ -94,6 +97,18 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
         <Field label="验收命令" hint="每行一条；目标插件的默认验收会自动合并">
           <Textarea className="measured" rows={2} value={acceptance} onChange={(e) => setAcceptance(e.target.value)} />
         </Field>
+        {gates.length > 0 && (
+          <Field label="质量套件" hint="验收时在绑定目标台的测试台上运行">
+            <div className="space-y-1">
+              {gates.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 text-sm text-ink-2">
+                  <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="dispatch-gate-suite" />
+                  <span className="truncate">{s.name}<span className="text-faint"> · {s.qaWorkstationName}</span></span>
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
         <div className="grid grid-cols-[minmax(0,1fr)_10rem] gap-3">
           <Field label="派发说明">
             <Input value={reason} onChange={(e) => setReason(e.target.value)} />

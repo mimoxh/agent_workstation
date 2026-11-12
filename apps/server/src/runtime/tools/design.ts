@@ -1,10 +1,17 @@
 import type { DesignToken, DesignTweak } from '@aw/domain';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { entityVersion } from '../../db/schema.js';
+import { artifact, entityVersion } from '../../db/schema.js';
 import { createEntity } from '../../usecases/entities.js';
-import { designRow, designSystemOf, editDesign, listDesignComments, listDesigns, readHandoffFor, resolveDesignComments, saveDesign, saveDesignSystem, type DesignData } from '../../usecases/designs.js';
+import { designRow, designSystemOf, editDesign, listDesignComments, listDesigns, readHandoffFor, renderableDesign, resolveDesignComments, saveDesign, saveDesignSystem, type DesignData } from '../../usecases/designs.js';
+import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from '../design_render.js';
 import type { ToolDef } from './index.js';
+
+const uid = () => crypto.randomUUID();
+const now = () => new Date().toISOString();
 
 const tweak = z.object({
   id: z.string(),
@@ -135,6 +142,30 @@ export const designTools: Record<string, ToolDef> = {
     right: 'propose',
     parameters: z.object({ ids: z.array(z.string()), note: z.string().optional() }),
     execute: async (ctx, a) => ({ resolved: await resolveDesignComments(ctx.actor, ctx.db, ctx.agent.workstationId, a.ids as string[], a.note as string | undefined) }),
+  },
+  view_design: {
+    taskless: true,
+    description: '把设计稿真正渲染出来看一眼：按断点截图，版式、层级、溢出以渲染结果为准',
+    right: 'observe',
+    parameters: z.object({ id: z.string(), version: z.number().int().optional(), viewport: z.enum(['desktop', 'tablet', 'mobile']).optional().describe('断点，默认 desktop') }),
+    execute: async (ctx, a) => {
+      const doc = await renderableDesign(ctx.db, String(a.id), a.version as number | undefined);
+      if (!doc || doc.workstationId !== ctx.agent.workstationId) return { error: '设计稿不存在' };
+      const viewport = (a.viewport as ViewportName | undefined) ?? 'desktop';
+      let buf: Buffer;
+      try {
+        buf = await renderDesign(doc.html, { width: VIEWPORTS[viewport], format: 'png' });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split('\n')[0]! : String(e);
+        return { error: BROWSER_MISSING.test(msg) ? '本机没有可用的 Chromium，请人在环境里装 playwright chromium 后再试' : `渲染失败：${msg}` };
+      }
+      const target = path.join(os.tmpdir(), 'aw-design-shots', `${uid()}.png`);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, buf);
+      const artifactId = uid();
+      await ctx.db.insert(artifact).values({ id: artifactId, workstationId: ctx.agent.workstationId, type: 'screenshot', name: `${doc.title} v${doc.version} ${viewport}`, ref: target, metaJson: JSON.stringify({ designId: String(a.id), version: doc.version, viewport }), createdAt: now() });
+      return { artifactId, viewport, width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), __images: [{ mediaType: 'image/png', base64: buf.toString('base64') }] };
+    },
   },
   read_design_handoff: {
     description: '读取这个任务交接过来的设计稿：HTML（已内联令牌）、设计令牌和设计规范',

@@ -11,12 +11,14 @@ import { buildPermCtx, logEvent, manifestOf } from '../usecases/core.js';
 import { qaContextOf } from '../repositories/qa.js';
 import { designContextOf } from '../usecases/designs.js';
 import { pushInbox, pushRunFailure } from '../usecases/inbox.js';
+import { notifyDependentsOfCancel, releaseDependents } from '../usecases/plan.js';
 import { threadAgents } from '../usecases/threads.js';
 import { buildContext } from './context.js';
 import { startConversation } from './conversation.js';
 import { escalateTask } from './coordination.js';
 import { afterTestRun, condTransition, maybeCloseParent, triggerStageAgents } from './dev_workflow.js';
 import { runCommand } from './exec.js';
+import { startLive } from './live_output.js';
 import { createTaskWorktree, devSettings, ensureTargetBranch, git, removeTaskWorktree, type DevSettings } from './git.js';
 import { runAgent } from './loop.js';
 import { parseScope, readSpecs } from './scope.js';
@@ -111,7 +113,9 @@ function prepareWorktree(db: DB, a: AgentRow, t: TaskRow, s: DevSettings): Promi
       if (!tb.ok) return `worktree 准备失败：${tb.error}`;
       const ref = await createTaskWorktree(s, a.workstationId, t.id);
       if (s.commands.setup) {
-        const setup = await runCommand({ cwd: ref.worktree, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, sandbox: s.sandbox, network: 'bridge' });
+        const live = startLive(`task:${t.id}`, `环境准备：${s.commands.setup}`);
+        const setup = await runCommand({ cwd: ref.worktree, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, sandbox: s.sandbox, network: 'bridge', onOutput: live.write });
+        live.finish(setup.exitCode);
         if (setup.exitCode !== 0) return `setup 失败：\n${setup.output.slice(0, 500)}`;
       }
       // setup 通过后才落 code_ref：失败后重跑会重新准备
@@ -426,6 +430,9 @@ export function startScheduler(db: DB): () => void {
     const ws = (await db.select().from(workstation).where(eq(workstation.id, t.workstationId)))[0];
     if (t.codeRefJson && ws) await removeTaskWorktree(devSettings(ws.settingsJson), t.workstationId, t.id);
     await maybeCloseParent(db, t.parentId);
+    // 前置完成 → 放行等它的草稿任务；前置取消 → 提醒各台调整依赖
+    if (to === 'done') await releaseDependents(db, t.id);
+    if (to === 'cancelled') await notifyDependentsOfCancel(db, t.id);
   });
 
   return () => { for (const off of offs) off(); };

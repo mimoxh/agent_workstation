@@ -1,12 +1,14 @@
 import { can, type Actor, type PermCtx } from '@aw/domain';
-import { and, eq, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DB } from '../../db/client.js';
-import { entity, project, proposal, task, workstation } from '../../db/schema.js';
+import { entity, project, proposal, task, taskDependency, workstation } from '../../db/schema.js';
+import { getProjectStatus } from '../../repositories/plan.js';
 import { logEvent, manifestOf } from '../../usecases/core.js';
 import { createEntity } from '../../usecases/entities.js';
 import { pushInbox } from '../../usecases/inbox.js';
 import { searchKnowledge } from '../../usecases/knowledge.js';
+import { planTask, unmetDependencies } from '../../usecases/plan.js';
 import { createTaskUc, dispatchTask, respondTask, setStage, transitionTaskUc } from '../../usecases/tasks.js';
 import { postHandoff, postMessage, taskThreadOf } from '../../usecases/threads.js';
 import { escalateTask, reportBlocked } from '../coordination.js';
@@ -138,19 +140,68 @@ const tools: Record<string, ToolDef> = {
     taskless: true,
     description: '在本台建任务：指派给 Agent 时作为子任务开工；不指派时留作草稿等人派发',
     right: 'invoke',
-    parameters: z.object({ title: z.string(), intent: z.string().optional(), input: z.record(z.string(), z.unknown()).optional(), acceptance: z.array(z.unknown()).optional(), assigneeAgentId: z.string().optional(), typeId: z.string().optional(), stage: z.string().optional() }),
+    parameters: z.object({ title: z.string(), intent: z.string().optional(), input: z.record(z.string(), z.unknown()).optional(), acceptance: z.array(z.unknown()).optional(), assigneeAgentId: z.string().optional(), typeId: z.string().optional(), stage: z.string().optional(), dependsOn: z.array(z.string()).optional(), dueAt: z.string().optional() }),
     execute: async (ctx, a) => {
       const r = await createTaskUc(ctx.actor, ctx.db, ctx.agent.workstationId, {
         title: String(a.title), intent: a.intent as string | undefined, input: a.input as Record<string, unknown> | undefined,
         acceptance: a.acceptance as unknown[] | undefined, typeId: a.typeId as string | undefined,
         parentId: ctx.task?.id, assigneeAgentId: a.assigneeAgentId as string | undefined, stage: a.stage as string | undefined,
+        dependsOn: a.dependsOn as string[] | undefined, dueAt: a.dueAt as string | undefined,
       });
       if (r.kind !== 'ok') return { error: (r as { error?: string }).error };
+      if (r.task!.pendingAssigneeId) {
+        const unmet = await unmetDependencies(ctx.db, r.task!.id);
+        return { taskId: r.task!.id, status: r.task!.status, waitingOn: unmet.map((u) => u.title) };
+      }
       if (!a.assigneeAgentId) {
         const th = await threadOf(ctx);
         if (th) await postMessage(ctx.db, th.id, speaker(ctx), `起草了任务「${String(a.title)}」，等你确认派发`, 'status', { draftTaskId: r.task!.id });
       }
       return { taskId: r.task!.id, status: r.task!.status };
+    },
+  },
+  list_tasks: {
+    taskless: true,
+    description: '列出本项目各工作台的任务，可按状态过滤',
+    right: 'observe',
+    parameters: z.object({ status: z.array(z.string()).optional(), limit: z.number().optional() }),
+    execute: async (ctx, a) => {
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      if (!ws) return { error: '工作台不存在' };
+      const rows = await ctx.db.select().from(task).where(eq(task.projectId, ws.projectId)).limit(Number(a.limit ?? 100));
+      const filter = a.status as string[] | undefined;
+      const wsName = new Map((await ctx.db.select().from(workstation).where(eq(workstation.projectId, ws.projectId))).map((w) => [w.id, w.name]));
+      const depRows = rows.length > 0 ? await ctx.db.select().from(taskDependency).where(inArray(taskDependency.taskId, rows.map((t) => t.id))) : [];
+      const depMap = depRows.reduce((m, d) => m.set(d.taskId, [...(m.get(d.taskId) ?? []), d.dependsOnId]), new Map<string, string[]>());
+      return rows
+        .filter((t) => !filter || filter.includes(t.status))
+        .map((t) => ({ id: t.id, title: t.title, status: t.status, stage: t.stage, workstation: wsName.get(t.workstationId) ?? null, dueAt: t.dueAt, milestoneId: t.milestoneId, dependsOn: depMap.get(t.id) ?? [], blockedReason: t.blockedReason }));
+    },
+  },
+  plan_task: {
+    taskless: true,
+    description: '给任务排期：开始/截止日期、里程碑、前置依赖（dependsOn 为整组替换）',
+    right: 'invoke',
+    parameters: z.object({ taskId: z.string(), startAt: z.string().optional(), dueAt: z.string().optional(), milestoneId: z.string().optional(), dependsOn: z.array(z.string()).optional() }),
+    execute: async (ctx, a) => {
+      const r = await planTask(ctx.actor, ctx.db, String(a.taskId), {
+        startAt: a.startAt as string | undefined,
+        dueAt: a.dueAt as string | undefined,
+        milestoneId: a.milestoneId as string | undefined,
+        dependsOn: a.dependsOn as string[] | undefined,
+      });
+      return r.kind === 'ok' ? { status: r.task!.status, startAt: r.task!.startAt, dueAt: r.task!.dueAt, milestoneId: r.task!.milestoneId } : { error: r.error };
+    },
+  },
+  project_status: {
+    taskless: true,
+    description: '项目进展总览：任务统计、逾期、阻塞、依赖等待、里程碑、风险、各工作台状态',
+    right: 'observe',
+    parameters: z.object({}),
+    execute: async (ctx) => {
+      const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.agent.workstationId)))[0];
+      if (!ws) return { error: '工作台不存在' };
+      return (await getProjectStatus(ctx.actor, ctx.db, ws.projectId)) ?? { error: '项目不存在' };
     },
   },
   dispatch_task: {

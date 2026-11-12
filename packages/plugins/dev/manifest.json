@@ -1,7 +1,7 @@
 {
   "id": "dev",
   "name": "全栈开发工作台",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "多 Agent 分工 + 可执行验收的软件开发工作台",
   "steward": "architect",
   "entities": {
@@ -83,6 +83,7 @@
     { "id": "changes", "type": "diff", "entity": "system:proposal", "title": "改动审阅", "editableBy": ["human", "agent"], "config": { "showComments": true } },
     { "id": "tests", "type": "table", "entity": "TestRun", "title": "测试结果", "editableBy": ["human"] },
     { "id": "decisions", "type": "table", "entity": "ADR", "title": "架构决策", "editableBy": ["human", "agent"] },
+    { "id": "modules", "type": "table", "entity": "Module", "title": "模块登记", "editableBy": ["human", "agent"] },
     { "id": "files", "type": "tree", "entity": "system:files", "title": "文件树", "editableBy": ["human"] },
     { "id": "preview", "type": "preview", "entity": "Page", "title": "页面预览", "editableBy": ["human"], "config": { "urlField": "route", "baselineField": "screenshot_ref" } },
     { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }

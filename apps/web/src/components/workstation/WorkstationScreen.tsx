@@ -1,10 +1,14 @@
 import { useState, type ReactNode } from 'react';
-import type { BoardFilter, StatusFilter } from '@/components/board/filter';
+import type { BoardFilter, FlagFilter, StatusFilter } from '@/components/board/filter';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { DesignStudio } from '@/components/design/DesignStudio';
 import { DesignSystemPanel } from '@/components/design/DesignSystemPanel';
 import { AgentsPanel } from '@/components/panels/AgentsPanel';
 import { EntityPanel } from '@/components/panels/EntityPanel';
+import { ModulesPanel } from '@/components/panels/ModulesPanel';
+import { GanttPanel } from '@/components/pm/GanttPanel';
+import { MilestonePanel } from '@/components/pm/MilestonePanel';
+import { ReportsPanel } from '@/components/pm/ReportsPanel';
 import { FilesPanel } from '@/components/panels/FilesPanel';
 import { KnowledgePanel } from '@/components/panels/KnowledgePanel';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
@@ -22,15 +26,18 @@ import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 
-export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; design?: string; item?: string }
+export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; assignee?: string; flag?: FlagFilter; design?: string; item?: string }
 
 const STATUSES: StatusFilter[] = ['open', 'attention', 'done'];
+const FLAG_IDS: FlagFilter[] = ['overdue', 'waiting'];
 
 export const parseWsSearch = (s: Record<string, unknown>): WsSearch => ({
   ...(typeof s.panel === 'string' ? { panel: s.panel } : {}),
   ...(typeof s.q === 'string' && s.q ? { q: s.q } : {}),
   ...(typeof s.design === 'string' && s.design ? { design: s.design } : {}),
   ...(typeof s.item === 'string' && s.item ? { item: s.item } : {}),
+  ...(typeof s.assignee === 'string' && s.assignee ? { assignee: s.assignee } : {}),
+  ...(FLAG_IDS.includes(s.flag as FlagFilter) ? { flag: s.flag as FlagFilter } : {}),
   ...(STATUSES.includes(s.status as StatusFilter) ? { status: s.status as StatusFilter } : {}),
 });
 
@@ -49,9 +56,14 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
       return <FilesPanel wsId={ws.id} />;
     case 'table':
       if (block.entityType === 'TestRun') return <WsTestRunsPanel wsId={ws.id} projectId={project.id} />;
+      if (block.entityType === 'StatusReport' && def) return <ReportsPanel ws={ws} project={project} def={def} editable={editable} />;
+      if (block.entityType === 'Module' && def) return <ModulesPanel ws={ws} def={def} editable={editable} />;
       return def ? <EntityPanel wsId={ws.id} entityType={block.entityType!} def={def} editable={editable} /> : null;
     case 'timeline':
+      if (block.entityType === 'Milestone' && def) return <MilestonePanel ws={ws} project={project} def={def} editable={editable} />;
       return def ? <EntityPanel wsId={ws.id} entityType={block.entityType!} def={def} editable={editable} sortByDate /> : null;
+    case 'gantt':
+      return <GanttPanel project={project} />;
     case 'knowledge':
       return <KnowledgePanel projectId={project.id} />;
     case 'tokens':
@@ -129,7 +141,16 @@ function WsChat({ ws, project }: { ws: WorkstationDetail; project: ProjectDetail
 export function WorkstationScreen({ ws, project, search, onSearch }: { ws: WorkstationDetail; project: ProjectDetail; search: WsSearch; onSearch: (s: WsSearch, replace?: boolean) => void }) {
   const block = search.panel ? ws.blocks.find((b) => b.panelId === search.panel) : homeBlock(ws.blocks);
   const onFilter = (f: BoardFilter) =>
-    onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(f.q ? { q: f.q } : {}), ...(f.status ? { status: f.status as StatusFilter } : {}) }, true);
+    onSearch(
+      {
+        ...(search.panel ? { panel: search.panel } : {}),
+        ...(f.q ? { q: f.q } : {}),
+        ...(f.status ? { status: f.status as StatusFilter } : {}),
+        ...(f.assignee ? { assignee: f.assignee } : {}),
+        ...(f.flag ? { flag: f.flag } : {}),
+      },
+      true,
+    );
   const budget = ws.manifest?.defaults?.taskBudget;
   const budgetNote = budget?.tokens ? `单次运行上限 ${num(budget.tokens)} tok${budget.minutes ? ` / ${budget.minutes} min` : ''}` : null;
 
@@ -140,7 +161,7 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
   else if (block) {
     content = (
       <PanelFrame icon={panelIcon(block.panelType, block.entityType, block.panelId)} title={block.name ?? block.panelId ?? ''} desc={ws.name}>
-        {renderPanel(block, ws, project, { q: search.q, status: search.status }, onFilter)}
+        {renderPanel(block, ws, project, { q: search.q, status: search.status, assignee: search.assignee, flag: search.flag }, onFilter)}
       </PanelFrame>
     );
   } else content = <WsChat ws={ws} project={project} />;

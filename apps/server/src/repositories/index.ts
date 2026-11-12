@@ -1,7 +1,7 @@
 import type { Actor } from '@aw/domain';
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { agent, artifact, block, entity, eventLog, inboxItem, message, pluginInstall, project, proposal, reviewComment, run, task, thread, workstation } from '../db/schema.js';
+import { agent, artifact, block, entity, eventLog, inboxItem, message, pluginInstall, project, proposal, reviewComment, run, task, taskDependency, thread, workstation } from '../db/schema.js';
 import { pluginRegistry } from '../plugins.js';
 import { buildPermCtx, manifestOf, visibleTaskFilter } from '../usecases/core.js';
 import { stewardOf, taskFlow } from '../usecases/flow.js';
@@ -171,25 +171,35 @@ export async function listPlugins(actor: Actor, db: DB) {
   }));
 }
 
+const depsOf = async (db: DB, ids: string[]) =>
+  (ids.length > 0 ? await db.select().from(taskDependency).where(inArray(taskDependency.taskId, ids)) : []).reduce(
+    (map, d) => map.set(d.taskId, [...(map.get(d.taskId) ?? []), d.dependsOnId]),
+    new Map<string, string[]>(),
+  );
+
 // 派发到本台的上级任务也要在本台看板可见，否则 steward 之外没人看得到待接单
 export async function listTasks(actor: Actor, db: DB, workstationId: string) {
   const visible = await visibleWsIds(actor, db);
   if (visible && !visible.includes(workstationId)) return [];
-  return db
+  const rows = await db
     .select()
     .from(task)
     .where(or(eq(task.workstationId, workstationId), and(eq(task.assigneeType, 'workstation'), eq(task.assigneeId, workstationId))))
     .orderBy(task.createdAt);
+  const deps = await depsOf(db, rows.map((t) => t.id));
+  return rows.map((t) => ({ ...t, dependsOn: deps.get(t.id) ?? [] }));
 }
 
 export async function listProjectTasks(actor: Actor, db: DB, projectId: string) {
   const visible = await visibleWsIds(actor, db);
   const rows = await db
-    .select({ id: task.id, title: task.title, status: task.status, stage: task.stage, workstationId: task.workstationId, parentId: task.parentId, typeId: task.typeId, assigneeType: task.assigneeType, assigneeId: task.assigneeId })
+    .select({ id: task.id, title: task.title, status: task.status, stage: task.stage, workstationId: task.workstationId, parentId: task.parentId, typeId: task.typeId, assigneeType: task.assigneeType, assigneeId: task.assigneeId, startAt: task.startAt, dueAt: task.dueAt, milestoneId: task.milestoneId, blockedReason: task.blockedReason, createdAt: task.createdAt })
     .from(task)
     .where(eq(task.projectId, projectId))
     .orderBy(desc(task.createdAt));
-  return visible ? rows.filter((t) => visible.includes(t.workstationId)) : rows;
+  const deps = await depsOf(db, rows.map((t) => t.id));
+  const out = rows.map((t) => ({ ...t, dependsOn: deps.get(t.id) ?? [] }));
+  return visible ? out.filter((t) => visible.includes(t.workstationId)) : out;
 }
 
 export async function getTaskDetail(actor: Actor, db: DB, taskId: string) {
@@ -202,11 +212,29 @@ export async function getTaskDetail(actor: Actor, db: DB, taskId: string) {
     : null;
   const children = await db.select().from(task).where(eq(task.parentId, taskId));
   const events = await db.select().from(eventLog).where(eq(eventLog.targetId, taskId));
+  const depRows = await db
+    .select({ id: task.id, title: task.title, status: task.status })
+    .from(taskDependency)
+    .innerJoin(task, eq(taskDependency.dependsOnId, task.id))
+    .where(eq(taskDependency.taskId, taskId));
+  const dependentRows = await db
+    .select({ id: task.id, title: task.title, status: task.status })
+    .from(taskDependency)
+    .innerJoin(task, eq(taskDependency.taskId, task.id))
+    .where(eq(taskDependency.dependsOnId, taskId));
+  const ms = t.milestoneId ? (await db.select().from(entity).where(eq(entity.id, t.milestoneId)))[0] : undefined;
+  const milestone =
+    ms?.entityType === 'Milestone'
+      ? { id: ms.id, ...(JSON.parse(ms.dataJson ?? '{}') as { name?: string; due?: string }) }
+      : null;
   const flow = await taskFlow(db, t);
   return {
-    task: t,
+    task: { ...t, dependsOn: depRows.map((d) => d.id) },
     parent,
     children,
+    dependsOn: depRows,
+    dependents: dependentRows,
+    milestone: milestone ? { id: milestone.id, name: milestone.name ?? '', due: milestone.due ?? null } : null,
     events: events.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     flow: {
       workstationId: flow.workstationId,

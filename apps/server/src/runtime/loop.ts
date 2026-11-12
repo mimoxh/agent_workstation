@@ -231,6 +231,9 @@ export async function runAgent(opts: {
         let result = await executeTool(ctx, c.toolName, (c.input ?? {}) as Record<string, unknown>);
         let truncated = false;
         let err: string | undefined;
+        // __images 是喂给模型的截图，先摘出来：trace 和长度检查都只碰 JSON 部分
+        const { images, rest } = extractImages(result);
+        result = rest;
         const ser = JSON.stringify(result);
         const limit = allTools()[c.toolName]?.resultLimit ?? TOOL_RESULT_LIMIT;
         if (ser && ser.length > limit) {
@@ -241,7 +244,7 @@ export async function runAgent(opts: {
           err = String((result as { error: unknown }).error);
         }
         await appendTrace(db, runId, { t: now(), type: 'tool', name: c.toolName, args: c.input, result, truncated, ms: Date.now() - t0, ...(err ? { error: err } : {}) });
-        results.push({ type: 'tool-result', toolCallId: c.toolCallId, toolName: c.toolName, output: { type: 'json', value: result } });
+        results.push({ type: 'tool-result', toolCallId: c.toolCallId, toolName: c.toolName, output: truncated ? { type: 'json', value: result } : toolOutputFor(result, images, !!route.vision) });
       }
       messages.push({ role: 'tool', content: results });
       if (round === MAX_TURNS - 1) { await finish('max_turns'); break outer; }
@@ -257,6 +260,30 @@ function norm(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(norm).join(',')}]`;
   return `{${Object.keys(v as Record<string, unknown>).sort().map((k) => `${JSON.stringify(k)}:${norm((v as Record<string, unknown>)[k])}`).join(',')}}`;
+}
+
+// 工具结果里 __images 承载的截图：base64 不进 trace，只进模型可见的工具输出
+export interface ToolImage { mediaType: string; base64: string }
+
+export function extractImages(result: unknown): { images: ToolImage[]; rest: unknown } {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return { images: [], rest: result };
+  const raw = (result as { __images?: unknown }).__images;
+  if (!Array.isArray(raw) || raw.length === 0) return { images: [], rest: result };
+  const rest = Object.fromEntries(Object.entries(result as Record<string, unknown>).filter(([k]) => k !== '__images'));
+  const images = raw.filter((i): i is ToolImage => !!i && typeof (i as ToolImage).base64 === 'string' && typeof (i as ToolImage).mediaType === 'string');
+  return { images, rest };
+}
+
+// 看得见图的模型走多段输出（v7 content + file 部件）；看不到图的只给 JSON 并留一句说明
+export function toolOutputFor(result: unknown, images: ToolImage[], vision: boolean): { type: 'json'; value: unknown } | { type: 'content'; value: unknown[] } {
+  if (images.length === 0) return { type: 'json', value: result };
+  if (!vision) {
+    const value = result && typeof result === 'object' && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>), note: `当前模型未开启看图，截图已存为产物 ${String((result as { artifactId?: unknown }).artifactId ?? '')}，请人在画布查看` }
+      : result;
+    return { type: 'json', value };
+  }
+  return { type: 'content', value: [{ type: 'text', text: JSON.stringify(result) }, ...images.map((i) => ({ type: 'file', data: { type: 'data', data: i.base64 }, mediaType: i.mediaType }))] };
 }
 
 // io=input：带默认值的字段对模型是可选的

@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
 import { Icon } from '@/components/ui/icons';
-import { Field, Input, Textarea } from '@/components/ui/input';
+import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { when } from '@/lib/format';
-import { useQaPlan } from '@/lib/queries';
+import { useQaPlan, useWsEntities, type ProjectDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { CASE_LABEL, CASE_TONE, PLAN_LABEL, RUN_LABEL, RUN_TONE, isActive, pct, useDocs, type CaseData, type Doc, type ManualResult, type PlanData, type SuiteData } from './model';
 import { ROW, Scroll, TABLE, TD, TH, Toolbar, VerdictBadge, useAskAgent, type QaProps } from './shared';
@@ -31,17 +31,29 @@ function Pick<T extends { id: string }>({ label, items, name, picked, onChange, 
   );
 }
 
-function PlanDialog({ wsId, suites, cases, onClose, onDone }: { wsId: string; suites: Doc<SuiteData>[]; cases: Doc<CaseData>[]; onClose: () => void; onDone: (id: string) => void }) {
+interface MilestoneOption { id: string; name: string }
+
+// 里程碑挂在根工作台（项目经理）的实体上
+function useMilestones(project: ProjectDetail): MilestoneOption[] {
+  const root = project.workstations.find((w) => w.parentId === null);
+  const entities = useWsEntities(root?.id);
+  return (entities.data?.entities ?? [])
+    .filter((e) => e.entityType === 'Milestone')
+    .map((e) => ({ id: e.id, name: (JSON.parse(e.dataJson ?? '{}') as { name?: string }).name ?? e.id }));
+}
+
+function PlanDialog({ wsId, suites, cases, milestones, onClose, onDone }: { wsId: string; suites: Doc<SuiteData>[]; cases: Doc<CaseData>[]; milestones: MilestoneOption[]; onClose: () => void; onDone: (id: string) => void }) {
   const [name, setName] = useState('');
   const [version, setVersion] = useState('');
   const [ref, setRef] = useState('');
+  const [milestone, setMilestone] = useState('');
   const [pickedSuites, setSuites] = useState(suites.map((s) => s.id));
   const [pickedCases, setCases] = useState<string[]>([]);
   const [minPass, setMinPass] = useState('100');
   const [minCov, setMinCov] = useState('');
   const save = useMutation({
     meta: { silent: true },
-    mutationFn: async () => unwrap(await api.workstations[':id'].entities.$post({ param: { id: wsId }, json: { entityType: 'TestPlan', reason: '人工创建', data: { name: name.trim(), version: version.trim(), ref: ref.trim(), status: 'draft', suites: pickedSuites, cases: pickedCases, criteria: { minPassRate: Math.min(100, Math.max(0, Number(minPass) || 0)) / 100, minCoverage: minCov.trim() ? Number(minCov) : null } } } })),
+    mutationFn: async () => unwrap(await api.workstations[':id'].entities.$post({ param: { id: wsId }, json: { entityType: 'TestPlan', reason: '人工创建', data: { name: name.trim(), version: version.trim(), ref: ref.trim(), status: 'draft', suites: pickedSuites, cases: pickedCases, ...(milestone ? { milestone } : {}), criteria: { minPassRate: Math.min(100, Math.max(0, Number(minPass) || 0)) / 100, minCoverage: minCov.trim() ? Number(minCov) : null } } } })),
     onSuccess: (r) => { onClose(); onDone(r.id); },
   });
   return (
@@ -52,6 +64,14 @@ function PlanDialog({ wsId, suites, cases, onClose, onDone }: { wsId: string; su
           <Field label="版本"><Input value={version} onChange={(e) => setVersion(e.target.value)} /></Field>
           <Field label="分支或提交" hint="留空用目标分支"><Input className="measured" value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
         </div>
+        {milestones.length > 0 && (
+          <Field label="里程碑" hint="签字后结论会同步到里程碑">
+            <Select value={milestone} onChange={(e) => setMilestone(e.target.value)} data-testid="qa-plan-milestone">
+              <option value="">不关联</option>
+              {milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </Select>
+          </Field>
+        )}
         <Pick label="自动化套件" items={suites} name={(s) => s.data.name} picked={pickedSuites} onChange={setSuites} empty="还没有套件" />
         <Pick label="手工用例" items={cases} name={(c) => c.data.title} picked={pickedCases} onChange={setCases} empty="还没有有效的用例" />
         <div className="grid grid-cols-2 gap-3">
@@ -194,10 +214,11 @@ function PlanDetail({ doc, ws, cases, go }: { doc: Doc<PlanData>; ws: QaProps['w
   );
 }
 
-export function Plans({ ws, item, go }: QaProps) {
+export function Plans({ ws, project, item, go }: QaProps) {
   const plans = useDocs<PlanData>(ws.id, 'TestPlan');
   const suites = useDocs<SuiteData>(ws.id, 'TestSuite');
   const cases = useDocs<CaseData>(ws.id, 'TestCase');
+  const milestones = useMilestones(project);
   const [creating, setCreating] = useState(false);
   if (plans.isLoading) return <Loading />;
   const open = plans.docs.find((p) => p.id === item);
@@ -223,7 +244,7 @@ export function Plans({ ws, item, go }: QaProps) {
           </table>
         </div>
       )}
-      {creating && <PlanDialog wsId={ws.id} suites={suites.docs} cases={cases.docs.filter((c) => c.data.status === 'active')} onClose={() => setCreating(false)} onDone={(id) => go('plans', id)} />}
+      {creating && <PlanDialog wsId={ws.id} suites={suites.docs} cases={cases.docs.filter((c) => c.data.status === 'active')} milestones={milestones} onClose={() => setCreating(false)} onDone={(id) => go('plans', id)} />}
     </Scroll>
   );
 }

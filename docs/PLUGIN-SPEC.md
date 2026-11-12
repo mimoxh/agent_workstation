@@ -242,7 +242,7 @@ export interface RelationDef {
 ```ts
 export interface PanelDef {
   id: string;
-  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge' | 'canvas' | 'tokens' | 'quality';
+  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge' | 'canvas' | 'tokens' | 'quality' | 'gantt';
   entity: string;                 // 插件实体或系统实体（system:*）
   title: string;
   config?: Record<string, unknown>;
@@ -266,6 +266,7 @@ export interface PanelDef {
 | `canvas` | 设计画布（对话 + 沙箱预览 + 评论） | `home`：作为工作台默认入口 |
 | `tokens` | 设计令牌与规范 | — |
 | `quality` | 测试台的质量视图 | `view`：`overview` / `runs` / `cases` / `plans` / `bugs` / `flaky` / `coverage`；`home`：作为工作台默认入口 |
+| `gantt` | 按日排布的任务甘特图（含里程碑与依赖） | — |
 
 ## 6. 阶段定义
 

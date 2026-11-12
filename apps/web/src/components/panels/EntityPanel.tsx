@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
@@ -10,13 +10,13 @@ import { parseJson, when } from '@/lib/format';
 import { useEntityVersions, useWsEntities, type EntityRow, type Manifest } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-type EntityDef = Manifest['entities'][string];
+export type EntityDef = Manifest['entities'][string];
 type Data = Record<string, unknown>;
 
-const STATE_TONE: Record<string, BadgeTone> = { accepted: 'ok', 已完成: 'ok', proposed: 'amber', 进行中: 'cool', superseded: 'neutral', 未开始: 'neutral' };
+const STATE_TONE: Record<string, BadgeTone> = { accepted: 'ok', 已完成: 'ok', proposed: 'amber', 进行中: 'cool', superseded: 'neutral', 未开始: 'neutral', 高: 'bad', 中: 'amber', 低: 'neutral', 未处理: 'amber', 应对中: 'cool', 已关闭: 'ok' };
 const STATE_LABEL: Record<string, string> = { accepted: '生效', proposed: '提议中', superseded: '已取代' };
 
-function EntityDialog({ wsId, entityType, def, row, onClose }: { wsId: string; entityType: string; def: EntityDef; row?: EntityRow | undefined; onClose: () => void }) {
+export function EntityDialog({ wsId, entityType, def, row, onClose }: { wsId: string; entityType: string; def: EntityDef; row?: EntityRow | undefined; onClose: () => void }) {
   const [data, setData] = useState<Data>(() => parseJson<Data>(row?.dataJson, {}));
   const [reason, setReason] = useState('');
   const set = (k: string, v: string) => setData({ ...data, [k]: v });
@@ -43,7 +43,7 @@ function EntityDialog({ wsId, entityType, def, row, onClose }: { wsId: string; e
                   <option value="">—</option>
                   {f.enum?.map((v) => <option key={v} value={v}>{STATE_LABEL[v] ?? v}</option>)}
                 </Select>
-              ) : f.type === 'text' ? (
+              ) : f.type === 'text' || f.type === 'markdown' ? (
                 <Textarea rows={3} value={value} onChange={(e) => set(k, e.target.value)} />
               ) : (
                 <Input type={f.type === 'date' ? 'date' : 'text'} value={value} onChange={(e) => set(k, e.target.value)} data-testid={`entity-${k}`} />
@@ -83,7 +83,7 @@ function History({ id, current, editable }: { id: string; current: number; edita
   );
 }
 
-function Row({ row, def, editable, onEdit }: { row: EntityRow; def: EntityDef; editable: boolean; onEdit: () => void }) {
+function Row({ row, def, editable, onEdit, extra }: { row: EntityRow; def: EntityDef; editable: boolean; onEdit: () => void; extra?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const data = parseJson<Data>(row.dataJson, {});
   const titleKey = def.titleField ?? Object.keys(def.fields)[0] ?? '';
@@ -101,6 +101,7 @@ function Row({ row, def, editable, onEdit }: { row: EntityRow; def: EntityDef; e
         {dateKey && !!data[dateKey] && <span className="measured text-xs text-muted">{String(data[dateKey])}</span>}
         <span className="measured text-xs text-muted">{when(row.updatedAt ?? row.createdAt)}</span>
         {state && <Badge tone={STATE_TONE[state] ?? 'neutral'}>{STATE_LABEL[state] ?? state}</Badge>}
+        {extra}
       </div>
       {open && (
         <div className="mt-3 space-y-3 pl-[3.25rem]">
@@ -119,7 +120,7 @@ function Row({ row, def, editable, onEdit }: { row: EntityRow; def: EntityDef; e
 }
 
 // 结构化实体的版本轨：table / timeline 板块共用，字段全部来自 manifest
-export function EntityPanel({ wsId, entityType, def, editable, sortByDate }: { wsId: string; entityType: string; def: EntityDef; editable: boolean; sortByDate?: boolean }) {
+export function EntityPanel({ wsId, entityType, def, editable, sortByDate, rowExtra, emptyExtra }: { wsId: string; entityType: string; def: EntityDef; editable: boolean; sortByDate?: boolean; rowExtra?: (row: EntityRow) => ReactNode; emptyExtra?: ReactNode }) {
   const q = useWsEntities(wsId);
   const [dialog, setDialog] = useState<{ row?: EntityRow } | null>(null);
   if (q.isLoading) return <Loading />;
@@ -139,11 +140,12 @@ export function EntityPanel({ wsId, entityType, def, editable, sortByDate }: { w
       {rows.length === 0 ? (
         <Empty title={`还没有${label}`}>
           <p>{def.description}</p>
+          {emptyExtra}
           {editable && <Button variant="primary" className="mt-3" onClick={() => setDialog({})}>新建{label}</Button>}
         </Empty>
       ) : (
         <ol className="px-6 py-3">
-          {rows.map((r) => <Row key={r.id} row={r} def={def} editable={editable} onEdit={() => setDialog({ row: r })} />)}
+          {rows.map((r) => <Row key={r.id} row={r} def={def} editable={editable} onEdit={() => setDialog({ row: r })} extra={rowExtra?.(r)} />)}
         </ol>
       )}
       {dialog && <EntityDialog wsId={wsId} entityType={entityType} def={def} row={dialog.row} onClose={() => setDialog(null)} />}

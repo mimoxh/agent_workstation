@@ -8,6 +8,8 @@ export interface ModelRoute {
   model: LanguageModel;
   supportsParallelTools: boolean;
   local?: boolean | undefined;
+  // 图片工具结果能不能直接喂给这个模型（来自 provider 配置的 vision 标记）
+  vision?: boolean | undefined;
   // 同一 provider 下换模型：Agent 指定了不同于默认的模型时用
   withModel?: ((name: string) => ModelRoute) | undefined;
 }
@@ -28,7 +30,7 @@ async function buildRoute(p: ProviderConfig): Promise<ModelRoute> {
   if (p.kind === 'anthropic') {
     const { createAnthropic } = await import('@ai-sdk/anthropic');
     const client = createAnthropic({ apiKey: p.apiKey ?? '', ...(p.baseUrl ? { baseURL: p.baseUrl } : {}) });
-    const route = (name: string): ModelRoute => ({ id: `${p.name}:${name}`, model: client(name), supportsParallelTools: true, withModel: route });
+    const route = (name: string): ModelRoute => ({ id: `${p.name}:${name}`, model: client(name), supportsParallelTools: true, vision: !!p.vision, withModel: route });
     return route(p.model);
   }
   const local = p.kind === 'ollama';
@@ -39,7 +41,7 @@ async function buildRoute(p: ProviderConfig): Promise<ModelRoute> {
     ...(p.apiKey ? { apiKey: p.apiKey } : {}),
   });
   // Ollama 通常不支持并行 tool call：能力声明为 false，循环本身按序执行工具
-  const route = (name: string): ModelRoute => ({ id: `${p.name}:${name}`, model: client(name), supportsParallelTools: !local, local, withModel: route });
+  const route = (name: string): ModelRoute => ({ id: `${p.name}:${name}`, model: client(name), supportsParallelTools: !local, local, vision: !!p.vision, withModel: route });
   return route(p.model);
 }
 
@@ -71,6 +73,7 @@ async function registerBuiltin() {
       model: createScriptedMock(),
       supportsParallelTools: true,
       local: true,
+      vision: false,
     });
   }
 }

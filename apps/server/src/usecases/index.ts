@@ -2,6 +2,7 @@
 export { buildPermCtx, logEvent, manifestOf, mergeAcceptance, visibleTaskFilter } from './core.js';
 export { executingWs, stewardOf, taskFlow } from './flow.js';
 export { closeInboxFor, pushInbox, pushRunFailure, resolveInbox } from './inbox.js';
+export { planTask, projectEdges, releaseDependents, unmetDependencies, validatePlan } from './plan.js';
 export {
   assignTask,
   createTaskUc,

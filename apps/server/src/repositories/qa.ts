@@ -1,5 +1,5 @@
 import { compareRuns, computeVerdict, flakiness, isBugOpen, isFailing, type Actor, type CaseSample } from '@aw/domain';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { artifact, qaCaseResult, qaRun, task, workstation } from '../db/schema.js';
 import { git } from '../runtime/git.js';
@@ -58,14 +58,15 @@ export async function getCaseHistory(actor: Actor, db: DB, wsId: string, key: st
   const rows = await db
     .select({ status: qaCaseResult.status, commitSha: qaCaseResult.commitSha, createdAt: qaCaseResult.createdAt, durationMs: qaCaseResult.durationMs, failureMessage: qaCaseResult.failureMessage, name: qaCaseResult.name, runId: qaCaseResult.runId })
     .from(qaCaseResult)
-    .where(and(eq(qaCaseResult.workstationId, wsId), eq(qaCaseResult.caseKey, key)))
+    .innerJoin(qaRun, eq(qaCaseResult.runId, qaRun.id))
+    .where(and(eq(qaCaseResult.workstationId, wsId), eq(qaCaseResult.caseKey, key), ne(qaRun.trigger, 'acceptance')))
     .orderBy(desc(qaCaseResult.createdAt))
     .limit(limit);
   return { history: rows, flakiness: flakiness([...rows].reverse()) };
 }
 
 async function recentRuns(db: DB, wsId: string) {
-  return db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']))).orderBy(desc(qaRun.createdAt)).limit(400);
+  return db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']), ne(qaRun.trigger, 'acceptance'))).orderBy(desc(qaRun.createdAt)).limit(400);
 }
 
 async function flakyOf(db: DB, wsId: string) {
@@ -108,7 +109,7 @@ export async function getQaFlaky(actor: Actor, db: DB, wsId: string) {
 }
 
 async function latestBySuite(db: DB, wsId: string, target: string | null) {
-  const rows = await db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, FINISHED))).orderBy(desc(qaRun.createdAt)).limit(400);
+  const rows = await db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, FINISHED), ne(qaRun.trigger, 'acceptance'))).orderBy(desc(qaRun.createdAt)).limit(400);
   const onTarget = new Map<string, typeof rows[number]>();
   const any = new Map<string, typeof rows[number]>();
   for (const r of rows) {
@@ -137,7 +138,11 @@ export async function getQaOverview(actor: Actor, db: DB, wsId: string) {
     runs: latest.map((r) => ({ suite: r.suiteName, status: r.status, passed: r.passed, failed: results.filter((x) => x.runId === r.id && isFailing(x.status) && !quarantine.has(x.caseKey)).length, commitSha: r.commitSha })),
     openBugs: openBugs.map((b) => ({ severity: b.data.severity })), flaky: flakyOpen.length, coverage,
   });
-  const history = (await db.select({ id: qaRun.id, status: qaRun.status, passed: qaRun.passed, total: qaRun.total, skipped: qaRun.skipped, createdAt: qaRun.createdAt, suiteName: qaRun.suiteName, commitSha: qaRun.commitSha }).from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']))).orderBy(desc(qaRun.createdAt)).limit(TREND_POINTS)).reverse();
+  const history = (await db.select({ id: qaRun.id, status: qaRun.status, passed: qaRun.passed, total: qaRun.total, skipped: qaRun.skipped, createdAt: qaRun.createdAt, suiteName: qaRun.suiteName, commitSha: qaRun.commitSha }).from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']), ne(qaRun.trigger, 'acceptance'))).orderBy(desc(qaRun.createdAt)).limit(TREND_POINTS)).reverse();
+  const scheduledAt = new Map<string, string>();
+  for (const r of await db.select({ suiteId: qaRun.suiteId, createdAt: qaRun.createdAt }).from(qaRun).where(and(eq(qaRun.workstationId, wsId), eq(qaRun.trigger, 'schedule'))).orderBy(desc(qaRun.createdAt)).limit(400)) {
+    if (!scheduledAt.has(r.suiteId)) scheduledAt.set(r.suiteId, r.createdAt);
+  }
   const running = await db.select({ id: qaRun.id, suiteName: qaRun.suiteName, status: qaRun.status }).from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['queued', 'running'])));
   const drafts = (await entitiesOf<CaseData>(db, wsId, 'TestCase')).filter((c) => c.data.status === 'draft').length;
   const plans = await entitiesOf<PlanData>(db, wsId, 'TestPlan');
@@ -152,7 +157,7 @@ export async function getQaOverview(actor: Actor, db: DB, wsId: string) {
   ];
   return {
     source: source.ok ? { ok: true as const, workstationId: source.workstationId, name: source.name, targetBranch: source.settings.targetBranch, repoPath: source.settings.repoPath } : { ok: false as const, error: source.error },
-    suites: suiteRows.map((s) => ({ id: s.row.id, name: s.data.name, last: latest.find((r) => r.suiteId === s.row.id) ?? null })).map((s) => ({ id: s.id, name: s.name, last: s.last ? summary(s.last) : null })),
+    suites: suiteRows.map((s) => ({ id: s.row.id, name: s.data.name, schedule: s.data.schedule ?? 'off', scheduleAt: s.data.schedule_at ?? null, lastScheduledAt: scheduledAt.get(s.row.id) ?? null, last: latest.find((r) => r.suiteId === s.row.id) ?? null })).map((s) => ({ id: s.id, name: s.name, schedule: s.schedule, scheduleAt: s.scheduleAt, lastScheduledAt: s.lastScheduledAt, last: s.last ? summary(s.last) : null })),
     verdict, coverage, flaky: flakyOpen.length,
     openBugs: { total: openBugs.length, blocking: openBugs.filter((b) => b.data.severity === 'p0' || b.data.severity === 'p1').length },
     trend: history.map((h) => ({ id: h.id, status: h.status, rate: h.total - h.skipped > 0 ? h.passed / (h.total - h.skipped) : 0, at: h.createdAt, suite: h.suiteName, commit: h.commitSha })),
@@ -164,7 +169,7 @@ export async function getQaCoverage(actor: Actor, db: DB, wsId: string) {
   void actor;
   const source = await qaSourceOf(db, wsId);
   const target = source.ok ? source.settings.targetBranch : null;
-  const latest = (await db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']))).orderBy(desc(qaRun.createdAt)).limit(400)).filter((r) => r.coverageJson);
+  const latest = (await db.select().from(qaRun).where(and(eq(qaRun.workstationId, wsId), inArray(qaRun.status, ['passed', 'failed']), ne(qaRun.trigger, 'acceptance'))).orderBy(desc(qaRun.createdAt)).limit(400)).filter((r) => r.coverageJson);
   const bySuite = new Map<string, typeof latest>();
   for (const r of latest) bySuite.set(r.suiteId, [...(bySuite.get(r.suiteId) ?? []), r]);
   const suites = [];
@@ -217,6 +222,23 @@ export async function bugTaskStatuses(actor: Actor, db: DB, wsId: string) {
   if (all.length === 0) return {};
   const rows = await db.select({ id: task.id, status: task.status, stage: task.stage, title: task.title }).from(task).where(inArray(task.id, all));
   return Object.fromEntries(rows.map((r) => [r.id, r]));
+}
+
+// 开发台的验收套件：项目里把这台开发台当测试来源的测试台，其全部 TestSuite
+export async function qaGateSuites(actor: Actor, db: DB, devWsId: string) {
+  void actor;
+  const dev = (await db.select().from(workstation).where(eq(workstation.id, devWsId)))[0];
+  if (!dev) return [];
+  const qas = await db.select().from(workstation).where(and(eq(workstation.projectId, dev.projectId), eq(workstation.pluginId, 'qa')));
+  const out: { id: string; name: string; qaWorkstationId: string; qaWorkstationName: string }[] = [];
+  for (const ws of qas) {
+    const source = await qaSourceOf(db, ws.id);
+    if (!source.ok || source.workstationId !== devWsId) continue;
+    for (const s of await entitiesOf<SuiteData>(db, ws.id, 'TestSuite')) {
+      out.push({ id: s.row.id, name: s.data.name, qaWorkstationId: ws.id, qaWorkstationName: ws.name });
+    }
+  }
+  return out;
 }
 
 export async function listQaSources(actor: Actor, db: DB, projectId: string) {

@@ -8,6 +8,7 @@ import { artifact, qaCaseResult, qaRun } from '../../db/schema.js';
 import { logEvent } from '../../usecases/core.js';
 import { afterQaRun } from '../../usecases/qa.js';
 import { isDangerous, isDependencyChange, isEnvError, portEnv, runCommand, splitCommand, WHITELIST, type ExecResult } from '../exec.js';
+import { startLive } from '../live_output.js';
 import { git, gitOk, wtRoot, type DevSettings } from '../git.js';
 import { safePath } from '../tools/dev.js';
 import { parseCoverage, parseJUnit, type Coverage, type ParsedCase } from './reports.js';
@@ -92,12 +93,14 @@ async function lockHash(s: DevSettings, sha: string) {
 }
 
 // 锁文件没变就不重装；装失败不写标记，下次还会重试
-async function ensureSetup(s: DevSettings, wsId: string, dir: string, sha: string): Promise<ExecResult | null> {
+async function ensureSetup(s: DevSettings, wsId: string, dir: string, sha: string, runId?: string): Promise<ExecResult | null> {
   if (!s.commands.setup) return null;
   const stamp = `${dir}.setup`;
   const hash = await lockHash(s, sha);
   if (existsSync(stamp) && readFileSync(stamp, 'utf8') === hash && existsSync(path.join(dir, 'node_modules'))) return null;
-  const res = await runCommand({ cwd: dir, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv(wsId.slice(0, 8)), sandbox: s.sandbox, network: 'bridge' });
+  const live = runId ? startLive(`qa:${runId}`, `环境准备：${s.commands.setup}`) : null;
+  const res = await runCommand({ cwd: dir, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv(wsId.slice(0, 8)), sandbox: s.sandbox, network: 'bridge', onOutput: live?.write });
+  live?.finish(res.exitCode);
   if (res.exitCode === 0 && !res.timedOut) writeFileSync(stamp, hash);
   return res;
 }
@@ -175,16 +178,19 @@ async function executeRun(db: DB, runId: string, s: DevSettings, signal: AbortSi
   } catch (e) {
     return finish(db, runId, 'error', { error: `检出 ${run.commitSha.slice(0, 8)} 失败：${String(e).slice(0, 500)}`, envError: true });
   }
-  const setup = await ensureSetup(s, wsId, dir, run.commitSha);
+  const setup = await ensureSetup(s, wsId, dir, run.commitSha, runId);
   if (setup && (setup.exitCode !== 0 || setup.timedOut)) {
     return finish(db, runId, 'error', { error: '安装依赖失败', envError: true, outputArtifactId: await saveOutput(db, wsId, setup.output) });
   }
   if (signal.aborted) return finish(db, runId, 'canceled', {});
 
+  const live = startLive(`qa:${runId}`, cfg.command);
   const res = await runCommand({
     cwd: dir, command: cfg.command, timeoutSec: cfg.timeoutSec, sandbox: s.sandbox, signal,
     env: { ...portEnv(wsId.slice(0, 8)), PLAYWRIGHT_JUNIT_OUTPUT_NAME: cfg.reportPath },
+    onOutput: live.write,
   });
+  live.finish(res.exitCode);
   const outputArtifactId = await saveOutput(db, wsId, res.output);
   const base = { durationMs: res.durationMs, outputArtifactId };
   if (signal.aborted) return finish(db, runId, 'canceled', base);

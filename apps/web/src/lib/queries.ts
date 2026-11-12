@@ -15,6 +15,7 @@ const fetchAgentStatus = async (id: string) => unwrap(await api.workstations[':i
 const fetchRepoStatus = async (id: string) => unwrap(await api.workstations[':id'].repo.$get({ param: { id } }));
 const fetchRemote = async (id: string) => unwrap(await api.workstations[':id'].remote.$get({ param: { id } }));
 const fetchTaskBranch = async (id: string) => unwrap(await api.tasks[':id'].branch.$get({ param: { id } }));
+const fetchTaskQuality = async (id: string) => unwrap(await api.tasks[':id'].quality.$get({ param: { id } }));
 const fetchFiles = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].files.$get({ param: { id }, query: { path, branch } }));
 const fetchBranches = async (id: string) => unwrap(await api.workstations[':id'].branches.$get({ param: { id } }));
 const fetchFile = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].file.$get({ param: { id }, query: { path, branch } }));
@@ -48,6 +49,8 @@ const fetchQaAutomated = async (id: string) => unwrap(await api.workstations[':i
 const fetchQaHandoffs = async (id: string) => unwrap(await api.workstations[':id'].qa.handoffs.$get({ param: { id } }));
 const fetchQaHistory = async (id: string, key: string) => unwrap(await api.workstations[':id'].qa.cases[':key'].history.$get({ param: { id, key } }));
 const fetchQaPlan = async (id: string, planId: string) => unwrap(await api.workstations[':id'].qa.plans[':planId'].$get({ param: { id, planId } }));
+const fetchQaGateSuites = async (id: string) => unwrap(await api.workstations[':id']['qa-gate-suites'].$get({ param: { id } }));
+const fetchProjectStatus = async (id: string) => unwrap(await api.projects[':id'].status.$get({ param: { id } }));
 
 export type QaOverview = Awaited<ReturnType<typeof fetchQaOverview>>;
 export type QaRunRow = Awaited<ReturnType<typeof fetchQaRuns>>[number];
@@ -68,6 +71,8 @@ export const useQaAutomated = (id: string) => useQuery({ queryKey: ['qa', 'autom
 export const useQaHandoffs = (id: string) => useQuery({ queryKey: ['qa', 'handoffs', id], queryFn: () => fetchQaHandoffs(id) });
 export const useQaHistory = (id: string, key: string) => useQuery({ queryKey: ['qa', 'history', id, key], queryFn: () => fetchQaHistory(id, key) });
 export const useQaPlan = (id: string, planId: string) => useQuery({ queryKey: ['qa', 'plan', id, planId], queryFn: () => fetchQaPlan(id, planId) });
+export const useQaGateSuites = (id: string | null | undefined) => useQuery({ queryKey: ['qa', 'gate-suites', id], queryFn: () => fetchQaGateSuites(id!), enabled: on(id) });
+export type QaGateSuite = Awaited<ReturnType<typeof fetchQaGateSuites>>[number];
 
 export type ProjectSummary = Awaited<ReturnType<typeof fetchProjects>>[number];
 export type ProjectDetail = Awaited<ReturnType<typeof fetchProject>>;
@@ -98,6 +103,7 @@ export type RepoStatus = Awaited<ReturnType<typeof fetchRepoStatus>>;
 export type TaskBranch = NonNullable<Awaited<ReturnType<typeof fetchTaskBranch>>['branch']>;
 export type Gate = TaskDetail['flow']['gates'][number];
 export type ProjectTask = Awaited<ReturnType<typeof fetchProjectTasks>>[number];
+export type ProjectStatus = Awaited<ReturnType<typeof fetchProjectStatus>>;
 
 const on = <T,>(id: T | null | undefined) => id !== null && id !== undefined && id !== '';
 
@@ -105,16 +111,18 @@ export const useProjects = () => useQuery({ queryKey: ['projects'], queryFn: fet
 export const useProject = (id: string, enabled = true) => useQuery({ queryKey: ['project', id], queryFn: () => fetchProject(id), enabled: enabled && on(id) });
 export const useOverview = (id: string) => useQuery({ queryKey: ['overview', id], queryFn: () => fetchOverview(id) });
 export const useProjectTasks = (id: string, enabled = true) => useQuery({ queryKey: ['project-tasks', id], queryFn: () => fetchProjectTasks(id), enabled });
+export const useProjectStatus = (id: string | null | undefined) => useQuery({ queryKey: ['project-status', id], queryFn: () => fetchProjectStatus(id!), enabled: on(id) });
 export const useProjectRuns = (id: string) => useQuery({ queryKey: ['runs', 'project', id], queryFn: () => fetchProjectRuns(id) });
 export const useWorkstation = (id: string | null | undefined) => useQuery({ queryKey: ['ws', id], queryFn: () => fetchWorkstation(id!), enabled: on(id) });
 export const useWsTasks = (id: string) => useQuery({ queryKey: ['tasks', id], queryFn: () => fetchWsTasks(id) });
 export const useWsProposals = (id: string) => useQuery({ queryKey: ['proposals', 'ws', id], queryFn: () => fetchWsProposals(id) });
 export const useWsTestRuns = (id: string) => useQuery({ queryKey: ['testruns', 'ws', id], queryFn: () => fetchWsTestRuns(id) });
-export const useWsEntities = (id: string) => useQuery({ queryKey: ['entities', id], queryFn: () => fetchWsEntities(id) });
+export const useWsEntities = (id: string | null | undefined) => useQuery({ queryKey: ['entities', id], queryFn: () => fetchWsEntities(id!), enabled: on(id) });
 export const useAgentStatus = (id: string | null | undefined) => useQuery({ queryKey: ['agent-status', id], queryFn: () => fetchAgentStatus(id!), enabled: on(id) });
 export const useRepoStatus = (id: string) => useQuery({ queryKey: ['repo', id], queryFn: () => fetchRepoStatus(id) });
 export const useRemoteStatus = (id: string, enabled = true) => useQuery({ queryKey: ['remote', id], queryFn: () => fetchRemote(id), enabled, staleTime: 30000 });
 export const useTaskBranch = (id: string, enabled = true) => useQuery({ queryKey: ['task-branch', id], queryFn: () => fetchTaskBranch(id), enabled, refetchInterval: 20000 });
+export const useTaskQuality = (id: string, enabled = true) => useQuery({ queryKey: ['task-quality', id], queryFn: () => fetchTaskQuality(id), enabled });
 export const useFiles = (id: string, path: string, branch = '') => useQuery({ queryKey: ['files', id, branch, path], queryFn: () => fetchFiles(id, path, branch) });
 export const useBranches = (id: string) => useQuery({ queryKey: ['files', id, 'branches'], queryFn: () => fetchBranches(id) });
 export const useFile = (id: string, path: string | null, branch = '') => useQuery({ queryKey: ['file', id, branch, path], queryFn: () => fetchFile(id, path!, branch), enabled: on(path) });

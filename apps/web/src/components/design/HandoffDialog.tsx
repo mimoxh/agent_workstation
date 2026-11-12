@@ -9,14 +9,16 @@ import type { DesignDoc } from './model';
 
 export function HandoffDialog({ design, project, openComments, onClose }: { design: DesignDoc; project: ProjectDetail; openComments: number; onClose: () => void }) {
   const targets = project.workstations.filter((w) => w.pluginId === 'dev');
+  const hasQa = project.workstations.some((w) => w.pluginId === 'qa');
   const navigate = useNavigate();
   const [target, setTarget] = useState(targets[0]?.id ?? '');
   const [module, setModule] = useState('');
   const [priority, setPriority] = useState<'p0' | 'p1' | 'p2'>('p1');
   const [note, setNote] = useState('');
+  const [qaCases, setQaCases] = useState(hasQa);
   const send = useMutation({
     meta: { silent: true },
-    mutationFn: async () => unwrap(await api.designs[':id'].handoff.$post({ param: { id: design.id }, json: { targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}) } })),
+    mutationFn: async () => unwrap(await api.designs[':id'].handoff.$post({ param: { id: design.id }, json: { targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}), ...(hasQa ? { qaCases } : {}) } })),
     onSuccess: (r) => {
       onClose();
       void navigate({ to: '/projects/$projectId/tasks/$taskId', params: { projectId: project.id, taskId: r.taskId } });
@@ -50,6 +52,11 @@ export function HandoffDialog({ design, project, openComments, onClose }: { desi
           <Field label="给开发的备注">
             <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
+          {hasQa && (
+            <label className="flex items-center gap-2 text-sm text-ink-2">
+              <input type="checkbox" checked={qaCases} onChange={(e) => setQaCases(e.target.checked)} data-testid="handoff-qa-cases" />同时请测试台起草验收用例
+            </label>
+          )}
         </DialogForm>
       )}
     </Dialog>

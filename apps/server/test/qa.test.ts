@@ -7,17 +7,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createDb, migrateDb, type DB } from '../src/db/client.js';
 import { seed } from '../src/db/seed.js';
-import { agent, artifact, entity, inboxItem, pluginInstall, qaRun, task, workstation } from '../src/db/schema.js';
+import { agent, artifact, entity, inboxItem, message, pluginInstall, qaRun, task, workstation } from '../src/db/schema.js';
 import { loadPlugins } from '../src/plugins.js';
 import { conversationIdle } from '../src/runtime/conversation.js';
 import { loadModels } from '../src/runtime/models.js';
 import { parseCoverage, parseJUnit } from '../src/runtime/qa/reports.js';
 import { qaIdle } from '../src/runtime/qa/runner.js';
+import { tickQaSchedule } from '../src/runtime/qa/schedule.js';
+import { runAcceptance } from '../src/runtime/dev_workflow.js';
 import { scheduler, startScheduler } from '../src/runtime/scheduler.js';
 import { zodToJson } from '../src/runtime/loop.js';
 import { executeTool, toolSchemasFor, type RunCtx } from '../src/runtime/tools/index.js';
 import { buildPermCtx, mountWorkstation } from '../src/usecases/index.js';
 import { qaTick, recoverQaRuns } from '../src/usecases/qa.js';
+import { taskThreadOf, wsThreadOf } from '../src/usecases/threads.js';
 import { createFixtureRepo } from './fixtures.js';
 
 const HUMAN = { type: 'human', id: 'local' } as const;
@@ -198,9 +201,20 @@ describe('运行闭环', () => {
     ['node run.js | cat', '管道'],
     ['bash run.sh', '白名单'],
     ['pnpm add lodash', '环境或依赖'],
+    ['python -c "print(1)"', '环境或依赖'],
+    ['python3 -m pip install requests', '环境或依赖'],
+    ['python -m pip', '环境或依赖'],
+    ['go get example.com/mod', '环境或依赖'],
+    ['go install example.com/tool@latest', '环境或依赖'],
+    ['go mod tidy', '环境或依赖'],
   ])('拒绝命令 %s', async (command, hint) => {
     const r = await json(req('POST', `/api/workstations/${wsId}/qa/runs`, { suiteId: await suite({ command }) }));
     expect(r.error).toContain(hint);
+  });
+
+  it.each(['pytest --junitxml=reports/junit.xml', 'gotestsum --junitfile reports/junit.xml', 'go test ./...', 'go run main.go', 'python3 tests/run.py'])('合法命令 %s 能保存', async (command) => {
+    const r = await json<{ id: string }>(req('POST', `/api/workstations/${wsId}/qa/suites`, { data: { name: 'x', command, report_path: 'report.xml' } }));
+    expect(r.id).toBeTruthy();
   });
 
   it('报告路径不能逃出仓库', async () => {
@@ -466,10 +480,170 @@ describe('Agent 工具', () => {
   });
 });
 
+describe('定时套件', () => {
+  it('到期的套件排队一次；没排上之前和没开定时的都不动', async () => {
+    const hourly = await suite({ name: '定时', schedule: 'hourly' });
+    const off = await suite({ name: '不开', schedule: 'off' });
+    await tickQaSchedule(db);
+    expect(await db.select().from(qaRun).where(and(eq(qaRun.suiteId, hourly), eq(qaRun.trigger, 'schedule')))).toHaveLength(1);
+    expect(await db.select().from(qaRun).where(eq(qaRun.suiteId, off))).toHaveLength(0);
+    await qaIdle();
+    await tickQaSchedule(db);
+    expect(await db.select().from(qaRun).where(eq(qaRun.suiteId, hourly))).toHaveLength(1);
+    const row = (await db.select().from(qaRun).where(eq(qaRun.suiteId, hourly)))[0]!;
+    expect(row).toMatchObject({ status: 'passed', trigger: 'schedule' });
+  });
+});
+
+describe('验收套件', () => {
+  const trs = async () => (await db.select().from(entity).where(and(eq(entity.workstationId, devId), eq(entity.entityType, 'TestRun')))).map((e) => JSON.parse(e.dataJson!) as { command: string; status: string; qa_run_id?: string });
+
+  it('套件通过则验收通过，TestRun 记录 qa_run_id；验收运行不进总览最新', async () => {
+    const s = await suite();
+    const r = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: s }], 60);
+    expect(r.allPassed).toBe(true);
+    expect(r.results[0]).toMatchObject({ status: 'passed', command: 'qa:单测', env: false });
+    const runRow = (await db.select().from(qaRun).where(eq(qaRun.trigger, 'acceptance')))[0]!;
+    expect(runRow.status).toBe('passed');
+    const tr = (await trs()).find((d) => d.qa_run_id === runRow.id);
+    expect(tr).toMatchObject({ command: 'qa:单测', status: 'passed' });
+    const o = await json<{ suites: { id: string; last: unknown }[] }>(req('GET', `/api/workstations/${wsId}/qa/overview`));
+    expect(o.suites.find((x) => x.id === s)!.last).toBeNull();
+  });
+
+  it('套件失败则验收失败，输出带失败用例名', async () => {
+    commit([{ name: 'a', fail: 'boom' }, { name: 'b' }]);
+    const s = await suite();
+    const r = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: s }], 60);
+    expect(r.allPassed).toBe(false);
+    expect(r.results[0]!.status).toBe('failed');
+    expect(r.results[0]!.output).toContain('a');
+    expect((await db.select().from(qaRun).where(eq(qaRun.trigger, 'acceptance')))[0]!.status).toBe('failed');
+  });
+
+  it('不存在或绑定别的开发台的套件直接报错', async () => {
+    const r = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: 'nonexistent' }], 60);
+    expect(r).toMatchObject({ allPassed: false, envError: true, results: [{ status: 'error', output: '套件不存在或没有绑定本开发台', env: true }] });
+    const root = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
+    const dev2 = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'dev', name: '开发二', settings: { repoPath: repo, targetBranch: 'develop' } });
+    if (dev2.kind !== 'ok') throw new Error(dev2.error);
+    const qa2 = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'qa', name: '测试二', settings: { sourceWorkstationId: dev2.id } });
+    if (qa2.kind !== 'ok') throw new Error(qa2.error);
+    const s2 = (await json<{ id: string }>(req('POST', `/api/workstations/${qa2.id}/entities`, { entityType: 'TestSuite', data: { name: 's2', command: 'node run.js', report_path: 'report.xml' } }))).id;
+    const r2 = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: s2 }], 60);
+    expect(r2.results[0]).toMatchObject({ status: 'error', output: '套件不存在或没有绑定本开发台', env: true });
+  });
+
+  it('qa-gate-suites 只列绑定这台开发台的套件', async () => {
+    const s = await suite();
+    const rows = await json<{ id: string; name: string; qaWorkstationId: string; qaWorkstationName: string }[]>(req('GET', `/api/workstations/${devId}/qa-gate-suites`));
+    expect(rows).toContainEqual({ id: s, name: '单测', qaWorkstationId: wsId, qaWorkstationName: '测试' });
+  });
+});
+
+describe('签字同步', () => {
+  const rootWs = async () => (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
+  const plan = async (data: Record<string, unknown>) => (await json<{ id: string }>(req('POST', `/api/workstations/${wsId}/entities`, { entityType: 'TestPlan', data: { name: 'v1 回归', status: 'draft', ...data } }))).id;
+
+  it('签字给根工作台发 decision，里程碑带上测试结论', async () => {
+    const root = await rootWs();
+    const ms = (await json<{ id: string }>(req('POST', `/api/workstations/${root.id}/entities`, { entityType: 'Milestone', data: { name: 'M1' } }))).id;
+    const s = await suite();
+    const id = await plan({ suites: [s], milestone: ms });
+    await req('POST', `/api/qa-plans/${id}/start`);
+    await qaIdle();
+    expect((await req('POST', `/api/qa-plans/${id}/sign`, {})).status).toBe(200);
+
+    const th = await wsThreadOf(db, root.id);
+    const msgs = await db.select().from(message).where(eq(message.threadId, th.id));
+    const d = msgs.find((m) => m.kind === 'decision' && m.content?.includes('测试计划「v1 回归」已签字'))!;
+    expect(d).toBeTruthy();
+    expect(d.content).toContain('可发布');
+    expect(d.content).toContain('里程碑「M1」');
+    expect(JSON.parse(d.metaJson!)).toMatchObject({ planId: id, qaWorkstationId: wsId, level: 'ready', milestoneId: ms });
+
+    const status = await json<{ milestones: { id: string; qa: { planId: string; planName: string; level: string; override: boolean } | null; atRisk: boolean }[] }>(req('GET', '/api/projects/proj-aw/status'));
+    const m = status.milestones.find((x) => x.id === ms)!;
+    expect(m.qa).toMatchObject({ planId: id, planName: 'v1 回归', level: 'ready', override: false });
+    expect(m.atRisk).toBe(false);
+  });
+
+  it('阻断放行的签字让里程碑有风险', async () => {
+    const root = await rootWs();
+    const ms = (await json<{ id: string }>(req('POST', `/api/workstations/${root.id}/entities`, { entityType: 'Milestone', data: { name: 'M2' } }))).id;
+    await db.insert(task).values({ id: crypto.randomUUID(), projectId: 'proj-aw', workstationId: devId, title: '未完任务', inputJson: '{}', status: 'open', milestoneId: ms, createdAt: new Date().toISOString() });
+    commit([{ name: 'a', fail: 'boom' }]);
+    const id = await plan({ suites: [await suite()], milestone: ms });
+    await req('POST', `/api/qa-plans/${id}/start`);
+    await qaIdle();
+    expect((await req('POST', `/api/qa-plans/${id}/sign`, { override: true, note: '已知风险' })).status).toBe(200);
+
+    const th = await wsThreadOf(db, root.id);
+    const d = (await db.select().from(message).where(eq(message.threadId, th.id))).find((m) => m.kind === 'decision' && m.content?.includes('人工放行：已知风险'))!;
+    expect(d.content).toContain('结论 阻断');
+    const status = await json<{ milestones: { id: string; qa: { level: string; override: boolean } | null; atRisk: boolean }[] }>(req('GET', '/api/projects/proj-aw/status'));
+    expect(status.milestones.find((x) => x.id === ms)).toMatchObject({ qa: { level: 'blocked', override: true }, atRisk: true });
+  });
+});
+
 describe('插件登记', () => {
   it('老库重启后补上新插件的登记', async () => {
     await db.delete(pluginInstall).where(eq(pluginInstall.pluginId, 'qa'));
     await seed(db);
     expect(await db.select().from(pluginInstall).where(eq(pluginInstall.pluginId, 'qa'))).toHaveLength(1);
+  });
+});
+
+describe('合并后质量', () => {
+  interface Quality { merged: boolean; mergeSha?: string; reverted?: boolean; sources?: { qaWorkstationId: string; suites: { suiteId: string; autoRun: boolean; run: { id: string; status: string; commitSha: string } | null }[] }[] }
+  const quality = (id: string) => json<Quality>(req('GET', `/api/tasks/${id}/quality`));
+  const mergedTask = async (codeRef: Record<string, unknown> | null, extra: Record<string, unknown> = {}) => {
+    const id = crypto.randomUUID();
+    await db.insert(task).values({ id, projectId: 'proj-aw', workstationId: devId, title: '合并任务', inputJson: '{}', status: 'done', codeRefJson: codeRef ? JSON.stringify(codeRef) : null, createdAt: new Date().toISOString(), ...extra });
+    return id;
+  };
+
+  it('没合并的任务返回 merged=false；合并提交被运行覆盖时给出最近结果', async () => {
+    expect((await quality(await mergedTask(null))).merged).toBe(false);
+    const base = g('rev-parse', 'develop').toString().trim();
+    const s = await suite();
+    const runId = await run(s);
+    const id = await mergedTask({ merge_sha: base });
+    const q = await quality(id);
+    expect(q).toMatchObject({ merged: true, mergeSha: base, reverted: false });
+    const row = q.sources!.find((x) => x.qaWorkstationId === wsId)!.suites[0]!;
+    expect(row.run).toMatchObject({ id: runId, status: 'passed' });
+  });
+
+  it('运行钉在旧提交、不含这次合并时不算回声', async () => {
+    const base = g('rev-parse', 'develop').toString().trim();
+    const head = commit([{ name: 'a' }]);
+    const s = await suite();
+    await run(s, base);
+    const q = await quality(await mergedTask({ merge_sha: head }));
+    expect(q.sources![0]!.suites[0]!.run).toBeNull();
+  });
+
+  it('自动回归新增失败时，可疑范围内的合并在收件箱里标出并发进任务线程', async () => {
+    const s = await suite({ auto_run: true });
+    await qaTick(db);
+    await qaIdle();
+    const base = (await db.select().from(qaRun).where(eq(qaRun.suiteId, s)))[0]!.commitSha;
+    const mergeSha = commit([{ name: 'a' }, { name: 'b' }, { name: 'x' }]);
+    const suspect = await mergedTask({ merge_sha: mergeSha }, { title: '可疑合并' });
+    await mergedTask({ merge_sha: base }, { title: '基线里的' });
+    await mergedTask({ merge_sha: mergeSha, revert_sha: 'r1' }, { title: '已回滚' });
+    await mergedTask({ merge_sha: mergeSha }, { title: '没做完的', status: 'in_progress' });
+
+    commit([{ name: 'a', fail: 'boom' }, { name: 'b' }]);
+    await qaTick(db);
+    await qaIdle();
+
+    const item = (await db.select().from(inboxItem).where(eq(inboxItem.kind, 'qa_regression')))[0]!;
+    const payload = JSON.parse(item.payloadJson!) as { suspects: { taskId: string; title: string }[] };
+    expect(payload.suspects).toEqual([{ taskId: suspect, title: '可疑合并' }]);
+    const th = await taskThreadOf(db, suspect);
+    const msgs = th ? await db.select().from(message).where(eq(message.threadId, th.id)) : [];
+    expect(msgs.some((m) => m.kind === 'status' && m.content?.includes('可疑范围内'))).toBe(true);
   });
 });

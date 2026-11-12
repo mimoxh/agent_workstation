@@ -1,17 +1,20 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import PQueue from 'p-queue';
 import type { Actor, TaskStatus } from '@aw/domain';
-import { transition } from '@aw/domain';
+import { isFailing, transition } from '@aw/domain';
 import type { DB } from '../db/client.js';
-import { agent, artifact, entity, proposal, reviewComment, run, task, workstation } from '../db/schema.js';
+import { agent, artifact, entity, proposal, qaCaseResult, qaRun, reviewComment, run, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { git, gitOk, devSettings, ensureIntegration, removeTaskWorktree, pushTarget, type DevSettings } from './git.js';
 import { runCommand, portEnv, isEnvError, type ExecResult } from './exec.js';
+import { startLive } from './live_output.js';
 import { snapshotDb } from '../usecases/backup.js';
 import { logEvent, manifestOf } from '../usecases/core.js';
 import { pushInbox } from '../usecases/inbox.js';
+import { qaSourceOf, quarantinedKeys, startRun } from '../usecases/qa.js';
 import { rollupStage } from '../usecases/tasks.js';
 import { postHandoff, postStatus } from '../usecases/threads.js';
+import { abortQaRun, DEFAULT_TIMEOUT_SEC } from './qa/runner.js';
 import { triggerRun } from './scheduler.js';
 import { resolveUrl, runVisualCheck, withServer, type VisualResult } from './visual.js';
 import type { TaskRow } from './types.js';
@@ -157,7 +160,7 @@ export async function afterReview(ctx: Pick<WorkflowCtx, 'db' | 'actor' | 'task'
 }
 
 // ===== 验收 =====
-interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number }
+interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number; suite?: string }
 export interface AcceptanceExec { serve?: string | undefined; sandbox?: SandboxConfig | undefined }
 export const acceptanceExec = (s: DevSettings): AcceptanceExec => ({ serve: s.commands.serve, sandbox: s.sandbox });
 export interface AcceptanceResult { command: string; status: string; duration: number; output: string; env: boolean }
@@ -179,62 +182,182 @@ async function blockForEnvironment(db: DB, taskId: string, where: string, result
   await postStatus(db, taskId, reason);
 }
 
+// 验收命令会在 worktree 里留产物（pnpm 11 跑 pnpm build 前会自动安装出 node_modules/lockfile），
+// 跑完恢复到执行前状态，否则后续 git_commit 的范围检查和 integration worktree 干净检查会被误伤
+async function dirtySnapshot(worktree: string): Promise<Set<string>> {
+  const r = await git(worktree, ['status', '--porcelain', '-z']);
+  return new Set(r.stdout.split('\0').filter((e) => e.length > 3).map((e) => e.slice(3)));
+}
+
+async function restoreWorktree(worktree: string, pre: Set<string>): Promise<void> {
+  const r = await git(worktree, ['status', '--porcelain', '-z']);
+  const parts = r.stdout.split('\0').filter((e) => e.length > 3);
+  const untracked: string[] = [];
+  const modified: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i]!;
+    const p = e.slice(3);
+    if (e[0] === 'R' || e[1] === 'R' || e[0] === 'C' || e[1] === 'C') i++;
+    if (pre.has(p)) continue;
+    (e.slice(0, 2) === '??' ? untracked : modified).push(p);
+  }
+  if (modified.length) await git(worktree, ['checkout', '-q', '--', ...modified]);
+  if (untracked.length) await git(worktree, ['clean', '-fdq', '--', ...untracked]);
+}
+
 export async function runAcceptance(db: DB, wsId: string, worktree: string, checks: Check[], timeoutSec: number, taskId?: string, exec: AcceptanceExec = {}): Promise<{ allPassed: boolean; envError: boolean; results: AcceptanceResult[] }> {
   const head = (await git(worktree, ['rev-parse', 'HEAD'])).stdout.trim();
-  const batchId = uid();
-  const results: AcceptanceResult[] = [];
-  for (const c of checks.filter((x) => x.kind === 'command' && x.run)) {
-    let res: ExecResult;
-    try {
-      res = await runCommand({ cwd: worktree, command: c.run!, timeoutSec, env: portEnv(path.basename(worktree)), sandbox: exec.sandbox });
-    } catch (e) {
-      res = { exitCode: -1, durationMs: 0, output: String(e), truncated: false, timedOut: false };
-    }
-    const env = res.exitCode !== 0 && isEnvError(res);
-    const status = res.timedOut || env ? 'error' : res.exitCode === 0 ? 'passed' : 'failed';
-    const aid = uid();
-    await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'test_output', ref: res.output.slice(0, 32000), createdAt: now() });
-    await db.insert(entity).values({
-      id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
-      dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null, ...(env ? { env_error: true } : {}) }),
-      createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
-    });
-    results.push({ command: c.run!, status, duration: res.durationMs / 1000, output: res.output, env });
-  }
-  const visuals = checks.filter((x) => x.kind === 'visual' && x.url && x.baseline);
-  const ports = portEnv(path.basename(worktree));
-  const visualOut: { c: Check; v: VisualResult; duration: number }[] = [];
-  if (visuals.length > 0) {
-    const served = await withServer({ cwd: worktree, command: exec.serve, sandbox: exec.sandbox, env: ports, probeUrl: resolveUrl(visuals[0]!.url!, ports) }, async () => {
-      for (const c of visuals) {
-        const started = Date.now();
-        const v = await runVisualCheck(worktree, { url: resolveUrl(c.url!, ports), baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
-        visualOut.push({ c, v, duration: (Date.now() - started) / 1000 });
+  const preDirty = await dirtySnapshot(worktree);
+  try {
+    const batchId = uid();
+    const results: AcceptanceResult[] = [];
+    for (const c of checks.filter((x) => x.kind === 'command' && x.run)) {
+      let res: ExecResult;
+      const live = taskId ? startLive(`task:${taskId}`, `验收：${c.run}`) : null;
+      try {
+        res = await runCommand({ cwd: worktree, command: c.run!, timeoutSec, env: portEnv(path.basename(worktree)), sandbox: exec.sandbox, onOutput: live?.write });
+      } catch (e) {
+        res = { exitCode: -1, durationMs: 0, output: String(e), truncated: false, timedOut: false };
       }
-    });
-    if (!served.ok) {
-      for (const c of visuals) visualOut.push({ c, v: { status: 'error', ratio: null, output: served.error, shot: null, env: true }, duration: 0 });
+      live?.finish(res.exitCode);
+      const env = res.exitCode !== 0 && isEnvError(res);
+      const status = res.timedOut || env ? 'error' : res.exitCode === 0 ? 'passed' : 'failed';
+      const aid = uid();
+      await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'test_output', ref: res.output.slice(0, 32000), createdAt: now() });
+      await db.insert(entity).values({
+        id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
+        dataJson: JSON.stringify({ command: c.run, status, duration: res.durationMs / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null, ...(env ? { env_error: true } : {}) }),
+        createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
+      });
+      results.push({ command: c.run!, status, duration: res.durationMs / 1000, output: res.output, env });
     }
+    for (const c of checks.filter((x) => x.kind === 'qa_suite' && x.suite)) {
+      results.push(await runQaSuiteCheck(db, wsId, worktree, c.suite!, head, batchId, taskId));
+    }
+    const visuals = checks.filter((x) => x.kind === 'visual' && x.url && x.baseline);
+    const ports = portEnv(path.basename(worktree));
+    const visualOut: { c: Check; v: VisualResult; duration: number }[] = [];
+    if (visuals.length > 0) {
+      const served = await withServer({ cwd: worktree, command: exec.serve, sandbox: exec.sandbox, env: ports, probeUrl: resolveUrl(visuals[0]!.url!, ports) }, async () => {
+        for (const c of visuals) {
+          const started = Date.now();
+          const v = await runVisualCheck(worktree, { url: resolveUrl(c.url!, ports), baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
+          visualOut.push({ c, v, duration: (Date.now() - started) / 1000 });
+        }
+      });
+      if (!served.ok) {
+        for (const c of visuals) visualOut.push({ c, v: { status: 'error', ratio: null, output: served.error, shot: null, env: true }, duration: 0 });
+      }
+    }
+    for (const { c, v, duration } of visualOut) {
+      const command = `visual ${c.url}`;
+      const aid = uid();
+      await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'visual', ref: v.output, metaJson: JSON.stringify({ shot: v.shot, ratio: v.ratio }), createdAt: now() });
+      await db.insert(entity).values({
+        id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
+        dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
+        createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
+      });
+      results.push({ command, status: v.status, duration, output: v.output, env: v.env === true });
+    }
+    const allPassed = results.every((r) => r.status === 'passed');
+    if (taskId) {
+      const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
+      const rj = t?.resultJson ? JSON.parse(t.resultJson) as Record<string, unknown> : {};
+      rj.acceptance = { batchId, passed: allPassed, at: now() };
+      await db.update(task).set({ resultJson: JSON.stringify(rj) }).where(eq(task.id, taskId));
+    }
+    return { allPassed, envError: results.some((r) => r.env), results };
+  } finally {
+    await restoreWorktree(worktree, preDirty).catch(() => {});
   }
-  for (const { c, v, duration } of visualOut) {
-    const command = `visual ${c.url}`;
+}
+
+const QA_RUN_TERMINAL = ['passed', 'failed', 'error', 'interrupted', 'canceled'];
+
+// 订阅后补一次查询，跑得太快的运行不会漏
+async function waitQaRunFinished(db: DB, runId: string, timeoutMs: number) {
+  const row = async () => (await db.select().from(qaRun).where(eq(qaRun.id, runId)))[0] ?? null;
+  let resolveDone: (r: Awaited<ReturnType<typeof row>>) => void = () => {};
+  const done = new Promise<Awaited<ReturnType<typeof row>>>((res) => { resolveDone = res; });
+  const off = events.on('qa_run_finished', (p) => {
+    if (p.targetId !== runId) return;
+    void row().then((r) => { off(); resolveDone(r); });
+  });
+  const timer = setTimeout(() => { off(); resolveDone(null); }, timeoutMs);
+  const cur = await row();
+  if (cur && QA_RUN_TERMINAL.includes(cur.status)) {
+    off();
+    clearTimeout(timer);
+    return cur;
+  }
+  const finished = await done;
+  clearTimeout(timer);
+  return finished;
+}
+
+// qa_suite 验收：套件必须在绑定本开发台的测试台上；实际输出在 qa:<runId>，这里只写状态行
+async function runQaSuiteCheck(db: DB, wsId: string, worktree: string, suiteId: string, head: string, batchId: string, taskId: string | undefined): Promise<AcceptanceResult> {
+  const actor: Actor = { type: 'human', id: 'local' };
+  const started = Date.now();
+  const suiteRow = (await db.select().from(entity).where(eq(entity.id, suiteId)))[0];
+  const suite = suiteRow?.entityType === 'TestSuite' ? (JSON.parse(suiteRow.dataJson ?? '{}') as { name?: string; timeout_sec?: number | null }) : null;
+  const label = `qa:${suite?.name ?? suiteId}`;
+  const record = async (status: string, output: string, env: boolean, qaRunId: string | null) => {
     const aid = uid();
-    await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'visual', ref: v.output, metaJson: JSON.stringify({ shot: v.shot, ratio: v.ratio }), createdAt: now() });
+    await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'qa_suite', ref: output.slice(0, 32000), createdAt: now() });
     await db.insert(entity).values({
       id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
-      dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
+      dataJson: JSON.stringify({ command: label, status, duration: (Date.now() - started) / 1000, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null, ...(qaRunId ? { qa_run_id: qaRunId } : {}), ...(env ? { env_error: true } : {}) }),
       createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
     });
-    results.push({ command, status: v.status, duration, output: v.output, env: v.env === true });
+    return { command: label, status, duration: (Date.now() - started) / 1000, output, env };
+  };
+  let bound = false;
+  if (suite && suiteRow) {
+    const qaWs = (await db.select().from(workstation).where(eq(workstation.id, suiteRow.workstationId)))[0];
+    const devWs = (await db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
+    if (qaWs && devWs && qaWs.projectId === devWs.projectId) {
+      const source = await qaSourceOf(db, suiteRow.workstationId);
+      bound = source.ok && source.workstationId === wsId;
+    }
   }
-  const allPassed = results.every((r) => r.status === 'passed');
-  if (taskId) {
-    const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
-    const rj = t?.resultJson ? JSON.parse(t.resultJson) as Record<string, unknown> : {};
-    rj.acceptance = { batchId, passed: allPassed, at: now() };
-    await db.update(task).set({ resultJson: JSON.stringify(rj) }).where(eq(task.id, taskId));
+  if (!bound) return record('error', '套件不存在或没有绑定本开发台', true, null);
+  const qaWsId = suiteRow!.workstationId;
+  const live = taskId ? startLive(`task:${taskId}`, `QA 套件：${suite!.name}`) : null;
+  live?.write(`套件「${suite!.name}」已排队\n`);
+  const branch = (await git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+  const run = await startRun(actor, db, qaWsId, { suiteId, ref: branch || head, commitSha: head, trigger: 'acceptance' });
+  if (run.kind !== 'ok') {
+    live?.write(`运行没能启动：${run.error}\n`);
+    live?.finish(1);
+    return record('error', run.error, true, null);
   }
-  return { allPassed, envError: results.some((r) => r.env), results };
+  const timeoutMs = ((suite!.timeout_sec ?? DEFAULT_TIMEOUT_SEC) * 1000) + 20 * 60_000;
+  const finished = await waitQaRunFinished(db, run.id, timeoutMs);
+  if (!finished) {
+    abortQaRun(run.id);
+    live?.write('等待运行超时，已取消\n');
+    live?.finish(1);
+    return record('error', '等待测试运行超时，已取消', true, run.id);
+  }
+  if (finished.status === 'error' || finished.status === 'interrupted' || finished.status === 'canceled') {
+    const env = finished.envError === 1;
+    live?.write(`运行 ${finished.status}：${finished.error ?? ''}\n`);
+    live?.finish(1);
+    return record('error', `测试运行 ${finished.status}：${finished.error ?? '没有错误说明'}`, env, run.id);
+  }
+  const cases = await db.select().from(qaCaseResult).where(eq(qaCaseResult.runId, run.id));
+  const quarantined = await quarantinedKeys(db, qaWsId);
+  const failing = cases.filter((c) => isFailing(c.status));
+  const realFails = failing.filter((c) => !quarantined.has(c.caseKey));
+  const quarantinedFails = failing.length - realFails.length;
+  const status = realFails.length === 0 ? 'passed' : 'failed';
+  const head20 = realFails.slice(0, 20).map((c) => `${c.name}${c.failureMessage ? `：${c.failureMessage}` : ''}`).join('\n');
+  const output = `通过 ${cases.filter((c) => c.status === 'passed').length} / 失败 ${failing.length}（隔离 ${quarantinedFails}）${head20 ? `\n${head20}` : ''}`;
+  live?.write(`结果：${status === 'passed' ? '通过' : '未通过'}\n${output}\n`);
+  live?.finish(status === 'passed' ? 0 : 1);
+  return record(status, output, false, run.id);
 }
 
 // 守卫：读 task.resultJson.acceptance（最近一次验收批次），无记录返回 null
@@ -419,7 +542,9 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   }
   // 3. setup + 验收
   if (s.commands.setup) {
-    const setup = await runCommand({ cwd: integ, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv('_integration'), sandbox: s.sandbox, network: 'bridge' });
+    const live = startLive(`task:${taskId}`, `环境准备：${s.commands.setup}`);
+    const setup = await runCommand({ cwd: integ, command: s.commands.setup, timeoutSec: s.setupTimeoutSec, env: portEnv('_integration'), sandbox: s.sandbox, network: 'bridge', onOutput: live.write });
+    live.finish(setup.exitCode);
     if (setup.exitCode !== 0) {
       await git(integ, ['merge', '--abort']);
       await sendBack(db, { actor }, taskId, `合并后 setup 失败：\n${setup.output.slice(0, 300)}`);

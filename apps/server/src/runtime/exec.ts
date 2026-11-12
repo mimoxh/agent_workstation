@@ -9,7 +9,7 @@ const OUTPUT_LIMIT = 32 * 1024;
 const HEAD_KEEP = 8 * 1024;
 const TAIL_KEEP = 24 * 1024;
 
-const WHITELIST = new Set(['pnpm', 'npm', 'npx', 'node', 'git', 'tsc', 'vitest', 'playwright']);
+const WHITELIST = new Set(['pnpm', 'npm', 'npx', 'node', 'git', 'tsc', 'vitest', 'playwright', 'python', 'python3', 'pytest', 'go', 'gotestsum']);
 const FORBIDDEN_CHARS = /[|&;<>`$%^\\\n]/;
 
 // 把命令切分为 argv，支持双引号
@@ -34,6 +34,11 @@ export function isDangerous(argv: string[]): boolean {
   if (!cmd) return false;
   if (cmd === 'npx') return true;
   if (cmd === 'node' && rest.some((a) => ['-e', '--eval', '-p'].includes(a))) return true;
+  if (cmd === 'python' || cmd === 'python3') {
+    if (rest.includes('-c')) return true;
+    // -m 后面跟 pip 就是装包，等同依赖变更；这里按危险挡掉（套件/通用命令一律不许）
+    if (rest.some((a, i) => a === '-m' && rest[i + 1] === 'pip')) return true;
+  }
   if ((cmd === 'npm' || cmd === 'pnpm')) {
     if (rest.includes('publish')) return true;
     if (['add', 'remove', 'update', 'install'].includes(rest[0] ?? '') && rest.length > 1) return true;
@@ -51,6 +56,11 @@ export function isDangerous(argv: string[]): boolean {
 // 包管理器的增删改依赖：add / remove / update / install <pkg>，以及 up / upgrade / rm 等别名
 export function isDependencyChange(argv: string[]): boolean {
   const [cmd, sub] = argv;
+  if (cmd === 'go') {
+    if (sub === 'get' || sub === 'install') return true;
+    if (sub === 'mod' && ['download', 'tidy', 'get'].includes(argv[2] ?? '')) return true;
+    return false;
+  }
   if (cmd !== 'pnpm' && cmd !== 'npm') return false;
   return ['add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'install', 'i'].includes(sub ?? '') && !argv.includes('publish');
 }
@@ -138,15 +148,20 @@ function launch(opts: Launch, argv: string[]) {
 const dockerExit = (code: number) => ([125, 126, 127].includes(code) ? 127 : code);
 const launchError = (sandboxed: boolean, e: unknown) => (sandboxed ? `容器沙箱启动失败（docker 不可用？）：${String(e)}` : String(e));
 
-export function runCommand(opts: Launch & { timeoutSec: number; signal?: AbortSignal | undefined }): Promise<ExecResult> {
+export function runCommand(opts: Launch & { timeoutSec: number; signal?: AbortSignal | undefined; onOutput?: ((chunk: string) => void) | undefined }): Promise<ExecResult> {
   const pre = preflight(opts);
   if ('error' in pre) return Promise.resolve({ exitCode: -1, durationMs: 0, output: pre.error, truncated: false, timedOut: false });
   const t0 = Date.now();
   return new Promise((resolve) => {
     const { child, sandboxed, kill } = launch(opts, pre.argv);
     let out = '';
-    child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { out += d.toString(); });
+    const keep = (d: Buffer) => {
+      const s = d.toString();
+      out += s;
+      opts.onOutput?.(s);
+    };
+    child.stdout.on('data', keep);
+    child.stderr.on('data', keep);
     let killed = false;
     const stop = () => { killed = true; kill(); };
     const timer = setTimeout(stop, opts.timeoutSec * 1000);

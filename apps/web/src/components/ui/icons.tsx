@@ -69,9 +69,10 @@ export const PANEL_ICON: Record<string, IconName> = {
   preview: 'preview',
   canvas: 'palette',
   tokens: 'sliders',
+  gantt: 'stage',
 };
 
 const QUALITY_ICON: Record<string, IconName> = { overview: 'pulse', runs: 'play', cases: 'list', plans: 'flag', bugs: 'bug', flaky: 'wave', coverage: 'shield' };
 
 export const panelIcon = (type: string | null | undefined, entity?: string | null, panelId?: string | null): IconName =>
-  type === 'quality' ? (QUALITY_ICON[panelId ?? ''] ?? 'flask') : entity === 'TestRun' ? 'check' : entity === 'ADR' ? 'decision' : entity === 'Milestone' ? 'flag' : PANEL_ICON[type ?? ''] ?? 'doc';
+  type === 'quality' ? (QUALITY_ICON[panelId ?? ''] ?? 'flask') : entity === 'TestRun' ? 'check' : entity === 'ADR' ? 'decision' : entity === 'Milestone' ? 'flag' : entity === 'Risk' ? 'hand' : PANEL_ICON[type ?? ''] ?? 'doc';

@@ -12,7 +12,7 @@ import { useModelConfig, useModels, type ModelConfig } from '@/lib/queries';
 export const Route = createFileRoute('/_console/settings')({ component: SettingsPage });
 
 type Kind = 'anthropic' | 'openai-compatible' | 'ollama';
-interface ProviderForm { name: string; kind: Kind; model: string; baseUrl: string; apiKey: string; hasKey: boolean }
+interface ProviderForm { name: string; kind: Kind; model: string; baseUrl: string; apiKey: string; hasKey: boolean; vision: boolean }
 
 const KINDS: { id: Kind; label: string }[] = [
   { id: 'anthropic', label: 'Anthropic' },
@@ -20,10 +20,10 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: 'ollama', label: 'Ollama（本地）' },
 ];
 
-const blank = (): ProviderForm => ({ name: '', kind: 'anthropic', model: '', baseUrl: '', apiKey: '', hasKey: false });
+const blank = (): ProviderForm => ({ name: '', kind: 'anthropic', model: '', baseUrl: '', apiKey: '', hasKey: false, vision: false });
 
 const toForm = (c: ModelConfig): ProviderForm[] =>
-  c.providers.map((p) => ({ name: p.name, kind: p.kind, model: p.model, baseUrl: p.baseUrl ?? '', apiKey: '', hasKey: p.hasKey }));
+  c.providers.map((p) => ({ name: p.name, kind: p.kind, model: p.model, baseUrl: p.baseUrl ?? '', apiKey: '', hasKey: p.hasKey, vision: p.vision ?? false }));
 
 // 价格按行编辑：provider:model 输入价 输出价
 const pricesToText = (p: ModelConfig['prices']) => Object.entries(p).map(([k, v]) => `${k} ${v.input} ${v.output}`).join('\n');
@@ -60,6 +60,10 @@ function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (ne
           <Input type="password" autoComplete="off" value={p.apiKey} onChange={(e) => set({ apiKey: e.target.value })} data-testid="provider-key" />
         </Field>
       )}
+      <label className="col-span-2 flex items-center gap-2 text-sm text-ink-2">
+        <input type="checkbox" checked={p.vision} onChange={(e) => set({ vision: e.target.checked })} data-testid="provider-vision" />支持看图
+        <span className="text-xs text-faint">工具结果（如 view_design 截图）会作为图片发给模型；不开就只给文字说明</span>
+      </label>
       <div className="col-span-2 flex justify-end">
         <Button size="sm" variant="danger" onClick={onRemove}>移除</Button>
       </div>
@@ -79,7 +83,7 @@ function ModelForm({ config }: { config: ModelConfig }) {
       unwrap(
         await api.settings.models.$put({
           json: {
-            providers: providers.map((p) => ({ name: p.name.trim(), kind: p.kind, model: p.model.trim(), ...(p.baseUrl.trim() ? { baseUrl: p.baseUrl.trim() } : {}), ...(p.apiKey ? { apiKey: p.apiKey } : {}) })),
+            providers: providers.map((p) => ({ name: p.name.trim(), kind: p.kind, model: p.model.trim(), ...(p.baseUrl.trim() ? { baseUrl: p.baseUrl.trim() } : {}), ...(p.apiKey ? { apiKey: p.apiKey } : {}), ...(p.vision ? { vision: true } : {}) })),
             ...(defaultModel.trim() ? { defaultModel: defaultModel.trim() } : {}),
             chain: chain.split('\n').map((l) => l.trim()).filter(Boolean),
             prices: textToPrices(prices),

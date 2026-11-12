@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { acceptanceExec, submitChange, afterReview, runAcceptance, syncTaskBranch } from '../dev_workflow.js';
 import { git, gitOk, devSettings } from '../git.js';
 import { runCommand, isDangerous, isDependencyChange, splitCommand, portEnv, type ExecResult } from '../exec.js';
+import { startLive } from '../live_output.js';
 import { inboxItem, project, proposal, reviewComment, run, workstation } from '../../db/schema.js';
 import type { ToolCtx, ToolDef } from './index.js';
 import { events } from '../../events.js';
@@ -367,7 +368,9 @@ export const devTools: Record<string, ToolDef> = {
         }
       }
       const t0 = Date.now();
-      const res: ExecResult = await runCommand({ cwd: ref.worktree, command: cmd, timeoutSec: s.commandTimeoutSec, env: portEnv(path.basename(ref.worktree)), sandbox: s.sandbox });
+      const live = startLive(`task:${ctx.task.id}`, cmd);
+      const res: ExecResult = await runCommand({ cwd: ref.worktree, command: cmd, timeoutSec: s.commandTimeoutSec, env: portEnv(path.basename(ref.worktree)), sandbox: s.sandbox, onOutput: live.write });
+      live.finish(res.exitCode);
       await logEvent(ctx.db, ctx.actor, 'command_executed', 'task', ctx.task.id, { cwd: ref.worktree, argv: argv ?? [], exitCode: res.exitCode, ms: res.durationMs });
       return { exitCode: res.exitCode, durationMs: res.durationMs, output: res.output, truncated: res.truncated, timedOut: res.timedOut, waited: Date.now() - t0 };
     },

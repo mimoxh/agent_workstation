@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MenuItem, Popover, toast } from '@/components/ui/feedback';
 import { Icon } from '@/components/ui/icons';
+import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson, when } from '@/lib/format';
 import { useEntityVersions, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
@@ -13,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { DEVICES, DesignFrame, type Device } from './DesignFrame';
 import { HandoffDialog } from './HandoffDialog';
 import { CommentsPane, Segmented, TweaksPane, type PendingComment } from './panes';
-import { applyDraft, applyElementText, commentsPrompt, downloadName, exportDoc, issuesPrompt, previewDoc, STATUS_LABEL, tweakVars, type CanvasMode, type DesignComment, type DesignData, type DesignDoc, type FrameEvent, type Pin } from './model';
+import { applyDraft, applyElementText, commentsPrompt, compareDesigns, downloadName, exportDoc, issuesPrompt, previewDoc, STATUS_LABEL, tweakVars, type CanvasMode, type DesignComment, type DesignData, type DesignDoc, type FrameEvent, type Pin } from './model';
 
 type RailTab = 'chat' | 'comments' | 'tweaks';
 
@@ -31,7 +32,35 @@ function RailTabButton({ on, onClick, label, count, testId }: { on: boolean; onC
   );
 }
 
-export function DesignCanvas({ design, comments, tokens, ws, project, running, onBack }: { design: DesignDoc; comments: DesignComment[]; tokens: DesignToken[]; ws: WorkstationDetail; project: ProjectDetail; running: boolean; onBack: () => void }) {
+type CompareSel = { id: string; version: number };
+
+function CompareSide({ sel, designs, tokens, device, onSel, testId }: { sel: CompareSel; designs: DesignDoc[]; tokens: DesignToken[]; device: Device; onSel: (s: CompareSel) => void; testId: string }) {
+  const vers = useEntityVersions(sel.id);
+  const d = designs.find((x) => x.id === sel.id);
+  const hist = d && sel.version !== d.version ? parseJson<DesignData | null>((vers.data ?? []).find((v) => v.version === sel.version)?.dataJson ?? null, null) : null;
+  const data = hist ?? d?.data;
+  const doc = useMemo(() => (data ? previewDoc(data.html, tokens, data.tweaks ?? []) : ''), [data, tokens]);
+  const vOptions = useMemo(() => {
+    const list = (vers.data ?? []).map((v) => v.version);
+    if (d && !list.includes(d.version)) list.push(d.version);
+    return [...new Set(list)].sort((a, b) => b - a);
+  }, [vers.data, d]);
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid={testId}>
+      <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-2 py-1.5">
+        <Select className="h-7 min-w-0 flex-1 text-xs" value={sel.id} onChange={(e) => onSel({ id: e.target.value, version: designs.find((x) => x.id === e.target.value)?.version ?? sel.version })} data-testid={`${testId}-design`}>
+          {designs.map((x) => <option key={x.id} value={x.id}>{x.data.title}</option>)}
+        </Select>
+        <Select className="h-7 w-16 text-xs" value={sel.version} onChange={(e) => onSel({ ...sel, version: Number(e.target.value) })} data-testid={`${testId}-version`}>
+          {vOptions.map((v) => <option key={v} value={v}>v{v}</option>)}
+        </Select>
+      </div>
+      {data ? <DesignFrame doc={doc} title={data.title} device={device} mode="view" caption={`${data.title} · v${sel.version}${data.direction ? ` · ${data.direction}` : ''}`} testId={`${testId}-frame`} /> : <div className="grid flex-1 place-items-center text-sm text-muted">没有这个版本</div>}
+    </div>
+  );
+}
+
+export function DesignCanvas({ design, designs, comments, tokens, ws, project, running, onBack }: { design: DesignDoc; designs: DesignDoc[]; comments: DesignComment[]; tokens: DesignToken[]; ws: WorkstationDetail; project: ProjectDetail; running: boolean; onBack: () => void }) {
   const names = useMemo(() => Object.fromEntries(project.agents.map((a) => [a.id, a.name])), [project.agents]);
   const versions = useEntityVersions(design.id);
   const thread = useQuery({ queryKey: ['thread', 'ws', ws.id], queryFn: async () => unwrap(await api.workstations[':id'].thread.$get({ param: { id: ws.id } })) });
@@ -42,6 +71,7 @@ export function DesignCanvas({ design, comments, tokens, ws, project, running, o
   const [device, setDevice] = useState<Device>('desktop');
   const [pinned, setPinned] = useState<number | null>(null);
   const [compare, setCompare] = useState(false);
+  const [cmp, setCmp] = useState<{ a: CompareSel; b: CompareSel } | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
   const [activePin, setActivePin] = useState<number | null>(null);
   const [missing, setMissing] = useState<number[]>([]);
@@ -130,6 +160,28 @@ export function DesignCanvas({ design, comments, tokens, ws, project, running, o
     URL.revokeObjectURL(url);
   };
 
+  const exportRender = async (format: 'png' | 'pdf', viewport: 'desktop' | 'tablet' | 'mobile') => {
+    try {
+      const res = await fetch(`/api/designs/${design.id}/export?format=${format}&viewport=${viewport}&version=${pinned ?? design.version}`);
+      if (!res.ok) throw new Error(parseJson<{ error?: string }>(await res.text(), {}).error ?? `导出失败（${res.status}）`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = downloadName(shown.title, pinned ?? design.version).replace(/\.html$/, `.${format}`);
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '导出失败');
+    }
+  };
+
+  const cmpDesigns = useMemo(() => compareDesigns(designs, design.id), [designs, design.id]);
+  const enterCompare = () => {
+    const prev = (versions.data ?? []).map((v) => v.version).filter((v) => v < design.version).sort((a, b) => b - a)[0] ?? design.version;
+    setCmp({ a: { id: design.id, version: pinned ?? prev }, b: { id: design.id, version: design.version } });
+  };
+
   return (
     <div className="relative flex min-h-0 flex-1" data-testid="design-canvas">
       {railOpen && (
@@ -165,8 +217,9 @@ export function DesignCanvas({ design, comments, tokens, ws, project, running, o
           <Badge tone={status === 'draft' ? 'neutral' : 'ok'}>{STATUS_LABEL[status]}</Badge>
           {running && <span className="animate-pulse-soft text-xs text-cool" data-testid="canvas-running">设计师工作中…</span>}
           <span className="flex-1" />
-          <Segmented label="模式" value={old ? 'view' : mode} options={MODES} onChange={changeMode} disabled={old} />
+          <Segmented label="模式" value={old ? 'view' : mode} options={MODES} onChange={changeMode} disabled={old || !!cmp} />
           <Segmented label="设备" value={device} options={DEVICES.map(({ id, label }) => ({ id, label }))} onChange={setDevice} />
+          <Button variant="quiet" aria-pressed={!!cmp} onClick={() => (cmp ? setCmp(null) : enterCompare())} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="canvas-compare">{cmp ? '退出对比' : '对比'}</Button>
           <Popover
             className="max-h-[60vh] w-80 overflow-y-auto"
             trigger={(on, toggle) => <Button aria-expanded={on} onClick={toggle} data-testid="version-button"><Icon name="clock" className="size-3.5" />v{pinned ?? design.version}</Button>}
@@ -199,6 +252,10 @@ export function DesignCanvas({ design, comments, tokens, ws, project, running, o
             {(close) => (
               <>
                 <MenuItem onClick={() => { exportHtml(); close(); }} data-testid="canvas-export">下载 HTML</MenuItem>
+                <MenuItem onClick={() => { void exportRender('png', 'desktop'); close(); }} data-testid="canvas-export-png">PNG（桌面）</MenuItem>
+                <MenuItem onClick={() => { void exportRender('png', 'tablet'); close(); }}>PNG（平板）</MenuItem>
+                <MenuItem onClick={() => { void exportRender('png', 'mobile'); close(); }}>PNG（手机）</MenuItem>
+                <MenuItem onClick={() => { void exportRender('pdf', 'desktop'); close(); }} data-testid="canvas-export-pdf">PDF</MenuItem>
                 <MenuItem onClick={() => { void stage.current?.requestFullscreen(); close(); }}>全屏演示</MenuItem>
                 {status !== 'handed_off' && <MenuItem onClick={() => { patch.mutate({ data: { status: status === 'approved' ? 'draft' : 'approved' }, reason: status === 'approved' ? '取消定稿' : '定稿' }); close(); }} data-testid="canvas-approve">{status === 'approved' ? '取消定稿' : '标记为定稿'}</MenuItem>}
               </>
@@ -217,8 +274,19 @@ export function DesignCanvas({ design, comments, tokens, ws, project, running, o
         )}
 
         <div ref={stage} className="flex min-h-0 flex-1 bg-paper-3">
-          <DesignFrame doc={doc} title={shown.title} device={device} mode={old ? 'view' : mode} pins={pins} vars={vars} onEvent={onFrame} testId="design-frame" {...(old && compare ? { caption: `v${pinned}` } : {})} />
-          {old && compare && <div className="flex min-w-0 flex-1 border-l border-rule"><DesignFrame doc={latestDoc} title={`${design.data.title} 最新版本`} device={device} caption={`v${design.version}（最新）`} /></div>}
+          {cmp ? (
+            <>
+              <CompareSide sel={cmp.a} designs={cmpDesigns} tokens={tokens} device={device} onSel={(a) => setCmp({ ...cmp, a })} testId="compare-left" />
+              <div className="flex min-w-0 flex-1 border-l border-rule">
+                <CompareSide sel={cmp.b} designs={cmpDesigns} tokens={tokens} device={device} onSel={(b) => setCmp({ ...cmp, b })} testId="compare-right" />
+              </div>
+            </>
+          ) : (
+            <>
+              <DesignFrame doc={doc} title={shown.title} device={device} mode={old ? 'view' : mode} pins={pins} vars={vars} onEvent={onFrame} testId="design-frame" {...(old && compare ? { caption: `v${pinned}` } : {})} />
+              {old && compare && <div className="flex min-w-0 flex-1 border-l border-rule"><DesignFrame doc={latestDoc} title={`${design.data.title} 最新版本`} device={device} caption={`v${design.version}（最新）`} /></div>}
+            </>
+          )}
         </div>
       </section>
       {handoff && <HandoffDialog design={design} project={project} openComments={open.length} onClose={() => setHandoff(false)} />}

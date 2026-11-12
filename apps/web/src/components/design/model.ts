@@ -93,3 +93,10 @@ export function applyElementText(html: string, selector: string, text: string): 
 }
 
 export const downloadName = (title: string, version: number) => `${title.replace(/[\\/:*?"<>|\s]+/g, '-') || 'design'}-v${version}.html`;
+
+// 对比模式的设计候选：当前稿在最前，同一方案组里的其它方向跟在后面
+export function compareDesigns<T extends { id: string; data: { group?: string | undefined } }>(designs: T[], currentId: string): T[] {
+  const cur = designs.find((d) => d.id === currentId);
+  const mates = cur?.data.group ? designs.filter((d) => d.id !== currentId && d.data.group === cur.data.group) : [];
+  return cur ? [cur, ...mates] : mates;
+}

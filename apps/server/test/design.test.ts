@@ -1,11 +1,14 @@
 import { and, eq } from 'drizzle-orm';
+import { chromium } from 'playwright-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { createDb, migrateDb, type DB } from '../src/db/client.js';
 import { seed } from '../src/db/seed.js';
-import { agent, entity, entityVersion, message, task, workstation } from '../src/db/schema.js';
+import { agent, artifact, entity, entityVersion, message, project, task, workstation } from '../src/db/schema.js';
 import { loadPlugins } from '../src/plugins.js';
 import { conversationIdle } from '../src/runtime/conversation.js';
+import { renderDesign } from '../src/runtime/design_render.js';
+import { extractImages, toolOutputFor } from '../src/runtime/loop.js';
 import { loadModels } from '../src/runtime/models.js';
 import { scheduler, startScheduler } from '../src/runtime/scheduler.js';
 import { executeTool, type RunCtx } from '../src/runtime/tools/index.js';
@@ -43,6 +46,10 @@ interface ToolReply { id: string; commentId: string; html: string; status: strin
 const call = async (name: string, args: Record<string, unknown>, template = 'designer') => (await executeTool(await ctxOf(await agentOf(template)), name, args)) as ToolReply;
 
 const PAGE = '<!doctype html><html><head><style>h1{color:var(--color-text)}</style></head><body><h1>标题</h1></body></html>';
+
+// 收集阶段探测一次：本机没装 Chromium 时渲染类用例整组跳过
+const HAS_CHROMIUM = await chromium.launch().then(async (b) => { await b.close(); return true; }).catch(() => false);
+if (!HAS_CHROMIUM) console.log('[design.test] Chromium 不可用，渲染类用例跳过');
 
 beforeEach(async () => {
   process.env.AW_ENABLE_MOCK = '1';
@@ -213,5 +220,111 @@ describe('设计对话', () => {
     const msgs = await db.select().from(message).where(eq(message.threadId, th.id));
     expect(msgs.some((m) => m.metaJson?.includes('"design"'))).toBe(true);
     expect(msgs.some((m) => m.senderType === 'agent' && m.content === '设计稿已更新（mock）。')).toBe(true);
+  });
+});
+
+describe('渲染与导出', () => {
+  it.skipIf(!HAS_CHROMIUM)('PNG/PDF 输出正确的文件头，断网渲染不挂起', async () => {
+    const png = await renderDesign(PAGE, { width: 390, format: 'png' });
+    expect(png.subarray(0, 4).toString('latin1')).toBe('PNG');
+    const pdf = await renderDesign(PAGE, { width: 1440, format: 'pdf' });
+    expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
+    const tricky = '<!doctype html><html><body><img src="https://example.com/x.png"><script>fetch("https://example.com").catch(() => {})</script><h1>ok</h1></body></html>';
+    expect((await renderDesign(tricky, { width: 390, format: 'png' })).length).toBeGreaterThan(1000);
+  }, 90_000);
+
+  it.skipIf(!HAS_CHROMIUM)('导出路由：png/pdf 二进制、附件名，未知稿子 404', async () => {
+    const d = await call('write_design', { title: '落地页', html: PAGE });
+    const png = await req('GET', `/api/designs/${d.id}/export?format=png&viewport=mobile`);
+    expect(png.status).toBe(200);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    expect(decodeURIComponent(png.headers.get('content-disposition') ?? '')).toContain('落地页-v1.png');
+    expect((await png.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    const pdf = await req('GET', `/api/designs/${d.id}/export?format=pdf`);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get('content-type')).toBe('application/pdf');
+    expect((await req('GET', '/api/designs/nope/export?format=png')).status).toBe(404);
+  }, 90_000);
+
+  it.skipIf(!HAS_CHROMIUM)('view_design：截图进产物和 __images，跨台读不到', async () => {
+    const d = await call('write_design', { title: '首页', html: PAGE });
+    const r = (await call('view_design', { id: d.id, viewport: 'mobile' })) as unknown as { artifactId: string; viewport: string; width: number; height: number; __images: { mediaType: string; base64: string }[] };
+    expect(r.viewport).toBe('mobile');
+    expect(r.width).toBe(390);
+    expect(r.height).toBeGreaterThan(0);
+    expect(r.__images[0]!.mediaType).toBe('image/png');
+    expect(Buffer.from(r.__images[0]!.base64, 'base64').subarray(0, 4).toString('latin1')).toBe('PNG');
+    const a = (await db.select().from(artifact).where(eq(artifact.id, r.artifactId)))[0]!;
+    expect(a.type).toBe('screenshot');
+    expect((await req('GET', `/api/artifacts/${a.id}/image`)).status).toBe(200);
+    const dev = await ctxOf(await agentOf('architect', devId));
+    expect(await executeTool(dev, 'view_design', { id: d.id })).toEqual({ error: '设计稿不存在' });
+  }, 90_000);
+});
+
+describe('图片结果进出模型', () => {
+  it('extractImages 把 __images 摘出去：trace 侧不留 base64', () => {
+    const { images, rest } = extractImages({ artifactId: 'a1', width: 390, __images: [{ mediaType: 'image/png', base64: 'QUJD' }] });
+    expect(images).toEqual([{ mediaType: 'image/png', base64: 'QUJD' }]);
+    expect(JSON.stringify(rest)).not.toContain('__images');
+    expect(JSON.stringify(rest)).not.toContain('QUJD');
+    expect(extractImages('x')).toEqual({ images: [], rest: 'x' });
+  });
+
+  it('toolOutputFor：不开看图给 JSON 加提示，开看图给多段', () => {
+    const imgs = [{ mediaType: 'image/png', base64: 'QUJD' }];
+    const plain = toolOutputFor({ artifactId: 'a1' }, imgs, false);
+    expect(plain.type).toBe('json');
+    expect(JSON.stringify(plain)).toContain('当前模型未开启看图');
+    expect(JSON.stringify(plain)).toContain('a1');
+    const rich = toolOutputFor({ artifactId: 'a1' }, imgs, true);
+    expect(rich.type).toBe('content');
+    const parts = (rich as { value: Record<string, unknown>[] }).value;
+    expect(parts[0]).toMatchObject({ type: 'text' });
+    expect(parts[1]).toMatchObject({ type: 'file', mediaType: 'image/png', data: { type: 'data', data: 'QUJD' } });
+    expect(toolOutputFor({ ok: 1 }, [], true)).toEqual({ type: 'json', value: { ok: 1 } });
+  });
+});
+
+describe('交接请测试台起草用例', () => {
+  const mountQa = async () => {
+    const root = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
+    const m = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'qa', name: '测试', settings: { sourceWorkstationId: devId } });
+    if (m.kind !== 'ok') throw new Error(m.error);
+    return m.id;
+  };
+
+  it('qaCases 会以人的身份在测试台会话 @用例设计，带上快照 id 和任务名', async () => {
+    const qaWs = await mountQa();
+    const d = await call('write_design', { title: '首页', html: PAGE });
+    const res = await req('POST', `/api/designs/${d.id}/handoff`, { targetWorkstationId: devId, module: 'src/board', priority: 'p1', qaCases: true });
+    expect(res.status).toBe(201);
+    const art = (await db.select().from(artifact).where(eq(artifact.type, 'design_handoff')))[0]!;
+    const th = await wsThreadOf(db, qaWs);
+    const msgs = await db.select().from(message).where(eq(message.threadId, th.id));
+    const hit = msgs.find((m) => m.senderType === 'human' && (m.content ?? '').includes('@用例设计') && (m.content ?? '').includes(art.id));
+    expect(hit).toBeTruthy();
+    expect(hit!.content).toContain('实现设计稿：首页');
+    expect(hit!.content).toContain('设计交接：首页');
+  });
+
+  it('read_design_snapshot：同项目快照可读，其它类型和跨项目读不到', async () => {
+    const qaWs = await mountQa();
+    const d = await call('write_design', { title: '首页', html: PAGE });
+    await req('POST', `/api/designs/${d.id}/handoff`, { targetWorkstationId: devId, module: 'src/board', priority: 'p1' });
+    const art = (await db.select().from(artifact).where(eq(artifact.type, 'design_handoff')))[0]!;
+    const caseDesigner = await agentOf('case-designer', qaWs);
+    const snap = (await executeTool(await ctxOf(caseDesigner), 'read_design_snapshot', { artifactId: art.id })) as { title: string; html: string; designId: string; version: number };
+    expect(snap).toMatchObject({ title: '首页', designId: d.id, version: 1 });
+    expect(snap.html).toContain('--color-text');
+
+    const now = new Date().toISOString();
+    await db.insert(artifact).values({ id: 'art-shot', workstationId: wsId, type: 'screenshot', name: 'x', ref: 'x', createdAt: now });
+    expect(await executeTool(await ctxOf(caseDesigner), 'read_design_snapshot', { artifactId: 'art-shot' })).toEqual({ error: '设计交接快照不存在' });
+    expect(await executeTool(await ctxOf(caseDesigner), 'read_design_snapshot', { artifactId: 'nope' })).toEqual({ error: '设计交接快照不存在' });
+    await db.insert(project).values({ id: 'proj-x', workspaceId: 'default', name: 'x', createdAt: now });
+    await db.insert(workstation).values({ id: 'ws-x', projectId: 'proj-x', name: 'x', createdAt: now });
+    await db.insert(artifact).values({ id: 'art-x', workstationId: 'ws-x', type: 'design_handoff', name: 't', ref: '<html/>', createdAt: now });
+    expect(await executeTool(await ctxOf(caseDesigner), 'read_design_snapshot', { artifactId: 'art-x' })).toEqual({ error: '设计交接快照不存在' });
   });
 });

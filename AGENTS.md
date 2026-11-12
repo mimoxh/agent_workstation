@@ -16,10 +16,11 @@ apps/
 │     │  ├ workstation/  工作台屏幕（大群 / 板块）、板块注册表、控制台总览
 │     │  ├ design/   设计台：画布、沙箱 iframe 与检查脚本、评论 / 旋钮、设计系统、交接
 │     │  ├ qa/       测试台：质量总览、运行、用例库、测试计划、缺陷、不稳定用例、覆盖率
+│     │  ├ pm/       项目管理：甘特、里程碑进度、进展报告、排期对话框
 │     │  ├ timeline/ 协作时间线、交接与结论卡
 │     │  ├ team/     团队脉搏
 │     │  ├ task/     任务头、右栏
-│     │  ├ inbox/ chat/ run/
+│     │  ├ inbox/ chat/ run/  收件箱 / 会话 / 实时命令输出（LiveOutput，走 /api/live/:channel）
 │     │  ├ layout/   外壳（顶栏标签 + 上下文侧栏）、页面骨架 Page、命令面板、挂载与新建项目对话框
 │     │  └ ui/       基础组件（button / badge / card / input / dialog / feedback / icons）
 │     ├ lib/api.ts      Hono RPC 类型化客户端 + unwrap
@@ -44,7 +45,7 @@ packages/
 - `pnpm build` — 全部 typecheck + 构建
 - `pnpm typecheck` / `pnpm lint` / `pnpm test`
 - `pnpm test:e2e` — Playwright（独立端口 server 8877 / web 5273，临时 DB）
-- `pnpm db:migrate` — drizzle-kit generate + 执行迁移
+- `pnpm db:migrate` — drizzle-kit generate + 执行迁移（server 启动时 migrateDb 也会自动应用已有迁移，含 drizzle/0010_task-planning.sql）
 - `pnpm db:seed` — 建表 + 幂等播种
 
 ## 硬规则
@@ -59,6 +60,7 @@ packages/
 - 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
 - 测试台不写仓库，改代码一律交接给开发台；测试报告是被测代码写的，按不可信处理。套件命令只能人审定，Agent 按 id 运行（docs/PLUGINS/QA.md）。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
+- `live_*` 事件（命令实时输出）不进 /api/stream 的 `LIVE_PREFIXES`，客户端走 /api/live/:channel。
 
 ## Git 流程
 

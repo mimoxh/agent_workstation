@@ -2,11 +2,13 @@ import { applyTextEdits, composeDesignDoc, lintDesign, parseCssTokens, type Desi
 import type { Actor } from '@aw/domain';
 import { and, eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { artifact, entity, task, workstation } from '../db/schema.js';
+import { artifact, entity, entityVersion, task, workstation } from '../db/schema.js';
 import { logEvent } from './core.js';
 import { createEntity, updateEntity } from './entities.js';
+import { qaSourceOf } from './qa.js';
 import { readRepoFile } from './repo.js';
 import { createTaskUc } from './tasks.js';
+import { postThreadMessage, wsThreadOf } from './threads.js';
 
 const now = () => new Date().toISOString();
 
@@ -154,8 +156,23 @@ export async function resolveDesignComments(actor: Actor, db: DB, wsId: string, 
   return resolved;
 }
 
+// 渲染用的成品文档：令牌和旋钮的合成方式与交接快照一致；version 指定时读历史版本
+export async function renderableDesign(db: DB, designId: string, version?: number) {
+  const row = await designRow(db, designId);
+  if (!row) return null;
+  let dataJson = row.dataJson;
+  if (version !== undefined && version !== row.version) {
+    const old = (await db.select().from(entityVersion).where(and(eq(entityVersion.entityId, row.id), eq(entityVersion.version, version))))[0];
+    if (!old) return null;
+    dataJson = old.dataJson;
+  }
+  const d = dataOf<DesignData>({ ...row, dataJson });
+  const system = await designSystemOf(db, row.workstationId);
+  return { title: d.title, version: version ?? row.version, workstationId: row.workstationId, html: composeDesignDoc(d.html, { tokens: system.tokens, tweaks: d.tweaks ?? [] }) };
+}
+
 // 跨台不共享实体：交接时把当时的成品冻结成 Artifact，开发台只能读到这一份只读快照
-export async function handoffDesign(actor: Actor, db: DB, id: string, input: { targetWorkstationId: string; module: string; priority: 'p0' | 'p1' | 'p2'; note?: string | undefined }) {
+export async function handoffDesign(actor: Actor, db: DB, id: string, input: { targetWorkstationId: string; module: string; priority: 'p0' | 'p1' | 'p2'; note?: string | undefined; qaCases?: boolean | undefined }) {
   const row = await designRow(db, id);
   if (!row) return { kind: 'not_found' as const, status: 404 as const, error: '设计稿不存在' };
   const here = (await db.select().from(workstation).where(eq(workstation.id, row.workstationId)))[0];
@@ -167,7 +184,7 @@ export async function handoffDesign(actor: Actor, db: DB, id: string, input: { t
   const artifactId = crypto.randomUUID();
   await db.insert(artifact).values({
     id: artifactId, workstationId: row.workstationId, type: 'design_handoff', name: d.title, ref: standalone,
-    metaJson: JSON.stringify({ designId: id, version: row.version, brief: d.brief ?? null, tokens: system.tokens, guidelines: system.guidelines }),
+    metaJson: JSON.stringify({ designId: id, version: row.version, brief: d.brief ?? null, note: input.note ?? null, tokens: system.tokens, guidelines: system.guidelines }),
     createdAt: now(),
   });
   const r = await createTaskUc(actor, db, target.id, {
@@ -179,9 +196,23 @@ export async function handoffDesign(actor: Actor, db: DB, id: string, input: { t
   });
   if (r.kind !== 'ok') return r;
   const taskId = r.task!.id;
+  if (input.qaCases) await askQaForCases(db, here.projectId, target.id, { title: d.title, taskTitle: r.task!.title, artifactId });
   await updateEntity(actor, db, id, { data: { ...d, status: 'handed_off', handoff: { taskId, artifactId, version: row.version, workstationId: target.id } } as unknown as Record<string, unknown>, baseVersion: row.version, reason: `交给${target.name}` });
   await logEvent(db, actor, 'entity_handoff', 'entity', id, { taskId, artifactId });
   return { kind: 'ok' as const, taskId, artifactId };
+}
+
+// 交接时点名测试台的用例设计起草验收用例；以人的身份发言，会话路由才会唤醒被 @ 的 Agent
+async function askQaForCases(db: DB, projectId: string, devWsId: string, info: { title: string; taskTitle: string; artifactId: string }) {
+  const qas = await db.select().from(workstation).where(and(eq(workstation.projectId, projectId), eq(workstation.pluginId, 'qa')));
+  if (qas.length === 0) return;
+  let qa = qas[0]!;
+  for (const q of qas) {
+    const source = await qaSourceOf(db, q.id);
+    if (source.ok && source.workstationId === devWsId) { qa = q; break; }
+  }
+  const th = await wsThreadOf(db, qa.id);
+  await postThreadMessage({ type: 'human', id: 'local' }, db, th.id, `@用例设计 设计稿「${info.title}」已交给开发台（任务「${info.taskTitle}」），请据设计交接快照 ${info.artifactId} 起草验收用例草稿，requirement 写「设计交接：${info.title}」。`);
 }
 
 // 只有任务（或它的祖先）声明过的交接件才读得到

@@ -12,23 +12,27 @@ import { toast } from '@/components/ui/feedback';
 import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { clock, num, parseJson, seconds, shortId, when } from '@/lib/format';
-import { useTaskBranch, type BoardTask, type Gate, type InboxRow, type NameMaps, type RunRow, type TaskDetail, type TestRun } from '@/lib/queries';
+import { useQaGateSuites, useTaskBranch, type BoardTask, type Gate, type InboxRow, type NameMaps, type RunRow, type TaskDetail, type TestRun } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 const MAX_SEND_BACKS = 3;
 
 function Checks({ task, testRuns }: { task: BoardTask; testRuns: TestRun[] }) {
-  const checks = parseJson<{ kind: string; run?: string }[]>(task.acceptanceJson, []).filter((c) => c.run);
+  const checks = parseJson<{ kind: string; run?: string; suite?: string }[]>(task.acceptanceJson, []).filter((c) => c.run || (c.kind === 'qa_suite' && c.suite));
+  const gates = useQaGateSuites(task.workstationId).data ?? [];
+  const suiteName = (id: string) => gates.find((s) => s.id === id)?.name ?? id;
   if (checks.length === 0) return <p className="text-sm text-muted">没有声明可执行验收</p>;
   return (
     <ul className="space-y-1" data-testid="acceptance-checks">
       {checks.map((c) => {
-        const last = testRuns.find((r) => r.command === c.run);
+        const suite = c.kind === 'qa_suite' && c.suite;
+        const label = suite ? `QA 套件「${suiteName(c.suite!)}」` : c.run!;
+        const last = testRuns.find((r) => r.command === (suite ? `qa:${suiteName(c.suite!)}` : c.run));
         const passed = last?.status === 'passed';
         return (
-          <li key={c.run} className="flex items-baseline gap-2 text-sm">
+          <li key={c.run ?? c.suite} className="flex items-baseline gap-2 text-sm">
             <span aria-hidden className={cn('measured w-3', !last ? 'text-muted' : passed ? 'text-ok' : 'text-bad')}>{!last ? '·' : passed ? '✓' : '✗'}</span>
-            <code className="min-w-0 flex-1 truncate text-ink-2">{c.run}</code>
+            <code className="min-w-0 flex-1 truncate text-ink-2">{label}</code>
             <span className="measured shrink-0 text-xs text-muted">{last ? `${passed ? '通过' : '失败'} ${seconds(last.duration)}` : '未运行'}</span>
           </li>
         );

@@ -8,6 +8,7 @@ import { loadPlugins } from './plugins.js';
 import { loadModels, sanitizeError } from './runtime/models.js';
 import { startScheduler } from './runtime/scheduler.js';
 import { startRepoWatch } from './runtime/repo_watch.js';
+import { startQaSchedule } from './runtime/qa/schedule.js';
 import { recoverMergeQueue } from './runtime/dev_workflow.js';
 import { recoverQaRuns } from './usecases/qa.js';
 import { syncWorkstations } from './usecases/workstations.js';
@@ -44,6 +45,7 @@ await recoverQaRuns(db);
 
 startScheduler(db);
 startRepoWatch(db);
+startQaSchedule(db);
 
 const { app } = createApp(db);
 const port = Number(process.env.AW_PORT ?? 8787);
