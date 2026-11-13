@@ -1,0 +1,296 @@
+{
+  "id": "docs",
+  "name": "文档工作台",
+  "version": "1.0.0",
+  "description": "跟着代码写文档：README、API 参考、指南、架构说明、ADR、发布说明，也写不绑定代码的通用文档。论断钉在仓库和知识库出处上，核对通过后才能交接给开发台入库",
+  "singleton": true,
+  "steward": "docs-writer",
+  "entities": {
+    "Doc": {
+      "label": "文档",
+      "description": "一篇 markdown 文档：技术文档钉仓库出处，通用文档钉知识库出处。每次修改都是一个新版本，可回滚",
+      "titleField": "title",
+      "fields": {
+        "title": {
+          "type": "string",
+          "label": "标题",
+          "required": true
+        },
+        "kind": {
+          "type": "enum",
+          "label": "类型",
+          "enum": [
+            "readme",
+            "api",
+            "guide",
+            "architecture",
+            "adr",
+            "release_notes",
+            "general"
+          ]
+        },
+        "brief": {
+          "type": "text",
+          "label": "需求"
+        },
+        "target_repo": {
+          "type": "string",
+          "label": "目标仓库",
+          "description": "入库的目标开发工作台 id"
+        },
+        "target_path": {
+          "type": "string",
+          "label": "目标路径",
+          "description": "文档在目标仓库里的落点"
+        },
+        "content": {
+          "type": "markdown",
+          "label": "正文"
+        },
+        "citations": {
+          "type": "json",
+          "label": "引用"
+        },
+        "status": {
+          "type": "enum",
+          "label": "状态",
+          "enum": [
+            "draft",
+            "reviewing",
+            "approved",
+            "handed_off",
+            "published",
+            "stale"
+          ]
+        },
+        "review": {
+          "type": "json",
+          "label": "核对结论"
+        },
+        "drift": {
+          "type": "json",
+          "label": "漂移记录"
+        },
+        "handoff": {
+          "type": "json",
+          "label": "交接记录"
+        }
+      }
+    },
+    "DocComment": {
+      "label": "文档评论",
+      "description": "钉在文档原文上的评论",
+      "titleField": "body",
+      "fields": {
+        "doc": {
+          "type": "ref",
+          "label": "文档",
+          "refTo": "Doc",
+          "required": true
+        },
+        "version": {
+          "type": "number",
+          "label": "版本"
+        },
+        "heading": {
+          "type": "string",
+          "label": "章节"
+        },
+        "quote": {
+          "type": "string",
+          "label": "原文"
+        },
+        "body": {
+          "type": "text",
+          "label": "内容",
+          "required": true
+        },
+        "severity": {
+          "type": "enum",
+          "label": "严重度",
+          "enum": [
+            "block",
+            "note"
+          ]
+        },
+        "status": {
+          "type": "enum",
+          "label": "状态",
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        },
+        "note": {
+          "type": "text",
+          "label": "处理说明"
+        }
+      }
+    },
+    "StyleGuide": {
+      "label": "风格指南",
+      "description": "本台所有文档共用的术语表、写作规范和 lint 配置",
+      "titleField": "name",
+      "fields": {
+        "name": {
+          "type": "string",
+          "label": "名称",
+          "required": true
+        },
+        "terms": {
+          "type": "json",
+          "label": "术语表"
+        },
+        "rules": {
+          "type": "markdown",
+          "label": "写作规范"
+        },
+        "lint": {
+          "type": "json",
+          "label": "lint 配置"
+        }
+      }
+    }
+  },
+  "panels": [
+    {
+      "id": "studio",
+      "type": "doc",
+      "entity": "Doc",
+      "title": "文档",
+      "editableBy": [
+        "human",
+        "agent"
+      ],
+      "config": {
+        "view": "studio",
+        "home": true
+      }
+    },
+    {
+      "id": "health",
+      "type": "doc",
+      "entity": "Doc",
+      "title": "文档健康",
+      "editableBy": [
+        "human"
+      ],
+      "config": {
+        "view": "health"
+      }
+    },
+    {
+      "id": "style",
+      "type": "doc",
+      "entity": "StyleGuide",
+      "title": "风格指南",
+      "editableBy": [
+        "human",
+        "agent"
+      ],
+      "config": {
+        "view": "style"
+      }
+    },
+    {
+      "id": "knowledge",
+      "type": "knowledge",
+      "entity": "system:knowledge",
+      "title": "知识库",
+      "editableBy": [
+        "human"
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "id": "docs-writer",
+      "promptFile": "writer.md",
+      "name": "主笔",
+      "role": "写技术文档和通用文档，维护风格指南，对外代表",
+      "tools": [
+        "list_docs",
+        "read_doc",
+        "write_doc",
+        "edit_doc",
+        "resolve_doc_comments",
+        "read_style_guide",
+        "update_style_guide",
+        "list_repos",
+        "read_repo_file",
+        "search_repo",
+        "search_knowledge",
+        "send_message",
+        "record_decision",
+        "request_human"
+      ],
+      "triggers": [
+        "mentioned"
+      ]
+    },
+    {
+      "id": "fact-checker",
+      "promptFile": "fact-checker.md",
+      "name": "事实核对",
+      "role": "只读核对：逐条验证论断和引用，保存核对结论",
+      "tools": [
+        "list_docs",
+        "read_doc",
+        "list_repos",
+        "read_repo_file",
+        "search_repo",
+        "search_knowledge",
+        "save_doc_review",
+        "comment_doc",
+        "send_message"
+      ],
+      "triggers": [
+        "mentioned"
+      ]
+    },
+    {
+      "id": "doc-editor",
+      "promptFile": "editor.md",
+      "name": "文字编辑",
+      "role": "只读评审：读者、结构、清晰、一致，把意见钉在原文上",
+      "tools": [
+        "list_docs",
+        "read_doc",
+        "read_style_guide",
+        "comment_doc",
+        "send_message"
+      ],
+      "triggers": [
+        "mentioned"
+      ]
+    }
+  ],
+  "tasks": [],
+  "modules": {
+    "conversation": {
+      "defaultMode": "moderated",
+      "maxTurns": 8,
+      "summaryEvery": 100
+    },
+    "knowledge": {
+      "scope": "project",
+      "acceptedTypes": [
+        "md",
+        "txt"
+      ],
+      "retrieval": {
+        "strategy": "fts",
+        "topK": 5,
+        "maxTokens": 3000
+      },
+      "citation": "preferred"
+    }
+  },
+  "defaults": {
+    "writeMode": "direct",
+    "taskBudget": {
+      "tokens": 300000,
+      "minutes": 20
+    }
+  }
+}

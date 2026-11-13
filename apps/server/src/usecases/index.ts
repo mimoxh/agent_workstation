@@ -18,3 +18,34 @@ export {
   updateTask,
 } from './tasks.js';
 export { addAgentInstance, mountWorkstation, syncWorkstations } from './workstations.js';
+export {
+  addDocComment,
+  citationLabelsOf,
+  contentHashOf,
+  ackDocReverse,
+  checkDocDrift,
+  docGate,
+  docHealth,
+  docRow,
+  docsSettingsOf,
+  draftReleaseNotes,
+  editDoc,
+  handoffDoc,
+  importDocReverse,
+  listDocComments,
+  listDocs,
+  noteMergeImpact,
+  readDoc,
+  readDocHandoffFor,
+  reconcileDocHandoffs,
+  repointDocDrift,
+  requestReview,
+  resolveDocComments,
+  saveDoc,
+  saveDocReview,
+  saveDocsSettings,
+  saveStyleGuide,
+  styleGuideOf,
+} from './docs.js';
+export type { CitationInput, CommentData as DocCommentData, DocCitation, DocData, DocDrift, DocHandoff, DocReview, DriftItem, KnowledgeCitation, KnowledgeCitationInput, RepoCitation, RepoCitationInput, ReverseDrift, ReviewFinding, StyleGuideData } from './docs.js';
+export { listRepoSources, repoSourceOf } from './repo_source.js';

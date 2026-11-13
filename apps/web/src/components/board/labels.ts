@@ -113,6 +113,7 @@ export const INBOX_LABEL: Record<string, string> = {
   budget: '预算超限',
   gate_confirm: '阶段确认',
   qa_regression: '回归失败',
+  docs_drift: '文档引用漂移',
 };
 
 export const TRIGGER_LABEL: Record<string, string> = {

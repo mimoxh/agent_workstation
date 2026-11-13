@@ -168,6 +168,8 @@ export const manifestSchema = z.object({
   version: z.string(),
   description: z.string(),
   icon: z.string().optional(),
+  // singleton：一个项目最多挂一个这种工作台（如文档台，覆盖项目全部仓库）
+  singleton: z.boolean().optional(),
   entities: z.record(z.string(), entityDefSchema),
   relations: z.array(relationDefSchema).optional(),
   stages: z.array(stageDefSchema).optional(),

@@ -10,6 +10,7 @@ import { runCommand, portEnv, isEnvError, type ExecResult } from './exec.js';
 import { startLive } from './live_output.js';
 import { snapshotDb } from '../usecases/backup.js';
 import { logEvent, manifestOf } from '../usecases/core.js';
+import { noteMergeImpact, reconcileDocHandoffs } from '../usecases/docs.js';
 import { pushInbox } from '../usecases/inbox.js';
 import { qaSourceOf, quarantinedKeys, startRun } from '../usecases/qa.js';
 import { rollupStage } from '../usecases/tasks.js';
@@ -581,6 +582,8 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   await removeTaskWorktree(s, t.workstationId, taskId);
   events.emit('inbox_created', { kind: 'merged', refId: taskId });
   if (s.remote?.autoPush) await afterMergePush(db, taskId, s);
+  try { await reconcileDocHandoffs(db); } catch (e) { console.error('[doc-handoff]', String(e)); }
+  try { await noteMergeImpact(db, taskId); } catch (e) { console.error('[doc-impact]', String(e)); }
   await maybeCloseParent(db, t.parentId);
 }
 

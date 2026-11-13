@@ -22,6 +22,8 @@ const e2eRepo = path.join(e2eDir, 'repo');
   g(['init', '-b', 'main']);
   g(['add', '-A']);
   g(['-c', 'user.name=f', '-c', 'user.email=f@f.local', 'commit', '-m', 'init']);
+  // seed 的开发台绑 targetBranch=develop；临时目录被复用时分支可能已在
+  try { g(['checkout', '-b', 'develop']); } catch { g(['checkout', 'develop']); }
 }
 
 export default defineConfig({

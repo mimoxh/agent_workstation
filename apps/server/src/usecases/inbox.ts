@@ -31,6 +31,7 @@ const SEVERITY: Record<string, string> = {
   human_request: 'normal',
   gate_confirm: 'normal',
   proposal_review: 'normal',
+  docs_drift: 'high',
 };
 const REPEAT_FAILURES = 3;
 

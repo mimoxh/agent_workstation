@@ -3,6 +3,9 @@ import type { BoardFilter, FlagFilter, StatusFilter } from '@/components/board/f
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { DesignStudio } from '@/components/design/DesignStudio';
 import { DesignSystemPanel } from '@/components/design/DesignSystemPanel';
+import { DocStudio } from '@/components/docs/DocStudio';
+import { HealthPanel } from '@/components/docs/HealthPanel';
+import { StyleGuidePanel } from '@/components/docs/StyleGuidePanel';
 import { AgentsPanel } from '@/components/panels/AgentsPanel';
 import { EntityPanel } from '@/components/panels/EntityPanel';
 import { ModulesPanel } from '@/components/panels/ModulesPanel';
@@ -68,6 +71,8 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
       return <KnowledgePanel projectId={project.id} />;
     case 'tokens':
       return <DesignSystemPanel ws={ws} project={project} />;
+    case 'doc':
+      return parseJson<{ view?: string }>(block.configJson, {}).view === 'style' ? <StyleGuidePanel ws={ws} /> : <Empty title="文档台请在工作台主视图打开" />;
     case 'quality':
       return <QualityPanel block={block} ws={ws} project={project} />;
     case 'preview':
@@ -158,7 +163,11 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
   if (search.panel === '_agents') content = <PanelFrame icon="people" title="成员" desc={`${ws.name}的 Agent 编制：模型、权限、预算`}><AgentsPanel ws={ws} /></PanelFrame>;
   else if (search.panel === '_settings') content = <PanelFrame icon="gear" title="工作台设置" desc={budgetNote}><SettingsPanel key={ws.id} ws={ws} project={project} /></PanelFrame>;
   else if (block?.panelType === 'canvas') content = <DesignStudio ws={ws} project={project} openId={search.design} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { design: id } : {}) })} />;
-  else if (block) {
+  else if (block?.panelType === 'doc' && parseJson<{ view?: string }>(block.configJson, {}).view === 'health') {
+    content = <HealthPanel ws={ws} project={project} onOpen={(id) => onSearch({ panel: 'studio', item: id })} />;
+  } else if (block?.panelType === 'doc' && parseJson<{ view?: string }>(block.configJson, {}).view !== 'style') {
+    content = <DocStudio ws={ws} project={project} openId={search.item} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { item: id } : {}) })} />;
+  } else if (block) {
     content = (
       <PanelFrame icon={panelIcon(block.panelType, block.entityType, block.panelId)} title={block.name ?? block.panelId ?? ''} desc={ws.name}>
         {renderPanel(block, ws, project, { q: search.q, status: search.status, assignee: search.assignee, flag: search.flag }, onFilter)}

@@ -332,7 +332,7 @@ export const qaCaseResult = sqliteTable(
   (t) => [index('idx_qa_case_key').on(t.workstationId, t.caseKey, t.createdAt), index('idx_qa_case_run').on(t.runId)],
 );
 
-// kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request / qa_regression
+// kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request / qa_regression / docs_drift / gate_confirm / budget
 export const inboxItem = sqliteTable('inbox_item', {
   id: text('id').primaryKey(),
   workspaceId: text('workspace_id').notNull(),

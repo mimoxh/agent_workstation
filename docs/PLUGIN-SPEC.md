@@ -255,7 +255,7 @@ export interface PanelDef {
 | `table` | 角色表、客户表 | `columns`, `groupBy` |
 | `board` | 章节状态、商机阶段 | `field`, `columns` |
 | `tree` | 大纲、目录 | `titleField`, `childrenField` |
-| `doc` | 正文、方案 | `field`, `outline` |
+| `doc` | 文档台的撰写视图 | `view`：`studio` / `health` / `style`；`home`：作为工作台默认入口 |
 | `graph` | 人物关系 | `relation`, `labelField` |
 | `timeline` | 事件线、跟进记录 | `dateField` |
 | `form` | 单条编辑 | `entity` |

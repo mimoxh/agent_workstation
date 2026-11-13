@@ -40,6 +40,12 @@ const fetchChunk = async (id: string) => unwrap(await api.knowledge.chunks[':id'
 const fetchPlugins = async () => unwrap(await api.plugins.$get());
 const fetchModels = async () => unwrap(await api.models.$get());
 const fetchDesignSystem = async (id: string) => unwrap(await api.workstations[':id']['design-system'].$get({ param: { id } }));
+const fetchDocs = async (id: string) => unwrap(await api.workstations[':id'].docs.$get({ param: { id } }));
+const fetchDoc = async (id: string) => unwrap(await api.docs[':id'].$get({ param: { id } }));
+const fetchDocRepos = async (id: string) => unwrap(await api.workstations[':id']['doc-repos'].$get({ param: { id } }));
+const fetchStyleGuide = async (id: string) => unwrap(await api.workstations[':id']['style-guide'].$get({ param: { id } }));
+const fetchDocHealth = async (id: string) => unwrap(await api.workstations[':id']['doc-health'].$get({ param: { id } }));
+const fetchDocsSettings = async (id: string) => unwrap(await api.workstations[':id']['docs-settings'].$get({ param: { id } }));
 const fetchQaOverview = async (id: string) => unwrap(await api.workstations[':id'].qa.overview.$get({ param: { id } }));
 const fetchQaRuns = async (id: string) => unwrap(await api.workstations[':id'].qa.runs.$get({ param: { id } }));
 const fetchQaRun = async (id: string) => unwrap(await api['qa-runs'][':id'].$get({ param: { id } }));
@@ -99,6 +105,13 @@ export type Ledger = Awaited<ReturnType<typeof fetchLedger>>;
 export type LedgerRow = Ledger['byAgent'][number];
 export type ModelConfig = Awaited<ReturnType<typeof fetchModelConfig>>;
 export type PluginInfo = Awaited<ReturnType<typeof fetchPlugins>>[number];
+export type DocListItem = Awaited<ReturnType<typeof fetchDocs>>['docs'][number];
+export type DocDetail = Awaited<ReturnType<typeof fetchDoc>>;
+export type DocCitation = NonNullable<DocDetail['citations']>[number];
+export type DocRepo = Awaited<ReturnType<typeof fetchDocRepos>>['repos'][number];
+export type StyleGuide = Awaited<ReturnType<typeof fetchStyleGuide>>;
+export type DocHealth = Awaited<ReturnType<typeof fetchDocHealth>>;
+export type DocsSettings = Awaited<ReturnType<typeof fetchDocsSettings>>;
 export type RepoStatus = Awaited<ReturnType<typeof fetchRepoStatus>>;
 export type TaskBranch = NonNullable<Awaited<ReturnType<typeof fetchTaskBranch>>['branch']>;
 export type Gate = TaskDetail['flow']['gates'][number];
@@ -149,6 +162,12 @@ export const useKnowledgeSearch = (id: string, q: string) => useQuery({ queryKey
 export const useChunk = (id: string | null) => useQuery({ queryKey: ['chunk', id], queryFn: () => fetchChunk(id!), enabled: on(id) });
 export const usePlugins = () => useQuery({ queryKey: ['plugins'], queryFn: fetchPlugins });
 export const useDesignSystem = (id: string) => useQuery({ queryKey: ['design-system', id], queryFn: () => fetchDesignSystem(id) });
+export const useDocs = (id: string) => useQuery({ queryKey: ['docs', id], queryFn: () => fetchDocs(id) });
+export const useDoc = (id: string | null | undefined) => useQuery({ queryKey: ['doc', id], queryFn: () => fetchDoc(id!), enabled: on(id) });
+export const useDocRepos = (id: string) => useQuery({ queryKey: ['doc-repos', id], queryFn: () => fetchDocRepos(id) });
+export const useStyleGuide = (id: string) => useQuery({ queryKey: ['style-guide', id], queryFn: () => fetchStyleGuide(id) });
+export const useDocHealth = (id: string) => useQuery({ queryKey: ['doc-health', id], queryFn: () => fetchDocHealth(id) });
+export const useDocsSettings = (id: string) => useQuery({ queryKey: ['doc-settings', id], queryFn: () => fetchDocsSettings(id) });
 export const useModels = () => useQuery({ queryKey: ['models'], queryFn: fetchModels, staleTime: 60000 });
 
 export interface DispatchTarget { id: string; name: string; taskTypes: TaskType[] }

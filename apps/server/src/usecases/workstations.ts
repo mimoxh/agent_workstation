@@ -18,6 +18,10 @@ export async function mountWorkstation(
   if (!manifest) return { kind: 'error' as const, error: `插件 ${input.pluginId} 未装载` };
   const install = (await db.select().from(pluginInstall).where(eq(pluginInstall.pluginId, input.pluginId)))[0];
   if (install?.enabled === 0) return { kind: 'error' as const, error: `插件 ${manifest.name} 已停用` };
+  if (manifest.singleton) {
+    const existing = (await db.select({ id: workstation.id }).from(workstation).where(and(eq(workstation.projectId, input.projectId), eq(workstation.pluginId, input.pluginId))))[0];
+    if (existing) return { kind: 'error' as const, error: `一个项目只能有一个「${manifest.name}」` };
+  }
   const wsId = uid();
   await db.insert(workstation).values({
     id: wsId,

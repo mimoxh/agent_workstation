@@ -1,5 +1,5 @@
 import type { Actor } from '@aw/domain';
-import { TASK_EVENTS } from '@aw/domain';
+import { renderForRepo, TASK_EVENTS } from '@aw/domain';
 import fs from 'node:fs';
 import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
@@ -76,6 +76,9 @@ import {
 } from './usecases/repo.js';
 import { confirmGates } from './usecases/gates.js';
 import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, renderableDesign, saveDesign, saveDesignSystem } from './usecases/designs.js';
+import { ackDocReverse, addDocComment, citationLabelsOf, docGate, docHealth, docRow, docsSettingsOf, draftReleaseNotes, editDoc, handoffDoc, importDocReverse, listDocComments, listDocs, readDoc, repointDocDrift, requestReview, resolveDocComments, saveDoc, saveDocsSettings, saveStyleGuide, styleGuideOf } from './usecases/docs.js';
+import { listRepoSources } from './usecases/repo_source.js';
+import { docToHtml } from './runtime/doc_render.js';
 import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from './runtime/design_render.js';
 import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, taskQuality, transitionBug } from './usecases/qa.js';
 import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, listQaSources, qaGateSuites } from './repositories/qa.js';
@@ -410,6 +413,154 @@ export function createApp(db: DB) {
       const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
     })
+
+    // ---- 文档台 ----
+    .get('/workstations/:id/docs', async (c) => c.json({ docs: await listDocs(c.get('db'), c.req.param('id')) }))
+    .get('/workstations/:id/doc-repos', async (c) => c.json({ repos: await listRepoSources(c.get('db'), c.req.param('id')) }))
+    .post(
+      '/workstations/:id/docs',
+      body(z.object({
+        title: z.string().trim().min(1, '标题不能为空'),
+        kind: z.enum(['readme', 'api', 'guide', 'architecture', 'adr', 'release_notes', 'general']).optional(),
+        brief: z.string().optional(),
+        target_repo: z.string().optional(),
+        target_path: z.string().optional(),
+        content: z.string(),
+        citations: z.array(jsonRecord).optional(),
+        reason: z.string().optional(),
+      })),
+      async (c) => {
+        const r = await saveDoc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json') as never);
+        return r.kind === 'ok' ? c.json({ id: r.id, version: r.version, status: r.status, lint: r.lint, citations: r.citations }, 201) : fail(c, r);
+      },
+    )
+    .get('/docs/:id', async (c) => {
+      const v = c.req.query('version');
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      const d = row ? await readDoc(c.get('db'), row.workstationId, row.id, v ? Number(v) : undefined) : null;
+      return d ? c.json(d) : fail(c, { status: 404, error: '文档不存在' });
+    })
+    .patch(
+      '/docs/:id',
+      body(z.object({
+        title: z.string().trim().min(1).optional(),
+        kind: z.enum(['readme', 'api', 'guide', 'architecture', 'adr', 'release_notes', 'general']).optional(),
+        brief: z.string().optional(),
+        target_repo: z.string().nullable().optional(),
+        target_path: z.string().nullable().optional(),
+        content: z.string().optional(),
+        citations: z.array(jsonRecord).optional(),
+        baseVersion: z.number().int(),
+        reason: z.string().optional(),
+      })),
+      async (c) => {
+        const { baseVersion, ...fields } = c.req.valid('json');
+        const row = await docRow(c.get('db'), c.req.param('id'));
+        if (!row) return fail(c, { status: 404, error: '文档不存在' });
+        const r = await saveDoc(c.get('actor'), c.get('db'), row.workstationId, { id: row.id, ...fields, baseVersion } as never);
+        return r.kind === 'ok' ? c.json({ id: r.id, version: r.version, status: r.status, lint: r.lint, citations: r.citations }) : fail(c, r);
+      },
+    )
+    .post('/docs/:id/edit', body(z.object({ edits: z.array(z.object({ oldText: z.string(), newText: z.string() })).min(1), citations: z.array(jsonRecord).optional(), removeCitations: z.array(z.string()).optional(), reason: z.string().optional() })), async (c) => {
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '文档不存在' });
+      const r = await editDoc(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json') as never);
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version, status: r.status, lint: r.lint, citations: r.citations }) : fail(c, r);
+    })
+    .get('/docs/:id/comments', async (c) => {
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '文档不存在' });
+      return c.json({ comments: await listDocComments(c.get('db'), row.workstationId, row.id) });
+    })
+    .post('/docs/:id/comments', body(z.object({ quote: z.string().optional(), heading: z.string().optional(), body: z.string().trim().min(1, '评论不能为空'), severity: z.enum(['block', 'note']).optional() })), async (c) => {
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '文档不存在' });
+      const r = await addDocComment(c.get('actor'), c.get('db'), row.workstationId, { doc: row.id, ...c.req.valid('json') });
+      return r.kind === 'ok' ? c.json({ id: r.id }, 201) : fail(c, r);
+    })
+    .post('/docs/:id/comments/resolve', body(z.object({ ids: z.array(z.string()).min(1), note: z.string().optional() })), async (c) => {
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '文档不存在' });
+      return c.json({ resolved: await resolveDocComments(c.get('actor'), c.get('db'), row.workstationId, c.req.valid('json').ids, c.req.valid('json').note) });
+    })
+    .get('/docs/:id/gate', async (c) => {
+      const g = await docGate(c.get('db'), c.req.param('id'));
+      return g ? c.json(g) : fail(c, { status: 404, error: '文档不存在' });
+    })
+    .post('/docs/:id/request-review', body(z.object({ who: z.enum(['fact-checker', 'doc-editor']) })), async (c) => {
+      const r = await requestReview(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').who);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/docs/:id/handoff', body(z.object({ module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional(), citations: z.enum(['strip', 'footnotes']).default('footnotes'), overrideReason: z.string().optional() })), async (c) => {
+      const r = await handoffDoc(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ taskId: r.taskId, artifactId: r.artifactId }, 201) : fail(c, r);
+    })
+    .get('/docs/:id/export', async (c) => {
+      const format = (['md', 'html', 'pdf'] as const).find((f) => f === c.req.query('format')) ?? 'md';
+      const citations = c.req.query('citations') === 'strip' ? 'strip' : 'footnotes';
+      const v = c.req.query('version');
+      const row = await docRow(c.get('db'), c.req.param('id'));
+      const doc = row ? await readDoc(c.get('db'), row.workstationId, row.id, v ? Number(v) : undefined) : null;
+      if (!doc) return fail(c, { status: 404, error: '文档不存在' });
+      const labels = await citationLabelsOf(c.get('db'), row!.workstationId, doc);
+      const md = renderForRepo(doc.content ?? '', labels, citations);
+      const name = encodeURIComponent(`${doc.title}-v${doc.version}`);
+      if (format === 'md') {
+        return c.body(md, 200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename*=UTF-8''${name}.md` });
+      }
+      const html = await docToHtml(md, `${doc.title} v${doc.version}`);
+      if (format === 'html') {
+        return c.body(html, 200, { 'content-type': 'text/html; charset=utf-8', 'content-disposition': `attachment; filename*=UTF-8''${name}.html` });
+      }
+      let buf: Buffer;
+      try {
+        buf = await renderDesign(html, { width: 1024, format: 'pdf' });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split('\n')[0]! : String(e);
+        return fail(c, BROWSER_MISSING.test(msg) ? { status: 409, error: '本机没有可用的 Chromium，运行 pnpm exec playwright install chromium 后重试' } : { status: 502, error: `渲染失败：${msg}` });
+      }
+      return c.body(new Uint8Array(buf), 200, { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename*=UTF-8''${name}.pdf` });
+    })
+    .post('/docs/:id/drift/repoint', async (c) => {
+      const r = await repointDocDrift(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ updated: r.updated }) : fail(c, r);
+    })
+    .post('/docs/:id/reverse/ack', async (c) => {
+      const r = await ackDocReverse(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/docs/:id/reverse/import', async (c) => {
+      const r = await importDocReverse(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ version: r.version, status: r.status, lint: r.lint }) : fail(c, r);
+    })
+    .get('/workstations/:id/doc-health', async (c) => c.json(await docHealth(c.get('db'), c.req.param('id'))))
+    .get('/workstations/:id/docs-settings', async (c) => {
+      const s = await docsSettingsOf(c.get('db'), c.req.param('id'));
+      return s ? c.json(s) : fail(c, { status: 404, error: '文档工作台不存在' });
+    })
+    .put('/workstations/:id/docs-settings', body(z.object({ autoDraft: z.enum(['off', 'affected']) })), async (c) => {
+      const r = await saveDocsSettings(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/workstations/:id/release-notes', body(z.object({ milestoneId: z.string().optional(), since: z.string().optional(), until: z.string().optional() })), async (c) => {
+      const r = await draftReleaseNotes(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ count: r.count }, 201) : fail(c, r);
+    })
+    .get('/workstations/:id/style-guide', async (c) => c.json(await styleGuideOf(c.get('db'), c.req.param('id'))))
+    .put(
+      '/workstations/:id/style-guide',
+      body(z.object({
+        name: z.string().trim().min(1).optional(),
+        terms: z.array(z.object({ term: z.string().trim().min(1, '术语不能为空'), preferred: z.string(), avoid: z.array(z.string()) })).optional(),
+        rules: z.string().optional(),
+        lint: z.object({ maxHeadingDepth: z.number().int().positive().optional(), maxSentenceChars: z.number().int().positive().optional(), bannedWords: z.array(z.string()).optional(), requiredSections: z.array(z.string()).optional() }).optional(),
+        baseVersion: z.number().int().optional(),
+      })),
+      async (c) => {
+        const r = await saveStyleGuide(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), reason: '人工修改' } as never);
+        return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+      },
+    )
 
     // ---- 测试台 ----
     .get('/projects/:id/qa-sources', async (c) => c.json(await listQaSources(c.get('actor'), c.get('db'), c.req.param('id'))))

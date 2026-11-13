@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 // 按顺序取第一个匹配：run_step 很频繁，只刷新脉搏和时间线
 const RULES: [prefix: string, keys: string[]][] = [
+  ['doc_', ['docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide', 'entities', 'entity-versions', 'timeline', 'thread-messages', 'inbox']],
   ['qa_', ['qa', 'task-quality', 'project-status', 'entities']],
   ['task_', ['tasks', 'task', 'project-tasks', 'project-status', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse', 'task-branch', 'task-quality', 'files', 'file', 'qa']],
   ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline', 'task-branch', 'remote', 'files', 'file']],
@@ -11,7 +12,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['thread_', ['thread', 'thread-messages']],
   ['run_step', ['pulse', 'timeline']],
   ['run_', ['runs', 'run', 'agent-status', 'overview', 'task', 'testruns', 'pulse', 'timeline', 'ledger']],
-  ['entity_', ['entities', 'entity-versions', 'design-system', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status']],
+  ['entity_', ['entities', 'entity-versions', 'design-system', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status', 'docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],
   ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files', 'remote', 'tasks']],
   ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins']],

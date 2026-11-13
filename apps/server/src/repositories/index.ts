@@ -161,6 +161,7 @@ export async function listPlugins(actor: Actor, db: DB) {
     name: m.name,
     version: m.version,
     description: m.description,
+    singleton: m.singleton === true,
     enabled: (installs.find((i) => i.pluginId === m.id)?.enabled ?? 1) === 1,
     agents: m.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, tools: a.tools, triggers: a.triggers ?? [] })),
     panels: m.panels.map((p) => ({ id: p.id, type: p.type, title: p.title, entity: p.entity })),

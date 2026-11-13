@@ -19,6 +19,7 @@ const TONE: Record<string, BadgeTone> = {
   run_failed: 'bad',
   budget: 'bad',
   task_rejected: 'bad',
+  docs_drift: 'bad',
 };
 
 type Resolve = { decision?: 'approve' | 'deny'; action?: 'retry' | 'unblock'; answer?: string };
@@ -110,6 +111,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
 export function InboxEntry({ item, projectId, compact }: { item: InboxRow; projectId: string; compact?: boolean }) {
   const open = item.status === 'open';
   const suspects = item.kind === 'qa_regression' ? (JSON.parse(item.payloadJson ?? '{}') as { suspects?: { taskId: string; title: string }[] }).suspects ?? [] : [];
+  const docDrift = item.kind === 'docs_drift' ? (JSON.parse(item.payloadJson ?? '{}') as { wsId?: string; docTitle?: string }) : null;
   return (
     <article className="space-y-1.5 rounded-chip px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
       <div className="flex items-center gap-2">
@@ -117,6 +119,10 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
         {item.taskId ? (
           <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: item.taskId }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline">
             {item.taskTitle}
+          </Link>
+        ) : docDrift?.wsId ? (
+          <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: docDrift.wsId }} search={{ panel: 'health' }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline" data-testid="inbox-doc-drift">
+            {docDrift.docTitle ?? '文档健康'}
           </Link>
         ) : (
           <span className="min-w-0 flex-1 truncate text-sm text-muted">无关联任务</span>

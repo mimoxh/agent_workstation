@@ -1,7 +1,7 @@
 {
   "id": "dev",
   "name": "全栈开发工作台",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "多 Agent 分工 + 可执行验收的软件开发工作台",
   "steward": "architect",
   "entities": {
@@ -93,21 +93,21 @@
       "id": "architect", "promptFile": "architect.md",
       "name": "架构师",
       "role": "拆模块、定接口、写 ADR、对外代表",
-      "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "record_decision", "search_knowledge", "search_code", "list_files", "git_diff", "report_blocked", "request_human", "respond_task", "resolve_block", "escalate_block", "advance_stage", "read_design_handoff"],
+      "tools": ["read_entity", "list_entities", "propose_entity", "create_task", "send_message", "record_decision", "search_knowledge", "search_code", "list_files", "git_diff", "report_blocked", "request_human", "respond_task", "resolve_block", "escalate_block", "advance_stage", "read_design_handoff", "read_doc_handoff"],
       "triggers": ["task_assigned", "mentioned", "stage_enter"]
     },
     {
       "id": "frontend-dev", "promptFile": "implementer.md",
       "name": "前端开发",
       "role": "页面、组件、样式、交互",
-      "tools": ["read_file", "list_files", "search_code", "git_diff", "apply_patch", "git_commit", "sync_branch", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked", "read_design_handoff"],
+      "tools": ["read_file", "list_files", "search_code", "git_diff", "apply_patch", "git_commit", "sync_branch", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked", "read_design_handoff", "read_doc_handoff"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
       "id": "backend-dev", "promptFile": "implementer.md",
       "name": "后端开发",
       "role": "API、数据层、任务编排",
-      "tools": ["read_file", "list_files", "search_code", "git_diff", "apply_patch", "git_commit", "sync_branch", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked"],
+      "tools": ["read_file", "list_files", "search_code", "git_diff", "apply_patch", "git_commit", "sync_branch", "submit_change", "run_command", "search_knowledge", "send_message", "report_blocked", "read_doc_handoff"],
       "triggers": ["task_assigned", "mentioned"]
     },
     {
@@ -139,7 +139,8 @@
           "kind": { "type": "string", "enum": ["feature", "bug", "chore", "scaffold", "refactor", "deps"] },
           "priority": { "type": "string", "enum": ["p0", "p1", "p2"] },
           "module": { "type": "string", "description": "改动范围：一个或多个路径，逗号分隔（跨 Module 重构）；. 表示整个仓库（脚手架）。改动不得越出这些路径；deps 任务额外允许改 package.json 与锁文件" },
-          "design_artifact": { "type": "string", "description": "设计台交接的设计稿，用 read_design_handoff 读取；拆子任务时不用重复填" }
+          "design_artifact": { "type": "string", "description": "设计台交接的设计稿，用 read_design_handoff 读取；拆子任务时不用重复填" },
+          "doc_artifact": { "type": "string", "description": "文档台交接的文档成品，用 read_doc_handoff 读取；拆子任务时不用重复填" }
         }
       },
       "acceptance": [{ "kind": "command", "run": "pnpm build", "expect": { "exitCode": 0 } }]

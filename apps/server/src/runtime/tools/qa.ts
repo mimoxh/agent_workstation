@@ -2,16 +2,11 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { artifact, qaRun, workstation } from '../../db/schema.js';
 import { getCaseHistory, getQaFlaky, getQaOverview, getQaRunDetail } from '../../repositories/qa.js';
-import { draftBug, entitiesOf, qaSourceOf, saveCaseDrafts, savePlanSummary, saveTriage, startRun, type SuiteData, type TriageGroup } from '../../usecases/qa.js';
-import { git } from '../git.js';
+import { draftBug, entitiesOf, saveCaseDrafts, savePlanSummary, saveTriage, startRun, type SuiteData, type TriageGroup } from '../../usecases/qa.js';
 import type { RunCtx, ToolDef } from './index.js';
 
 const failed = (r: { kind: string; error?: string }) => ({ error: r.error ?? `写入失败（${r.kind}）` });
 const FILE_LIMIT = 60 * 1024;
-const REF = /^[\w][\w./@-]*$/;
-const SAFE_PATH = /^[^-\0][^\0]*$/;
-
-const repoOf = async (ctx: RunCtx) => qaSourceOf(ctx.db, ctx.agent.workstationId);
 
 async function ownRun(ctx: RunCtx, id: string) {
   const r = (await ctx.db.select().from(qaRun).where(and(eq(qaRun.id, id), eq(qaRun.workstationId, ctx.agent.workstationId))))[0];
@@ -104,39 +99,6 @@ export const qaTools: Record<string, ToolDef> = {
     execute: async (ctx) => {
       const f = await getQaFlaky(ctx.actor, ctx.db, ctx.agent.workstationId);
       return { flaky: f.flaky.map((x) => ({ ...x, strip: undefined })), quarantined: f.quarantined };
-    },
-  },
-  read_repo_file: {
-    taskless: true,
-    description: '按分支或提交只读地读取被测仓库的文件',
-    right: 'observe',
-    resultLimit: FILE_LIMIT + 1024,
-    parameters: z.object({ path: z.string(), ref: z.string().optional().describe('默认目标分支') }),
-    execute: async (ctx, a) => {
-      const source = await repoOf(ctx);
-      if (!source.ok) return { error: source.error };
-      const ref = (a.ref as string | undefined) ?? source.settings.targetBranch;
-      const file = String(a.path).replace(/\\/g, '/').replace(/^\.?\/+/, '');
-      if (!REF.test(ref) || !SAFE_PATH.test(file) || file.split('/').includes('..')) return { error: '路径或版本不合法' };
-      const r = await git(source.settings.repoPath, ['show', `${ref}:${file}`]);
-      if (r.code !== 0) return { error: `读取失败：${r.stderr.trim().slice(0, 200)}` };
-      return { path: file, ref, truncated: r.stdout.length > FILE_LIMIT, content: r.stdout.slice(0, FILE_LIMIT) };
-    },
-  },
-  search_repo: {
-    taskless: true,
-    description: '在被测仓库的某个版本里搜索文本，返回文件和行',
-    right: 'observe',
-    parameters: z.object({ query: z.string().min(2), ref: z.string().optional().describe('默认目标分支') }),
-    execute: async (ctx, a) => {
-      const source = await repoOf(ctx);
-      if (!source.ok) return { error: source.error };
-      const ref = (a.ref as string | undefined) ?? source.settings.targetBranch;
-      if (!REF.test(ref)) return { error: '版本不合法' };
-      const r = await git(source.settings.repoPath, ['grep', '-n', '-I', '-F', '--max-count=20', '-e', String(a.query), ref]);
-      if (r.code > 1 || r.code < 0) return { error: `搜索失败：${r.stderr.trim().slice(0, 200)}` };
-      const hits = r.stdout.split('\n').filter(Boolean);
-      return { matches: hits.slice(0, 80).map((l) => l.slice(ref.length + 1, ref.length + 301)), more: Math.max(0, hits.length - 80) };
     },
   },
   save_triage: {

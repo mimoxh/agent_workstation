@@ -81,8 +81,9 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
   const [repoPath, setRepoPath] = useState('');
   const [build, setBuild] = useState('pnpm build');
   const [test, setTest] = useState('pnpm test');
-  const chosen = pluginId || options[0]?.id || '';
+  const chosen = pluginId || options.find((p) => !(p.singleton && project.workstations.some((w) => w.pluginId === p.id)))?.id || options[0]?.id || '';
   const plugin = options.find((p) => p.id === chosen);
+  const mountedSingleton = (id: string) => project.workstations.some((w) => w.pluginId === id);
   const devStations = project.workstations.filter((w) => w.pluginId === 'dev');
   const [qaSourcePick, setQaSource] = useState('');
   const qaSource = qaSourcePick || devStations[0]?.id || '';
@@ -112,7 +113,7 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
       <DialogForm error={mount.error?.message} submitting={mount.isPending} submitLabel="挂载" canSubmit={!!name.trim() && !!chosen} onSubmit={() => mount.mutate()} onCancel={onClose}>
         <Field label="插件" hint={plugin?.description}>
           <Select value={chosen} onChange={(e) => setPluginId(e.target.value)} data-testid="mount-plugin">
-            {options.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {options.map((p) => <option key={p.id} value={p.id} disabled={p.singleton && mountedSingleton(p.id)}>{p.name}{p.singleton && mountedSingleton(p.id) ? '（一个项目只能挂一个，已挂载）' : ''}</option>)}
           </Select>
         </Field>
         <Field label="工作台名称" required>

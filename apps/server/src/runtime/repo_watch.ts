@@ -4,6 +4,7 @@ import type { DB } from '../db/client.js';
 import { proposal, task, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { logEvent } from '../usecases/core.js';
+import { checkDocDrift, reconcileDocHandoffs } from '../usecases/docs.js';
 import { qaTick } from '../usecases/qa.js';
 import { postStatus } from '../usecases/threads.js';
 import { platformHeadOf } from './dev_workflow.js';
@@ -65,6 +66,8 @@ export async function checkRepos(db: DB) {
     try { await checkWorkstation(db, ws); } catch (e) { console.error('[repo-watch]', ws.id, String(e)); }
   }
   try { await checkSubmittedBranches(db); } catch (e) { console.error('[repo-watch] branches', String(e)); }
+  try { await reconcileDocHandoffs(db); } catch (e) { console.error('[repo-watch] doc-handoff', String(e)); }
+  try { await checkDocDrift(db); } catch (e) { console.error('[repo-watch] doc-drift', String(e)); }
   await qaTick(db);
 }
 

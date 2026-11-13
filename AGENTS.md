@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Agent Workstation：多 Agent 协作工作台（Vite + Hono + SQLite）。打开即控制台（跨项目），顶栏标签切工作台，左侧栏切台内功能（DECISIONS D25）。designs/aw-workbench/ 是当前原型，其余 designs/ 只作历史参考。
-本机 shell 用 **PowerShell**（`shell_flavor: "powershell"`），没有 bash。
+本机 shell 用 **PowerShell 7**（`pwsh`，在 PATH 上；`shell_flavor: "powershell"`），没有 bash。
 
 ## 目录结构
 
@@ -16,6 +16,7 @@ apps/
 │     │  ├ workstation/  工作台屏幕（大群 / 板块）、板块注册表、控制台总览
 │     │  ├ design/   设计台：画布、沙箱 iframe 与检查脚本、评论 / 旋钮、设计系统、交接
 │     │  ├ qa/       测试台：质量总览、运行、用例库、测试计划、缺陷、不稳定用例、覆盖率
+│     │  ├ docs/     文档台：撰写（编辑 / 预览 / 评论 / 引用 / 核对 / 交接）、文档健康、风格指南
 │     │  ├ pm/       项目管理：甘特、里程碑进度、进展报告、排期对话框
 │     │  ├ timeline/ 协作时间线、交接与结论卡
 │     │  ├ team/     团队脉搏
@@ -30,13 +31,13 @@ apps/
    └ src/
       ├ db/         schema / client / migrate / seed（AW_DB_PATH 可改，默认可 :memory:）
       ├ repositories/  仓储层（读）
-      ├ usecases/   用例（写）：core / flow / tasks / workstations / threads / proposals / inbox / entities / knowledge / projects / backup / repo / designs / qa
+      ├ usecases/   用例（写）：core / flow / tasks / workstations / threads / proposals / inbox / entities / knowledge / projects / backup / repo / designs / qa / docs / repo_source
       ├ runtime/    Agent 运行时：调度、发言调度、协调、循环、工具、dev 工作流、预算、模型路由
       └ app.ts      路由（/api 前缀）+ AppType 导出
 packages/
 ├ domain/         纯函数领域层：task-state 状态机、权限、@ 解析、三级预算
 ├ plugin-spec/    manifest 的 Zod schema 与校验（改了要 build，server 读 dist）
-└ plugins/        内置插件 pm、dev、design、qa
+└ plugins/        内置插件 pm、dev、design、qa、docs
 ```
 
 ## 命令
@@ -59,6 +60,7 @@ packages/
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
 - 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
 - 测试台不写仓库，改代码一律交接给开发台；测试报告是被测代码写的，按不可信处理。套件命令只能人审定，Agent 按 id 运行（docs/PLUGINS/QA.md）。
+- 文档台每项目一个（manifest `singleton`），不写仓库，入库交接给开发台；引用由平台在写入时解析，核对结论绑定内容哈希（docs/PLUGINS/DOCS.md）。markdown 只用 react-markdown 渲染，不开 raw HTML。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
 - `live_*` 事件（命令实时输出）不进 /api/stream 的 `LIVE_PREFIXES`，客户端走 /api/live/:channel。
 

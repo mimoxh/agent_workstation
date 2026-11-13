@@ -27,6 +27,8 @@ export {
   tweakCssValue,
 } from './design.js';
 export type { DesignToken, DesignTweak, DesignTweakType, TextEditResult, TokenGroup } from './design.js';
+export { canHandoff, citationRefs, classifyCitationDrift, lintDoc, normalizeSnippet, outline, renderForRepo } from './docs.js';
+export type { CitationDriftStatus, DocLintConfig, DocStatus, LintIssue, OutlineItem, StyleTerm } from './docs.js';
 export {
   BUG_STATUSES,
   DEFAULT_CRITERIA,
