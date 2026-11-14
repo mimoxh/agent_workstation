@@ -1,14 +1,15 @@
 {
   "id": "dev",
   "name": "全栈开发工作台",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "多 Agent 分工 + 可执行验收的软件开发工作台：设计画布 → 实现 → 审查合并 → 版本回归与发布结论，一台走完（原设计台、测试台并入）",
   "steward": "architect",
   "entities": {
     "Module": {
       "label": "模块",
-      "description": "代码域划分，用于派活与边界校验",
+      "description": "代码域划分，用于派活与边界校验；架构师登记维护，人也可以手动增改",
       "titleField": "name",
+      "writeMode": "direct",
       "fields": {
         "name": { "type": "string", "label": "名称", "required": true },
         "path": { "type": "string", "label": "路径", "required": true },

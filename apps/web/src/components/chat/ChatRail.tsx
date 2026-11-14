@@ -30,7 +30,7 @@ export function ChatRail({ ws, projectId, names, root, meta, hint, placeholder, 
   const first = (defaultAgentId ? ws.agents.find((a) => a.id === defaultAgentId) : undefined) ?? steward;
   const [sel, setSel] = useState<Target>(first ? { type: 'dm', agentId: first.id } : { type: 'ws' });
   const conversations = useConversations(ws.id);
-  const convs = useMemo(() => conversations.data?.conversations ?? [], [conversations.data]);
+  const convs = useMemo(() => (conversations.data?.conversations ?? []).filter((c) => !c.archivedAt || (sel.type === 'thread' && c.id === sel.id)), [conversations.data, sel]);
   const others = ws.agents.filter((a) => a.id !== steward?.id);
 
   const value = sel.type === 'ws' ? 'ws' : sel.type === 'dm' ? `dm:${sel.agentId}` : `thread:${sel.id}`;

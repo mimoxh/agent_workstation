@@ -219,6 +219,43 @@ describe('停止会话', () => {
   });
 });
 
+describe('归档', () => {
+  type Row = { id: string; archivedAt: string | null };
+  const list = async () => ((await (await app.request(`/api/workstations/${dev.id}/conversations`)).json()) as { conversations: Row[] }).conversations;
+  const archive = (id: string, archived: boolean) => post(`/api/threads/${id}/archive`, { archived });
+
+  it('归档后列表带 archivedAt、默认私聊换新的；人再发话自动取消归档', async () => {
+    const fe = await agentOf('frontend-dev');
+    const dm = (await dmThreadOf(db, fe.id))!;
+    const res = await archive(dm.id, true);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { archivedAt: string | null }).archivedAt).toBeTruthy();
+    expect((await list()).find((c) => c.id === dm.id)?.archivedAt).toBeTruthy();
+
+    // 默认私聊跳过已归档的，没有就新建一条
+    const fresh = (await (await app.request(`/api/agents/${fe.id}/thread`)).json()) as { thread: { id: string } };
+    expect(fresh.thread.id).not.toBe(dm.id);
+
+    // 重复归档不报错；取消归档后 archivedAt 清空
+    expect((await archive(dm.id, true)).status).toBe(200);
+    expect((await archive(dm.id, false)).status).toBe(200);
+    expect((await list()).find((c) => c.id === dm.id)?.archivedAt).toBeNull();
+
+    await archive(dm.id, true);
+    await postThreadMessage(HUMAN, db, dm.id, '接着聊');
+    expect((await db.select().from(thread).where(eq(thread.id, dm.id)))[0]!.archivedAt).toBeNull();
+    await settle();
+    const runs = await db.select().from(run).where(eq(run.threadId, dm.id));
+    expect(runs.some((r) => r.agentId === fe.id && r.trigger === 'human_reply')).toBe(true);
+  });
+
+  it('只有私聊和群聊能归档；不存在 404', async () => {
+    const ws = (await (await app.request(`/api/workstations/${dev.id}/thread`)).json()) as { thread: { id: string } };
+    expect((await archive(ws.thread.id, true)).status).toBe(400);
+    expect((await archive('ghost', true)).status).toBe(404);
+  });
+});
+
 describe('会话列表', () => {
   it('按最近活跃倒序，带成员、群主与预览；人的首条消息给未命名会话起题', async () => {
     const fe = await agentOf('frontend-dev');

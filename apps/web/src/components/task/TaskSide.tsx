@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { STATUS_LABEL, STATUS_TONE } from '@/components/board/labels';
 import { PlanDialog } from '@/components/pm/PlanDialog';
 import { TeamPulse } from '@/components/team/TeamPulse';
+import { setDock } from '@/components/workstation/dock';
+import { isDockBlock } from '@/components/workstation/home';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/feedback';
@@ -75,11 +77,18 @@ function RelatedPanels({ detail, ws, projectId }: { detail: TaskDetail; ws: Work
     <section className="border-t border-rule px-3 py-2.5" aria-label="本阶段相关板块">
       <h2 className="pb-1.5 text-xs font-semibold text-faint">本阶段相关板块</h2>
       <div className="flex flex-wrap gap-1.5">
-        {panels.map((b) => (
-          <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3">
-            {b.name}
-          </Link>
-        ))}
+        {panels.map((b) =>
+          // 右侧栏的板块就地打开，不离开任务页
+          isDockBlock(b) ? (
+            <button key={b.id} type="button" onClick={() => setDock(b.panelId)} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3" data-testid={`related-dock-${b.panelId}`}>
+              {b.name}
+            </button>
+          ) : (
+            <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3">
+              {b.name}
+            </Link>
+          ),
+        )}
       </div>
     </section>
   );

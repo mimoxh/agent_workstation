@@ -9,6 +9,7 @@ import { useLiveConnected } from '@/lib/live';
 import { useAllInbox, useModels, useOverview, useProject, useProjects, useTask, useWorkstation, useWsTasks, type ProjectDetail, type WsNode } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { homeBlock, panelGroups } from '@/components/workstation/home';
+import { RightDock } from '@/components/workstation/RightDock';
 import { CommandPalette } from './CommandPalette';
 import { MountDialog, NewProjectDialog } from './Dialogs';
 
@@ -247,9 +248,9 @@ function Group({ title, action, label, children }: { title?: string; action?: Re
   );
 }
 
-function Count({ n, tone = 'amber' }: { n: number; tone?: 'amber' | 'cool' }) {
+function Count({ n }: { n: number }) {
   if (!n) return null;
-  return <span className={cn('ml-auto shrink-0 rounded-full px-1.5 text-[11px] font-semibold', tone === 'amber' ? 'bg-accent-tag text-accent-tag-ink' : 'bg-cool-tag text-cool-tag-ink')}>{n}</span>;
+  return <span className="ml-auto shrink-0 rounded-full bg-accent-tag px-1.5 text-[11px] font-semibold text-accent-tag-ink">{n}</span>;
 }
 
 function SideHead({ icon, title, sub }: { icon: IconName; title: string; sub: ReactNode }) {
@@ -333,11 +334,13 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
   return (
     <>
       <SideHead icon={wsIcon(node?.pluginId)} title={name} sub={<span className="measured">{ws.data?.manifest ? `${ws.data.manifest.id}@${ws.data.manifest.version}` : (node?.pluginId ?? '')}{node?.parentId === null ? '　根工作台' : ''}</span>} />
-      <Group label="群聊" title="群聊">
+      <Group label="Agent 会话" title="Agent 会话">
         <Link to={to} params={wsParams} search={home ? { panel: '_chat' } : {}} className={navClass(onChat)} data-testid="side-chat">
           <Icon name="hash" className="text-muted" /><span className="truncate">{name}大群</span>
           {!!stat?.running && <i className="ml-auto size-1.5 shrink-0 rounded-full bg-cool" aria-label="在跑" />}
         </Link>
+        <Link to={to} params={wsParams} search={{ panel: '_talk' }} className={navClass(onWs && loc.panel === '_talk')} data-testid="side-panel-agent"><Icon name="chat" className="text-muted" />Agent</Link>
+        <Link to={to} params={wsParams} search={{ panel: '_agents' }} className={navClass(onWs && loc.panel === '_agents')} data-testid="side-panel-成员"><Icon name="people" className="text-muted" />成员<span className="ml-auto text-xs text-faint">{ws.data?.agents.length ?? ''}</span></Link>
         {active.map((t) => (
           <Link key={t.id} to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId: t.id }} className={navClass(params.taskId === t.id)} data-testid="active-task">
             <Icon name="doc" className="text-muted" /><span className="truncate">{t.title}</span><Count n={pending(t.id)} />
@@ -349,19 +352,14 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
           {g.blocks.map((b) => (
             <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && (loc.panel === b.panelId || (!loc.panel && b.id === home?.id)))} data-testid={`side-panel-${b.name}`}>
               <Icon name={panelIcon(b.panelType, b.entityType, b.panelId)} className="text-muted" /><span className="truncate">{b.name}</span>
-              {b.panelType === 'diff' && <Count n={stat?.pendingReviews ?? 0} tone="cool" />}
             </Link>
           ))}
         </Group>
       ))}
-      <Group label="团队" title="团队">
-        <Link to={to} params={wsParams} search={{ panel: '_talk' }} className={navClass(onWs && loc.panel === '_talk')} data-testid="side-panel-agent"><Icon name="chat" className="text-muted" />Agent</Link>
-        <Link to={to} params={wsParams} search={{ panel: '_agents' }} className={navClass(onWs && loc.panel === '_agents')} data-testid="side-panel-成员"><Icon name="people" className="text-muted" />成员<span className="ml-auto text-xs text-faint">{ws.data?.agents.length ?? ''}</span></Link>
-        <Link to={to} params={wsParams} search={{ panel: '_settings' }} className={navClass(onWs && loc.panel === '_settings')} data-testid="side-panel-设置"><Icon name="gear" className="text-muted" />工作台设置</Link>
-      </Group>
       <Group label="项目" title="项目">
         <Link to="/projects/$projectId/inbox" params={{ projectId: project.id }} className={navClass(loc.path.endsWith('/inbox'))}><Icon name="inbox" className="text-muted" />收件箱<Count n={overview.data?.inboxOpen ?? 0} /></Link>
         <Link to="/projects/$projectId/runs" params={{ projectId: project.id }} className={navClass(loc.path.includes('/runs'))}><Icon name="ledger" className="text-muted" />运行账本</Link>
+        <Link to={to} params={wsParams} search={{ panel: '_settings' }} className={navClass(onWs && loc.panel === '_settings')} data-testid="side-panel-设置"><Icon name="gear" className="text-muted" />工作台设置</Link>
         <Link to="/projects/$projectId/settings" params={{ projectId: project.id }} className={navClass(loc.path.endsWith('/settings'))} data-testid="side-project-settings"><Icon name="sliders" className="text-muted" />项目设置</Link>
       </Group>
       <p className="measured mt-auto border-t border-rule px-2 pt-2.5 text-xs text-muted">sqlite 本地</p>
@@ -390,7 +388,7 @@ function ArchivedBanner({ project }: { project: ProjectDetail }) {
 
 // ── 外壳 ───────────────────────────────────────
 
-function Frame({ project, activeWs, onConsole, sidebar, children }: { project: ProjectDetail | undefined; activeWs: string | undefined; onConsole: boolean; sidebar: ReactNode; children: ReactNode }) {
+function Frame({ project, activeWs, onConsole, sidebar, dock, children }: { project: ProjectDetail | undefined; activeWs: string | undefined; onConsole: boolean; sidebar: ReactNode; dock?: ReactNode; children: ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [mounting, setMounting] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
@@ -426,6 +424,7 @@ function Frame({ project, activeWs, onConsole, sidebar, children }: { project: P
           {sidebar}
         </aside>
         <main className="flex min-w-0 flex-1 flex-col bg-paper">{children}</main>
+        {dock}
       </div>
       {palette && project && <CommandPalette project={project} onClose={() => setPalette(false)} />}
       {mounting && project && <MountDialog project={project} onClose={() => setMounting(false)} />}
@@ -455,7 +454,13 @@ export function Shell({ project, children }: { project: ProjectDetail; children:
   useEffect(() => rememberProject(project.id), [project.id]);
 
   return (
-    <Frame project={project} activeWs={activeWs} onConsole={false} sidebar={sideWs ? <WorkstationSidebar key={sideWs} project={project} wsId={sideWs} /> : null}>
+    <Frame
+      project={project}
+      activeWs={activeWs}
+      onConsole={false}
+      sidebar={sideWs ? <WorkstationSidebar key={sideWs} project={project} wsId={sideWs} /> : null}
+      dock={sideWs ? <RightDock key={sideWs} project={project} wsId={sideWs} /> : null}
+    >
       {children}
     </Frame>
   );

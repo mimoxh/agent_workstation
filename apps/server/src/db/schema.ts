@@ -214,6 +214,7 @@ export const thread = sqliteTable('thread', {
   state: text('state').notNull().default('active'),
   turnCount: integer('turn_count').notNull().default(0),
   title: text('title'),
+  archivedAt: text('archived_at'),
   createdAt: text('created_at').notNull(),
 });
 

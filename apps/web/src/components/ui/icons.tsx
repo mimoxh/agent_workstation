@@ -46,6 +46,9 @@ const PATHS = {
   bug: 'M9 8a3 3 0 0 1 6 0M8 10h8v5a4 4 0 0 1-8 0zM12 10v9M4 9l4 2M20 9l-4 2M4 19l4-2M20 19l-4-2M3.5 14H8M16 14h4.5',
   wave: 'M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0',
   shield: 'M12 3.5 5 6v5.5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z',
+  archive: 'M4 5h16v4H4zM5.5 9v10h13V9M10 13h4',
+  close: 'M6 6l12 12M18 6 6 18',
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 } as const;
 
 export type IconName = keyof typeof PATHS;

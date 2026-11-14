@@ -4,7 +4,7 @@ import { fromChecks, parseChecks, qaSuiteChecks, toChecks } from '../components/
 import { mentionQuery } from '../components/chat/mention';
 import { foldByDecision } from '../components/timeline/fold';
 import { layoutGantt } from '../components/pm/gantt';
-import { panelGroups } from '../components/workstation/home';
+import { dockBlocks, panelGroups } from '../components/workstation/home';
 import { parseDiff } from './diff';
 import { duration, parseJson, seconds, tokens, when } from './format';
 import { keysFor } from './live';
@@ -157,6 +157,13 @@ describe('panelGroups', () => {
 
   it('没有分组时只有「功能」', () => {
     expect(panelGroups([b('board')]).map((g) => g.title)).toEqual(['功能']);
+  });
+
+  it('改动审阅、文件树、页面预览归右侧栏，项目文件夹留在左侧栏', () => {
+    const t = (panelId: string, panelType: string, entityType: string) => ({ id: panelId, panelId, panelType, entityType, configJson: null }) as never;
+    const blocks = [t('board', 'board', 'system:task'), t('changes', 'diff', 'system:proposal'), t('files', 'tree', 'system:files'), t('preview', 'preview', 'Page'), t('folder', 'tree', 'system:folder')];
+    expect(dockBlocks(blocks).map((x) => x.panelId)).toEqual(['changes', 'files', 'preview']);
+    expect(panelGroups(blocks).flatMap((g) => g.blocks.map((x) => x.panelId))).toEqual(['board', 'folder']);
   });
 });
 

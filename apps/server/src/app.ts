@@ -86,7 +86,7 @@ import { docToHtml } from './runtime/doc_render.js';
 import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from './runtime/design_render.js';
 import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, taskQuality, transitionBug } from './usecases/qa.js';
 import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, qaGateSuites } from './repositories/qa.js';
-import { createConversation, decisionToProposal, dmThreadOf, listConversations, listMessages, postThreadMessage, silenceThread, stopThread, taskThreadOf, threadActivity, threadAgents, wsThreadOf } from './usecases/threads.js';
+import { archiveThread, createConversation, decisionToProposal, dmThreadOf, listConversations, listMessages, postThreadMessage, silenceThread, stopThread, taskThreadOf, threadActivity, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
 
@@ -872,6 +872,10 @@ export function createApp(db: DB) {
     .post('/threads/:id/silence', body(z.object({ silenced: z.boolean() })), async (c) => {
       const r = await silenceThread(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').silenced);
       return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/threads/:id/archive', body(z.object({ archived: z.boolean() })), async (c) => {
+      const r = await archiveThread(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').archived);
+      return r.kind === 'ok' ? c.json({ archivedAt: r.archivedAt }) : fail(c, r);
     })
     .get('/threads/:id/active', async (c) => {
       const th = (await c.get('db').select().from(thread).where(eq(thread.id, c.req.param('id'))))[0];

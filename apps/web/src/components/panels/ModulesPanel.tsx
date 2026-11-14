@@ -31,7 +31,7 @@ export function ModulesPanel({ ws, def, editable }: { ws: WorkstationDetail; def
         const n = openOn(tasks.data, path);
         return <Badge tone={n > 0 ? 'cool' : 'neutral'} data-testid="module-open-count">{n} 个进行中任务</Badge>;
       }}
-      emptyExtra={<p className="text-xs text-muted">登记 Module 后，范围不在任何 Module 下的任务会在设计阶段要求 ADR</p>}
+      emptyExtra={<p className="text-xs text-muted">架构师接单时会自动登记任务涉及的 Module，你也可以手动新建。登记后，范围不在任何 Module 下的任务会在设计阶段要求 ADR</p>}
     />
   );
 }

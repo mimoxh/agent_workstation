@@ -277,12 +277,29 @@ describe('工具权限与提案', () => {
     const t = await makeTask(dev.id);
     const actor = { type: 'agent' as const, id: steward.id };
     const tc: ToolCtx = { db, actor, permCtx: await buildPermCtx(actor, db), agent: steward, task: t, run: {} as never };
-    const pr = await executeTool(tc, 'propose_entity', { entityType: 'Module', data: { name: 'web', path: 'apps/web/', responsibility: 'r' }, reason: 'x' }) as { proposalId: string };
+    const pr = await executeTool(tc, 'propose_entity', { entityType: 'ADR', data: { title: '拆出 web', decision: 'd' }, reason: 'x' }) as { proposalId: string };
     expect(pr.proposalId).toBeTruthy();
     const human = { type: 'human' as const, id: 'local' };
     expect((await decideProposal(human, db, pr.proposalId, 'approve')).kind).toBe('ok');
     expect((await db.select().from(entityVersion)).length).toBe(1);
     expect((await decideProposal(human, db, pr.proposalId, 'approve')).kind).toBe('invalid');
+  });
+
+  it('steward 登记 Module 直接写入，同一路径不重复登记；改已登记的走提案', async () => {
+    const dev = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!;
+    const steward = (await db.select().from(agent).where(and(eq(agent.workstationId, dev.id), eq(agent.isSteward, 1))))[0]!;
+    const t = await makeTask(dev.id);
+    const actor = { type: 'agent' as const, id: steward.id };
+    const tc: ToolCtx = { db, actor, permCtx: await buildPermCtx(actor, db), agent: steward, task: t, run: {} as never };
+    const made = await executeTool(tc, 'propose_entity', { entityType: 'Module', data: { name: 'web', path: 'apps/web/', responsibility: 'r' } }) as { entityId: string };
+    expect(made.entityId).toBeTruthy();
+    const row = (await db.select().from(entity).where(eq(entity.id, made.entityId)))[0]!;
+    expect([row.entityType, row.createdByType, row.createdById]).toEqual(['Module', 'agent', steward.id]);
+    const dup = await executeTool(tc, 'propose_entity', { entityType: 'Module', data: { name: 'web2', path: './apps/web' } }) as { error: string };
+    expect(dup.error).toContain(made.entityId);
+    expect((await db.select().from(entity).where(eq(entity.entityType, 'Module'))).length).toBe(1);
+    const edit = await executeTool(tc, 'propose_entity', { entityType: 'Module', entityId: made.entityId, data: { name: 'web', path: 'apps/web', responsibility: '新职责' } }) as { proposalId: string };
+    expect(edit.proposalId).toBeTruthy();
   });
 });
 

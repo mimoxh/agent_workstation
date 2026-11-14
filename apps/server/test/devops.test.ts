@@ -411,6 +411,9 @@ describe('开发台补全', () => {
     expect(fresh.text).toContain('src/board');
     const stuck = await post(`/api/tasks/${t.id}/stage`, { stage: 'implement' });
     expect(stuck.status).toBe(409);
+    // Agent 在本任务期间自己登记的 Module 不能替代 ADR
+    await db.insert(entity).values({ id: crypto.randomUUID(), workstationId: devId, entityType: 'Module', version: 1, dataJson: JSON.stringify({ name: '看板', path: 'src/board' }), createdByType: 'agent', createdById: 'a', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    expect((await gates(t.id))[0]!.met).toBe(false);
     await addEntity('ADR', { title: '新增 board' });
     expect((await gates(t.id))[0]!.met).toBe(true);
     expect((await post(`/api/tasks/${t.id}/stage`, { stage: 'implement' })).status).toBe(200);

@@ -69,7 +69,7 @@ function ReviewPane({ proposal, drafts, projectId, onSubmitted }: { proposal: Pr
   const notes = proposal.comments;
 
   return (
-    <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-l border-rule p-3" data-testid="review-form">
+    <aside className="flex max-h-72 min-h-0 flex-col gap-3 overflow-y-auto border-t border-rule p-3 @4xl:max-h-none @4xl:border-l @4xl:border-t-0" data-testid="review-form">
       <div className="space-y-1 text-sm">
         <p className="text-xs text-muted">{code ? '代码提案' : isFile(proposal) ? `文件改动 · ${filePatch(proposal)?.path ?? ''}` : `实体提案 · ${proposal.targetType ?? ''}`}</p>
         {proposal.reason && <p className="text-ink-2">{proposal.reason}</p>}
@@ -120,8 +120,10 @@ function ProposalList({ proposals, projectId }: { proposals: Proposal[]; project
   const reviewable = OPEN.includes(cur.status) && isCode(cur) && cur.task?.status === 'reviewing';
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[15rem_minmax(0,1fr)_16rem]">
-      <div className="flex min-h-0 flex-col gap-1 overflow-y-auto border-r border-rule p-2" data-testid="proposal-list">
+    // 右侧栏里宽度有限：窄时列表、改动、审阅上下排，够宽再三栏
+    <div className="@container h-full min-h-0">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] @4xl:grid-cols-[15rem_minmax(0,1fr)_16rem] @4xl:grid-rows-1">
+      <div className="flex max-h-36 min-h-0 flex-col gap-1 overflow-y-auto border-b border-rule p-2 @4xl:max-h-none @4xl:border-b-0 @4xl:border-r" data-testid="proposal-list">
         <p className="px-1 pb-1 text-xs text-muted">提案 {proposals.length}</p>
         {proposals.map((p) => (
           <button
@@ -139,7 +141,7 @@ function ProposalList({ proposals, projectId }: { proposals: Proposal[]; project
           </button>
         ))}
       </div>
-      <div className="min-w-0 overflow-y-auto p-4">
+      <div className="min-h-0 min-w-0 overflow-y-auto p-4">
         {isCode(cur) ? (
           <DiffView
             patch={cur.patchJson ?? ''}
@@ -153,6 +155,7 @@ function ProposalList({ proposals, projectId }: { proposals: Proposal[]; project
         )}
       </div>
       <ReviewPane key={cur.id} proposal={cur} drafts={mine} projectId={projectId} onSubmitted={() => setDrafts({ ...drafts, [cur.id]: [] })} />
+    </div>
     </div>
   );
 }

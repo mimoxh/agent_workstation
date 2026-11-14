@@ -12,6 +12,7 @@ import { planTask, unmetDependencies } from '../../usecases/plan.js';
 import { createTaskUc, dispatchTask, respondTask, setStage, transitionTaskUc } from '../../usecases/tasks.js';
 import { postHandoff, postMessage, taskThreadOf } from '../../usecases/threads.js';
 import { escalateTask, reportBlocked } from '../coordination.js';
+import { registeredAt, registryPathField } from '../modules.js';
 import type { AgentRow, RunRow, TaskRow, ThreadRow } from '../types.js';
 import { designTools } from './design.js';
 import { devTools } from './dev.js';
@@ -104,6 +105,9 @@ const tools: Record<string, ToolDef> = {
       }
       const reason = a.reason as string | undefined;
       if (!a.entityId && (def.writeMode ?? manifest?.defaults?.writeMode) === 'direct') {
+        const pathField = registryPathField(manifest, String(a.entityType));
+        const dup = pathField ? await registeredAt(ctx.db, wsId, String(a.entityType), pathField, data[pathField]) : null;
+        if (dup) return { error: `路径 ${dup.path} 已登记为「${dup.name}」，要改它请带 entityId=${dup.id} 提交变更` };
         const r = await createEntity(ctx.actor, ctx.db, wsId, { entityType: String(a.entityType), data, reason });
         return r.kind === 'ok' ? { entityId: r.id } : { error: r.error };
       }

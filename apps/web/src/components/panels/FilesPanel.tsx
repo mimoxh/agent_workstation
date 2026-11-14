@@ -44,8 +44,10 @@ export function FilesPanel({ wsId }: { wsId: string }) {
   if (list.data?.error && !dir && !branch) return <Empty title="文件树不可用">{list.data.error}</Empty>;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[17rem_minmax(0,1fr)]" data-testid="file-tree">
-      <div className="flex min-h-0 flex-col border-r border-rule">
+    // 右侧栏里宽度有限：窄时目录在上、文件在下，够宽再左右分栏
+    <div className="@container h-full min-h-0" data-testid="file-tree">
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] @2xl:grid-cols-[17rem_minmax(0,1fr)] @2xl:grid-rows-1">
+      <div className="flex min-h-0 flex-col border-b border-rule @2xl:border-b-0 @2xl:border-r">
         {taskBranches.length > 0 && (
           <div className="border-b border-rule px-3 py-2">
             <Select
@@ -94,13 +96,14 @@ export function FilesPanel({ wsId }: { wsId: string }) {
           {list.data?.entries.length === 0 && !list.isLoading && <li className="p-2 text-sm text-muted">{list.data.error ?? '空目录'}</li>}
         </ul>
       </div>
-      <div className="min-w-0">
+      <div className="min-h-0 min-w-0">
         {file ? (
           <FileView wsId={wsId} path={file} branch={branch} />
         ) : (
-          <Empty title="选择左侧文件查看内容">{branch ? `读取的是任务分支 ${branch} 上已提交的版本。` : '读取的是目标分支上的版本；要看还没合并的改动，在上方切到任务分支。'}</Empty>
+          <Empty title="选择文件查看内容">{branch ? `读取的是任务分支 ${branch} 上已提交的版本。` : '读取的是目标分支上的版本；要看还没合并的改动，在上方切到任务分支。'}</Empty>
         )}
       </div>
+    </div>
     </div>
   );
 }

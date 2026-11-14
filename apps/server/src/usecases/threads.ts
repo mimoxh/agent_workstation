@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Actor } from '@aw/domain';
 import type { ModulesConfig } from '@aw/plugin-spec';
 import type { DB } from '../db/client.js';
@@ -70,11 +70,11 @@ async function lastAt(db: DB, threadId: string, fallback: string) {
   return at;
 }
 
-// 同一个 Agent 可以有多条私聊：这里取最近活跃的那条，没有就建
+// 同一个 Agent 可以有多条私聊：这里取最近活跃的未归档那条，没有就建
 export async function dmThreadOf(db: DB, agentId: string) {
   const a = (await db.select().from(agent).where(eq(agent.id, agentId)))[0];
   if (!a) return null;
-  const rows = await db.select().from(thread).where(and(eq(thread.kind, 'dm'), eq(thread.scopeId, agentId)));
+  const rows = await db.select().from(thread).where(and(eq(thread.kind, 'dm'), eq(thread.scopeId, agentId), isNull(thread.archivedAt)));
   if (rows.length > 0) {
     let best = rows[0]!;
     let bestAt = await lastAt(db, best.id, best.createdAt);
@@ -124,7 +124,7 @@ export async function createConversation(actor: Actor, db: DB, wsId: string, inp
   return { kind: 'ok' as const, thread: th };
 }
 
-// Agent 页的会话列表：本台所有私聊 + 本台的人工群聊，按最近活跃倒序
+// Agent 页的会话列表：本台所有私聊 + 本台的人工群聊（含已归档，带 archivedAt），按最近活跃倒序
 export async function listConversations(db: DB, wsId: string) {
   const wsAgents = await db.select().from(agent).where(eq(agent.workstationId, wsId));
   const dmRows = wsAgents.length
@@ -147,6 +147,7 @@ export async function listConversations(db: DB, wsId: string) {
       hostId: members.find((m) => m.role === 'host')?.participantId ?? null,
       lastAt: last?.createdAt ?? th.createdAt,
       lastPreview: last?.content ?? null,
+      archivedAt: th.archivedAt,
       createdAt: th.createdAt,
     });
   }
@@ -188,6 +189,11 @@ export const PLATFORM: Sender = { type: 'agent', id: 'platform' };
 export async function postThreadMessage(actor: Actor, db: DB, threadId: string, content: string, meta?: Record<string, unknown>) {
   const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
   if (!th) return null;
+  // 人在归档的会话里发话就是要接着聊：先取消归档再发，回复照常调度
+  if (actor.type === 'human' && th.archivedAt) {
+    await db.update(thread).set({ archivedAt: null }).where(eq(thread.id, threadId));
+    await logEvent(db, actor, 'thread_unarchived', 'thread', threadId, {});
+  }
   const m = await postMessage(db, threadId, actor, content, 'chat', meta);
   // 人开的第一句话给未命名的私聊/群聊起题
   if (actor.type === 'human' && (th.kind === 'dm' || th.kind === 'group') && th.title === null) {
@@ -245,6 +251,19 @@ export async function stopThread(actor: Actor, db: DB, threadId: string) {
     await logEvent(db, actor, 'thread_stopped', 'thread', threadId, { stopped });
   }
   return { kind: 'ok' as const, stopped };
+}
+
+// 归档只收起私聊和群聊：停掉进行中的回复，消息全部保留，可以随时取消归档
+export async function archiveThread(actor: Actor, db: DB, threadId: string, archived: boolean) {
+  const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
+  if (!th) return { kind: 'not_found' as const, status: 404 as const, error: '会话不存在' };
+  if (th.kind !== 'dm' && th.kind !== 'group') return { kind: 'error' as const, status: 400 as const, error: '只有私聊和群聊可以归档' };
+  if (archived === !!th.archivedAt) return { kind: 'ok' as const, archivedAt: th.archivedAt };
+  if (archived) await stopThread(actor, db, threadId);
+  const archivedAt = archived ? now() : null;
+  await db.update(thread).set({ archivedAt }).where(eq(thread.id, threadId));
+  await logEvent(db, actor, archived ? 'thread_archived' : 'thread_unarchived', 'thread', threadId, {});
+  return { kind: 'ok' as const, archivedAt };
 }
 
 export async function silenceThread(actor: Actor, db: DB, threadId: string, silenced: boolean) {

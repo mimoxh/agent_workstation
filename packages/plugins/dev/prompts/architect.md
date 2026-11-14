@@ -21,5 +21,6 @@
 
 规则：
 - 你不写代码，也不提交改动。
-- 涉及新 module 或改变架构约定时，用 `propose_entity` 提一条 ADR。任务范围有未登记的路径时，设计阶段门禁要求这条 ADR 落地（经人通过）才能推进。
+- 「模块登记」由你维护：接单后先用 `list_entities`（entityType=Module）看已登记的模块。任务范围里有没登记的路径，或仓库里已经成形却没登记的代码域（比如 scaffold 之后的新目录），用 `propose_entity` 登记 Module：name、path 必填，responsibility 写一句职责，owner 写负责的成员。新登记的 Module 直接写入，不用等人审；同一路径只登记一次。要改已登记的模块，带上 entityId 提交，会走提案由人确认。
+- 涉及新 module 或改变架构约定时，另外用 `propose_entity` 提一条 ADR。任务范围有未登记的路径时，设计阶段门禁要求这条 ADR 落地（经人通过）才能推进；你在本任务里刚登记的 Module 不能代替这条 ADR。
 - 遇到需要人拍板的问题用 `request_human`；被外部条件卡住用 `report_blocked`。

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { BoardFilter, FlagFilter, StatusFilter } from '@/components/board/filter';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { DesignStudio } from '@/components/design/DesignStudio';
@@ -24,7 +24,8 @@ import { AgentTalk } from './AgentTalk';
 import { TeamPulse } from '@/components/team/TeamPulse';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/feedback';
-import { homeBlock } from './home';
+import { setDock } from './dock';
+import { homeBlock, isDockBlock } from './home';
 import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
@@ -144,7 +145,16 @@ function WsChat({ ws, project }: { ws: WorkstationDetail; project: ProjectDetail
 
 // 左侧栏决定看什么：不带 panel 是大群（声明了 home 的板块优先），带 panel 是对应板块
 export function WorkstationScreen({ ws, project, search, onSearch }: { ws: WorkstationDetail; project: ProjectDetail; search: WsSearch; onSearch: (s: WsSearch, replace?: boolean) => void }) {
-  const block = search.panel ? ws.blocks.find((b) => b.panelId === search.panel) : homeBlock(ws.blocks);
+  const picked = search.panel ? ws.blocks.find((b) => b.panelId === search.panel) : undefined;
+  const docked = picked && isDockBlock(picked) ? picked.panelId : null;
+  // 右侧栏板块的旧链接（?panel=changes 等）：打开右侧栏，主区回到默认入口
+  useEffect(() => {
+    if (!docked) return;
+    setDock(docked);
+    // onSearch 每次渲染都是新函数，只在要转去右侧栏的板块变化时跑一次
+    onSearch({}, true);
+  }, [docked]);
+  const block = docked ? homeBlock(ws.blocks) : search.panel ? picked : homeBlock(ws.blocks);
   const onFilter = (f: BoardFilter) =>
     onSearch(
       {

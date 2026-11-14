@@ -39,6 +39,16 @@ test('smoke：侧栏默认负责人私聊可切大群；Agent 页建私聊和群
   await typeAndSend(page, '对齐一下接口');
   await expect(page.getByTestId('decision-card').first()).toBeVisible({ timeout: 30000 });
 
+  // 归档：从列表收进「已归档」，再取消归档回到列表
+  const groupId = new URL(page.url()).searchParams.get('thread')!;
+  await page.getByTestId('conv-archive').click();
+  await expect(page.getByTestId('conv-list').getByTestId(`conv-item-${groupId}`)).toHaveCount(0);
+  await expect(page.getByTestId('conv-header')).toContainText('已归档');
+  await page.getByTestId('conv-archived-toggle').click();
+  await expect(page.getByTestId('conv-archived-list').getByTestId(`conv-item-${groupId}`)).toBeVisible();
+  await page.getByTestId('conv-archive').click();
+  await expect(page.getByTestId('conv-list').getByTestId(`conv-item-${groupId}`)).toBeVisible();
+
   // 文档台右侧栏：默认负责人（主笔）私聊，可切大群
   const docs = proj.workstations.find((w) => w.pluginId === 'docs');
   if (docs) {

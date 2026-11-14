@@ -43,9 +43,10 @@ export function PreviewPanel({ wsId, config }: { wsId: string; config?: PreviewC
   };
 
   return (
-    <div className={cn('grid h-full min-h-0', pages.length > 0 ? 'grid-cols-[15rem_minmax(0,1fr)]' : 'grid-cols-1')} data-testid="preview-panel">
+    <div className="@container h-full min-h-0" data-testid="preview-panel">
+    <div className={cn('grid h-full min-h-0', pages.length > 0 ? 'grid-rows-[auto_minmax(0,1fr)] @2xl:grid-cols-[15rem_minmax(0,1fr)] @2xl:grid-rows-1' : 'grid-cols-1')}>
       {pages.length > 0 && (
-        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto border-r border-rule p-2" data-testid="preview-pages">
+        <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto border-b border-rule p-2 @2xl:max-h-none @2xl:border-b-0 @2xl:border-r" data-testid="preview-pages">
           <p className="px-1 pb-1 text-xs text-muted">页面 {pages.length}</p>
           {pages.map((p) => (
             <button
@@ -111,6 +112,7 @@ export function PreviewPanel({ wsId, config }: { wsId: string; config?: PreviewC
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

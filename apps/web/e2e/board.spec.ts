@@ -33,8 +33,13 @@ test('根台建任务 → 派发到开发台 → 协作室与运行轨迹', asyn
 
   // 开发台：manifest 板块 + 平台板块 + 成员
   await openWs(page, '开发');
-  for (const t of ['任务看板', '改动审阅', '测试运行', '质量总览', '缺陷', '架构决策', '文件树', '页面预览', '成员', '设置']) {
+  for (const t of ['任务看板', '测试运行', '质量总览', '缺陷', '架构决策', '成员', '设置']) {
     await expect(tab(page, t)).toBeVisible();
+  }
+  // 改动审阅、文件树、页面预览在右侧栏
+  for (const t of ['改动审阅', '文件树', '页面预览']) {
+    await expect(tab(page, t)).toHaveCount(0);
+    await expect(page.getByTestId(`dock-tab-${t}`)).toBeVisible();
   }
   await expect(page.getByTestId('member-row').filter({ hasText: '架构师' })).toContainText('steward');
   await expect(page.getByTestId('member-row').filter({ hasText: '前端开发 #2' })).toBeVisible();
@@ -110,12 +115,12 @@ test('剧本 A 全链路：父任务完成 + 面板数据', async ({ page }) => 
   expect(detail.task.status, JSON.stringify({ children: detail.children.map((c) => [c.title, c.status, c.stage, c.blockedReason]), inbox })).toBe('done');
 
   await page.goto(`/projects/proj-aw/ws/${dev.id}`);
-  await tab(page, '改动审阅').click();
+  await page.getByTestId('dock-tab-改动审阅').click();
   await page.getByTestId('proposal-list').getByText('已合并').first().click({ timeout: 10000 });
   await expect(page.getByTestId('diff-view')).toBeVisible();
 
   // 文件树能进目录、能打开文件（修复前进目录后停在原地）
-  await tab(page, '文件树').click();
+  await page.getByTestId('dock-tab-文件树').click();
   await page.getByTestId('file-entry').filter({ hasText: 'src/' }).click();
   await page.getByTestId('file-entry').filter({ hasText: 'board/' }).click();
   await page.getByTestId('file-entry').filter({ hasText: 'index.txt' }).click();

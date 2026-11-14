@@ -45,7 +45,9 @@ async function evaluate(db: DB, t: TaskRow, wsId: string, stage: string, index: 
     return { ...base, text: r.description ?? (r.by === 'human' ? '改动经人审查通过' : '改动审查通过'), met };
   }
   if (r.kind === 'new_scope_decision') {
-    const fresh = uncoveredPaths(parseScope(t.inputJson), await registeredModules(db, wsId, r.registry, r.pathField ?? 'path'));
+    // Agent 在本任务期间自己登记的 Module 不算「已登记」：否则登记一下就绕过了 ADR
+    const known = await registeredModules(db, wsId, r.registry, r.pathField ?? 'path', (e) => !(e.createdByType === 'agent' && e.createdAt >= t.createdAt));
+    const fresh = uncoveredPaths(parseScope(t.inputJson), known);
     if (fresh.length === 0) return { ...base, text: `${r.description ?? `涉及新 ${r.registry} 时需有 ${r.decision}`}：未涉及未登记的 ${r.registry}`, met: true };
     const made = await entitiesSince(db, t, wsId, r.decision, []);
     return { ...base, text: `${r.description ?? `涉及新 ${r.registry}`}（${fresh.join('、')}）：需要至少 1 条 ${r.decision}`, met: made >= 1 };

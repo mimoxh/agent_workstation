@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { cn } from '@/lib/utils';
 
-export interface ResizeOpts { min: number; max: number; initial: number }
+// edge 是拖拽柄所在的那条边：左侧栏拖右边缘，右侧栏拖左边缘（往左拖变宽）
+export interface ResizeOpts { min: number; max: number; initial: number; edge: 'left' | 'right'; maxRatio: number }
 
-const DEFAULTS: ResizeOpts = { min: 280, max: 720, initial: 352 };
+const DEFAULTS: ResizeOpts = { min: 280, max: 720, initial: 352, edge: 'right', maxRatio: 0.6 };
 
 export interface ResizeHandleProps {
   width: number;
@@ -15,14 +16,16 @@ export interface ResizeHandleProps {
   onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void;
   onDoubleClick: () => void;
   dragging: boolean;
+  edge: 'left' | 'right';
 }
 
 // 画廊和画布共用的侧栏宽度：同一个 localStorage key，两处拖任一边缘都改同一宽度
 export function useResizableWidth(key: string, opts: Partial<ResizeOpts> = {}): [number, ResizeHandleProps] {
-  const { min, max, initial } = { ...DEFAULTS, ...opts };
+  const { min, max, initial, edge, maxRatio } = { ...DEFAULTS, ...opts };
+  const sign = edge === 'left' ? -1 : 1;
   const clamp = useCallback(
-    (v: number) => Math.min(Math.max(min, v), max, typeof window === 'undefined' ? max : window.innerWidth * 0.6),
-    [min, max],
+    (v: number) => Math.min(Math.max(min, v), max, typeof window === 'undefined' ? max : window.innerWidth * maxRatio),
+    [min, max, maxRatio],
   );
   const [width, setWidth] = useState(() => {
     const s = Number(localStorage.getItem(key));
@@ -52,7 +55,7 @@ export function useResizableWidth(key: string, opts: Partial<ResizeOpts> = {}): 
   return [
     width,
     {
-      width, min, max, dragging,
+      width, min, max, dragging, edge,
       onPointerDown: (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -61,7 +64,7 @@ export function useResizableWidth(key: string, opts: Partial<ResizeOpts> = {}): 
         setDragging(true);
       },
       onPointerMove: (e) => {
-        if (dragging) apply(start.current.w + (e.clientX - start.current.x));
+        if (dragging) apply(start.current.w + sign * (e.clientX - start.current.x));
       },
       onPointerUp: (e) => {
         setDragging(false);
@@ -70,7 +73,7 @@ export function useResizableWidth(key: string, opts: Partial<ResizeOpts> = {}): 
       onKeyDown: (e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
-          apply(width + (e.key === 'ArrowRight' ? 16 : -16));
+          apply(width + sign * (e.key === 'ArrowRight' ? 16 : -16));
         }
       },
       onDoubleClick: () => apply(initial),
@@ -79,7 +82,7 @@ export function useResizableWidth(key: string, opts: Partial<ResizeOpts> = {}): 
 }
 
 // 侧栏内缘的拖拽柄：pointer capture 让它不受设计稿 iframe 影响；拖动时盖一层透明罩双保险
-export function ResizeHandle({ width, min, max, dragging, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onDoubleClick }: ResizeHandleProps) {
+export function ResizeHandle({ width, min, max, dragging, edge, onPointerDown, onPointerMove, onPointerUp, onKeyDown, onDoubleClick, testId = 'design-chat-resize' }: ResizeHandleProps & { testId?: string }) {
   return (
     <>
       <div
@@ -90,14 +93,15 @@ export function ResizeHandle({ width, min, max, dragging, onPointerDown, onPoint
         aria-valuemin={min}
         aria-valuemax={max}
         tabIndex={0}
-        data-testid="design-chat-resize"
+        data-testid={testId}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onKeyDown={onKeyDown}
         onDoubleClick={onDoubleClick}
         className={cn(
-          'absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize touch-none',
+          'absolute top-0 z-30 h-full w-2 cursor-col-resize touch-none',
+          edge === 'left' ? '-left-1' : '-right-1',
           'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors',
           'hover:after:bg-[var(--color-rule-2)] focus-visible:after:bg-[var(--color-cool)]',
           dragging && 'after:bg-[var(--color-cool)]',

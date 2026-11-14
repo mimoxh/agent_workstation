@@ -48,8 +48,8 @@ export function DesignChat({ ws, project, designer, threadId, onThread, meta, hi
   const conversations = useConversations(ws.id);
   const dm = useAgentThread(designer.id);
   const convs = useMemo(
-    () => (conversations.data?.conversations ?? []).filter((c) => c.kind === 'dm' && c.agentIds[0] === designer.id),
-    [conversations.data, designer.id],
+    () => (conversations.data?.conversations ?? []).filter((c) => c.kind === 'dm' && c.agentIds[0] === designer.id && (!c.archivedAt || c.id === threadId)),
+    [conversations.data, designer.id, threadId],
   );
   const selId = threadId ?? dm.data?.thread.id ?? null;
   const sel = convs.find((c) => c.id === selId) ?? (selId && dm.data?.thread.id === selId ? dm.data.thread : null);
