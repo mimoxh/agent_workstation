@@ -14,6 +14,18 @@ import { DiffView, type LineComment } from './DiffView';
 
 const OPEN = ['pending', 'changes_requested'];
 const isCode = (p: Proposal) => p.targetType === 'code';
+const isFile = (p: Proposal) => p.targetType === 'file';
+const filePatch = (p: Proposal) => (isFile(p) ? parseJson<{ path?: string; diff?: string }>(p.patchJson, {}) : null);
+
+function FilePatch({ patch }: { patch: string | null }) {
+  const data = parseJson<{ path?: string; diff?: string }>(patch, {});
+  return (
+    <div className="space-y-2" data-testid="file-patch">
+      <p className="measured text-xs text-muted">{data.path}</p>
+      <DiffView patch={data.diff ?? ''} comments={[]} />
+    </div>
+  );
+}
 
 function EntityPatch({ patch }: { patch: string | null }) {
   const data = parseJson<Record<string, unknown>>(patch, {});
@@ -59,7 +71,7 @@ function ReviewPane({ proposal, drafts, projectId, onSubmitted }: { proposal: Pr
   return (
     <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-l border-rule p-3" data-testid="review-form">
       <div className="space-y-1 text-sm">
-        <p className="text-xs text-muted">{code ? '代码提案' : `实体提案 · ${proposal.targetType ?? ''}`}</p>
+        <p className="text-xs text-muted">{code ? '代码提案' : isFile(proposal) ? `文件改动 · ${filePatch(proposal)?.path ?? ''}` : `实体提案 · ${proposal.targetType ?? ''}`}</p>
         {proposal.reason && <p className="text-ink-2">{proposal.reason}</p>}
         <p className="measured text-xs text-muted">{proposal.authorName ?? shortId(proposal.authorId)} · {when(proposal.createdAt)}</p>
         {proposal.task && (
@@ -134,6 +146,8 @@ function ProposalList({ proposals, projectId }: { proposals: Proposal[]; project
             comments={[...cur.comments, ...mine]}
             onComment={reviewable ? (path, line, body) => setDrafts({ ...drafts, [cur.id]: [...mine, { path, line, body }] }) : undefined}
           />
+        ) : isFile(cur) ? (
+          <FilePatch patch={cur.patchJson} />
         ) : (
           <EntityPatch patch={cur.patchJson} />
         )}

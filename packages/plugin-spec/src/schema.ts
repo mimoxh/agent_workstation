@@ -98,6 +98,8 @@ export const acceptanceCheckSchema = z.discriminatedUnion('kind', [
     expect: z.object({ exitCode: z.number() }),
   }),
   z.object({ kind: z.literal('visual'), url: z.string(), baseline: z.string(), maxDiff: z.number() }),
+  // 设计稿对比：artifact 是 design_handoff 产物 id，1280×800 截图后像素对比
+  z.object({ kind: z.literal('design_match'), url: z.string(), artifact: z.string(), maxDiff: z.number().optional() }),
   z.object({ kind: z.literal('manual'), text: z.string() }),
 ]);
 

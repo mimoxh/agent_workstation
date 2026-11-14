@@ -2,11 +2,12 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { INBOX_LABEL } from '@/components/board/labels';
+import { DiffView } from '@/components/panels/DiffView';
 import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
-import { when } from '@/lib/format';
+import { parseJson, when } from '@/lib/format';
 import type { InboxRow } from '@/lib/queries';
 
 const TONE: Record<string, BadgeTone> = {
@@ -112,6 +113,7 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
   const open = item.status === 'open';
   const suspects = item.kind === 'qa_regression' ? (JSON.parse(item.payloadJson ?? '{}') as { suspects?: { taskId: string; title: string }[] }).suspects ?? [] : [];
   const docDrift = item.kind === 'docs_drift' ? (JSON.parse(item.payloadJson ?? '{}') as { wsId?: string; docTitle?: string }) : null;
+  const filePatch = item.proposalTarget === 'file' ? parseJson<{ path?: string; diff?: string }>(item.proposalPatch, {}) : null;
   return (
     <article className="space-y-1.5 rounded-chip px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
       <div className="flex items-center gap-2">
@@ -135,6 +137,14 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
         <p className="text-sm text-ink-2"><code>{item.command}</code>{!compact && item.cwd && <span className="measured ml-2 text-xs text-muted">{item.cwd}</span>}</p>
       )}
       {item.detail && <p className={compact ? 'line-clamp-2 text-xs text-muted' : 'whitespace-pre-wrap text-sm text-muted'}>{item.detail}</p>}
+      {filePatch?.diff && (
+        <details className="text-xs" data-testid="inbox-file-diff">
+          <summary className="cursor-pointer text-cool hover:underline">查看改动{filePatch.path ? ` · ${filePatch.path}` : ''}</summary>
+          <div className="mt-1.5 max-h-72 overflow-y-auto">
+            <DiffView patch={filePatch.diff} comments={[]} />
+          </div>
+        </details>
+      )}
       {suspects.length > 0 && (
         <p className="text-xs text-muted">
           可疑任务：

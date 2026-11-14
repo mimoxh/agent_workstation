@@ -98,12 +98,12 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
           <Textarea className="measured" rows={2} value={acceptance} onChange={(e) => setAcceptance(e.target.value)} />
         </Field>
         {gates.length > 0 && (
-          <Field label="质量套件" hint="验收时在绑定目标台的测试台上运行">
+          <Field label="质量套件" hint="验收时在任务分支上运行目标台的测试套件">
             <div className="space-y-1">
               {gates.map((s) => (
                 <label key={s.id} className="flex items-center gap-2 text-sm text-ink-2">
                   <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="dispatch-gate-suite" />
-                  <span className="truncate">{s.name}<span className="text-faint"> · {s.qaWorkstationName}</span></span>
+                  <span className="truncate">{s.name}</span>
                 </label>
               ))}
             </div>

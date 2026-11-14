@@ -6,11 +6,11 @@ import { Input, Select, Textarea } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { DesignComment } from './model';
 
-export function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
+export function Segmented<T extends string>({ label, testId, value, options, onChange, disabled }: { label: string; testId?: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
   return (
     <div role="group" aria-label={label} className="flex rounded-pill bg-paper-3 p-0.5">
       {options.map((o) => (
-        <button key={o.id} type="button" disabled={disabled} aria-pressed={value === o.id} onClick={() => onChange(o.id)} data-testid={`${label}-${o.id}`} className={cn('h-6 rounded-chip px-2 text-xs transition-colors duration-150 disabled:opacity-50', value === o.id ? 'bg-paper font-medium text-ink shadow-[var(--shadow-card)]' : 'text-muted hover:text-ink')}>
+        <button key={o.id} type="button" disabled={disabled} aria-pressed={value === o.id} onClick={() => onChange(o.id)} data-testid={`${testId ?? label}-${o.id}`} className={cn('h-6 rounded-chip px-2 text-xs transition-colors duration-150 disabled:opacity-50', value === o.id ? 'bg-paper font-medium text-ink shadow-[var(--shadow-card)]' : 'text-muted hover:text-ink')}>
           {o.label}
         </button>
       ))}

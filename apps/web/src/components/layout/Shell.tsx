@@ -8,7 +8,7 @@ import { tokens } from '@/lib/format';
 import { useLiveConnected } from '@/lib/live';
 import { useAllInbox, useModels, useOverview, useProject, useProjects, useTask, useWorkstation, useWsTasks, type ProjectDetail, type WsNode } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { homeBlock } from '@/components/workstation/home';
+import { homeBlock, panelGroups } from '@/components/workstation/home';
 import { CommandPalette } from './CommandPalette';
 import { MountDialog, NewProjectDialog } from './Dialogs';
 
@@ -49,7 +49,7 @@ export function flatWorkstations(project: ProjectDetail) {
   return out;
 }
 
-const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : pluginId === 'design' ? 'palette' : pluginId === 'qa' ? 'flask' : 'doc');
+const wsIcon = (pluginId: string | null | undefined): IconName => (pluginId === 'pm' ? 'flag' : pluginId === 'dev' ? 'terminal' : 'doc');
 
 function LiveDot() {
   const live = useLiveConnected();
@@ -344,15 +344,18 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
           </Link>
         ))}
       </Group>
-      <Group label="功能" title="功能">
-        {(ws.data?.blocks ?? []).map((b) => (
-          <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && (loc.panel === b.panelId || (!loc.panel && b.id === home?.id)))} data-testid={`side-panel-${b.name}`}>
-            <Icon name={panelIcon(b.panelType, b.entityType, b.panelId)} className="text-muted" /><span className="truncate">{b.name}</span>
-            {b.panelType === 'diff' && <Count n={stat?.pendingReviews ?? 0} tone="cool" />}
-          </Link>
-        ))}
-      </Group>
+      {panelGroups(ws.data?.blocks ?? []).map((g) => (
+        <Group key={g.title} label={g.title} title={g.title}>
+          {g.blocks.map((b) => (
+            <Link key={b.id} to={to} params={wsParams} search={{ panel: b.panelId ?? '' }} className={navClass(onWs && (loc.panel === b.panelId || (!loc.panel && b.id === home?.id)))} data-testid={`side-panel-${b.name}`}>
+              <Icon name={panelIcon(b.panelType, b.entityType, b.panelId)} className="text-muted" /><span className="truncate">{b.name}</span>
+              {b.panelType === 'diff' && <Count n={stat?.pendingReviews ?? 0} tone="cool" />}
+            </Link>
+          ))}
+        </Group>
+      ))}
       <Group label="团队" title="团队">
+        <Link to={to} params={wsParams} search={{ panel: '_talk' }} className={navClass(onWs && loc.panel === '_talk')} data-testid="side-panel-agent"><Icon name="chat" className="text-muted" />Agent</Link>
         <Link to={to} params={wsParams} search={{ panel: '_agents' }} className={navClass(onWs && loc.panel === '_agents')} data-testid="side-panel-成员"><Icon name="people" className="text-muted" />成员<span className="ml-auto text-xs text-faint">{ws.data?.agents.length ?? ''}</span></Link>
         <Link to={to} params={wsParams} search={{ panel: '_settings' }} className={navClass(onWs && loc.panel === '_settings')} data-testid="side-panel-设置"><Icon name="gear" className="text-muted" />工作台设置</Link>
       </Group>

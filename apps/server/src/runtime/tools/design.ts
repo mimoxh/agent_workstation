@@ -1,4 +1,4 @@
-import type { DesignToken, DesignTweak } from '@aw/domain';
+import type { DesignTweak } from '@aw/domain';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { artifact, entityVersion } from '../../db/schema.js';
 import { createEntity } from '../../usecases/entities.js';
-import { designRow, designSystemOf, editDesign, listDesignComments, listDesigns, readHandoffFor, renderableDesign, resolveDesignComments, saveDesign, saveDesignSystem, type DesignData } from '../../usecases/designs.js';
+import { designRow, editDesign, listDesignComments, listDesigns, readHandoffFor, renderableDesign, resolveDesignComments, saveDesign, type DesignData } from '../../usecases/designs.js';
 import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from '../design_render.js';
 import type { ToolDef } from './index.js';
 
@@ -57,7 +57,9 @@ export const designTools: Record<string, ToolDef> = {
         dataJson = old.dataJson;
       }
       const comments = (await listDesignComments(ctx.db, ctx.agent.workstationId, row.id)).filter((c) => c.status !== 'resolved');
-      return { id: row.id, latestVersion: row.version, ...(JSON.parse(dataJson ?? '{}') as DesignData), openComments: comments };
+      const data = JSON.parse(dataJson ?? '{}') as DesignData;
+      const note = data.legacyTokens?.length ? '这份稿子沿用旧版令牌（已注入 :root），改稿时可以把需要的变量直接写进稿子里的 <style>' : undefined;
+      return { id: row.id, latestVersion: row.version, ...data, ...(note ? { note } : {}), openComments: comments };
     },
   },
   write_design: {
@@ -92,36 +94,6 @@ export const designTools: Record<string, ToolDef> = {
     execute: async (ctx, a) => {
       const r = await editDesign(ctx.actor, ctx.db, ctx.agent.workstationId, String(a.id), { edits: a.edits as { oldText: string; newText: string }[], tweaks: a.tweaks as DesignTweak[] | undefined, reason: a.reason as string | undefined });
       return r.kind === 'ok' ? { id: r.id, version: r.version, warnings: r.warnings } : failed(r);
-    },
-  },
-  read_design_system: {
-    taskless: true,
-    description: '读取本台的设计令牌和设计规范。令牌由画布注入，稿子里直接 var(--name)',
-    right: 'observe',
-    parameters: z.object({}),
-    execute: async (ctx) => {
-      const s = await designSystemOf(ctx.db, ctx.agent.workstationId);
-      return { name: s.name, tokens: s.tokens, guidelines: s.guidelines };
-    },
-  },
-  update_design_system: {
-    taskless: true,
-    description: '修改设计系统：增改令牌、删除令牌或更新规范。会影响本台所有设计稿，只在人同意时使用',
-    right: 'propose',
-    parameters: z.object({
-      set: z.array(z.object({ name: z.string().regex(/^--[\w-]+$/), value: z.string(), description: z.string().optional() })).optional(),
-      remove: z.array(z.string()).optional(),
-      guidelines: z.string().optional(),
-      reason: z.string().optional(),
-    }),
-    execute: async (ctx, a) => {
-      const wsId = ctx.agent.workstationId;
-      const cur = await designSystemOf(ctx.db, wsId);
-      const set = (a.set as DesignToken[] | undefined) ?? [];
-      const removed = new Set((a.remove as string[] | undefined) ?? []);
-      const tokens = [...cur.tokens.filter((t) => !removed.has(t.name)).map((t) => set.find((s) => s.name === t.name) ?? t), ...set.filter((s) => !cur.tokens.some((t) => t.name === s.name))];
-      const r = await saveDesignSystem(ctx.actor, ctx.db, wsId, { tokens, guidelines: a.guidelines as string | undefined, reason: a.reason as string | undefined });
-      return r.kind === 'ok' ? { tokens: tokens.length } : failed(r);
     },
   },
   comment_design: {
@@ -168,7 +140,7 @@ export const designTools: Record<string, ToolDef> = {
     },
   },
   read_design_handoff: {
-    description: '读取这个任务交接过来的设计稿：HTML（已内联令牌）、设计令牌和设计规范',
+    description: '读取这个任务交接过来的设计稿：HTML（已内联旧版令牌）和需求',
     right: 'observe',
     resultLimit: DESIGN_RESULT_LIMIT,
     parameters: z.object({}),

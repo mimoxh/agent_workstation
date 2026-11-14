@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyTextEdits, composeDesignDoc, designStyles, injectHead, lintDesign, parseCssTokens, tokenGroup, type DesignTweak } from '../src/design.js';
+import { applyTextEdits, composeDesignDoc, designStyles, injectHead, lintDesign, type DesignTweak } from '../src/design.js';
 
 const knob: DesignTweak = { id: 'r', label: '圆角', cssVar: '--r', type: 'range', value: '8', unit: 'px' };
 
@@ -22,22 +22,6 @@ describe('composeDesignDoc', () => {
 
   it('丢弃能逃出 style 标签或串改规则的值', () => {
     expect(designStyles([{ name: '--a', value: '</style><script>' }, { name: 'bad', value: '1' }, { name: '--b', value: '1;color:red' }], [])).toBe('');
-  });
-});
-
-describe('parseCssTokens', () => {
-  it('同名取第一次出现，跳过别名和注释', () => {
-    const css = '/* --no: 1; */ @theme { --color-paper: #fff; --r: 8px } @media (prefers-color-scheme: dark) { :root { --color-paper: #000; --alias: var(--r); } }';
-    expect(parseCssTokens(css)).toEqual([{ name: '--color-paper', value: '#fff' }, { name: '--r', value: '8px' }]);
-  });
-});
-
-describe('tokenGroup', () => {
-  it('按取值和名字分组', () => {
-    expect(tokenGroup({ name: '--x', value: '#fff' })).toBe('color');
-    expect(tokenGroup({ name: '--font-sans', value: 'Inter, sans-serif' })).toBe('font');
-    expect(tokenGroup({ name: '--r', value: '0.5rem' })).toBe('size');
-    expect(tokenGroup({ name: '--shadow-card', value: '0 1px 2px black' })).toBe('shadow');
   });
 });
 

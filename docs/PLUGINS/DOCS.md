@@ -13,6 +13,7 @@
 
 - 一个项目最多一个文档台（manifest `singleton: true`，挂载时拦截），覆盖项目里全部开发台的仓库。
 - 文档台不写仓库。入库一律交接成开发台的 `dev.issue`，走现有的 worktree、审查和合并流程。
+- 项目文件夹不是仓库：主笔可以用 `propose_file_change` 把成品打成文件改动提案，人审批后平台才写入，不算写仓库。
 - 引用由平台在写入时解析和校验，模型自报的出处不算数；正文是模型写的，按不可信内容渲染。
 
 写稿是对话驱动的，没有任务类型和阶段：人说一句，主笔出一版，每版都是实体版本，可回滚。交接前过一道门禁（§5）。打开工作台默认进「文档」（板块声明 `config.home`），大群移到 `panel=_chat`。
@@ -156,7 +157,7 @@
 | `comment_doc` / `resolve_doc_comments` | 核对、编辑 / 主笔 | 钉评论 / 关闭评论 |
 | `read_style_guide` / `update_style_guide` | 主笔、编辑 / 主笔 | 读 / 改风格指南 |
 | `save_doc_review` | 事实核对 | 保存核对结论，必须带 `contentHash` |
-| `list_repos` / `read_repo_file` / `search_repo` | 主笔、核对（测试台也用） | 本项目开发台仓库的只读访问。`repo` 参数选仓库，缺省按测试台的默认解析（`settings.sourceWorkstationId`，否则第一个开发台） |
+| `list_repos` / `read_repo_file` / `search_repo` | 主笔、核对（开发台的用例设计也用） | 本项目开发台仓库的只读访问。`repo` 参数选仓库；缺省时开发台读本台仓库，其他台取 `settings.sourceWorkstationId` 指定的、否则第一个开发台 |
 | `read_doc_handoff` | 开发台 | 读任务上声明的文档交接件 |
 
 ## 10. 现状与缺口

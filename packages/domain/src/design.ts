@@ -16,8 +16,6 @@ export interface DesignTweak {
   options?: string[] | undefined;
 }
 
-export type TokenGroup = 'color' | 'font' | 'size' | 'shadow' | 'other';
-
 export const DESIGN_SCRIPT_HOSTS = ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://cdnjs.cloudflare.com', 'https://cdn.tailwindcss.com'] as const;
 
 // 设计稿是模型写的代码：断网（connect-src none）、不能提交表单，外部资源只放行字体、图片和常见 CDN
@@ -61,29 +59,6 @@ export function composeDesignDoc(html: string, opts: { tokens: DesignToken[]; tw
   return injectHead(html, `${opts.head ?? ''}${style}`);
 }
 
-// 取 CSS 里的自定义属性；同名取第一次出现（亮色主题通常写在最前）
-export function parseCssTokens(css: string): DesignToken[] {
-  const out = new Map<string, string>();
-  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const m of clean.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+?)\s*(?:;|(?=\}))/g)) {
-    const [, name, value] = m;
-    if (name && value && !out.has(name) && !/^var\(/.test(value)) out.set(name, value);
-  }
-  return [...out].map(([name, value]) => ({ name, value }));
-}
-
-const COLOR_VALUE = /^(#[0-9a-f]{3,8}$|rgba?\(|hsla?\(|oklch\(|oklab\(|lab\(|lch\(|color-mix\()/i;
-
-export const isColorValue = (v: string) => COLOR_VALUE.test(v.trim());
-
-export function tokenGroup(t: Pick<DesignToken, 'name' | 'value'>): TokenGroup {
-  if (isColorValue(t.value)) return 'color';
-  if (/font|family/i.test(t.name)) return 'font';
-  if (/shadow/i.test(t.name)) return 'shadow';
-  if (/^-?[\d.]+(px|rem|em|%|vh|vw)?$/.test(t.value.trim())) return 'size';
-  return 'other';
-}
-
 export type TextEditResult = { ok: true; html: string; replaced: number } | { ok: false; error: string };
 
 // 增量修改：每段原文必须唯一命中，否则宁可失败让模型重读，也不改错地方
@@ -115,9 +90,9 @@ export function lintDesign(html: string, ctx: { tokens: DesignToken[]; tweaks: D
   const local = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]!));
   const used = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*(,)?/g)].filter((m) => !m[2]).map((m) => m[1]!));
   const missing = [...used].filter((v) => !known.has(v) && !local.has(v));
-  if (missing.length > 0) warnings.push(`引用了不存在的令牌：${missing.join('、')}（先用 read_design_system 看可用令牌）`);
+  if (missing.length > 0) warnings.push(`引用了不存在的变量：${missing.join('、')}（在稿子自己的 <style> :root 里定义）`);
   const hard = css.match(HARD_COLOR)?.length ?? 0;
-  if (hard > 3) warnings.push(`有 ${hard} 处写死的颜色，优先改用设计令牌 var(--*)`);
+  if (hard > 3) warnings.push(`有 ${hard} 处写死的颜色，优先抽成 :root 里的 CSS 变量 var(--*)`);
   const allUsed = new Set([...html.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]!));
   const idle = ctx.tweaks.filter((t) => !allUsed.has(t.cssVar)).map((t) => t.cssVar);
   if (idle.length > 0) warnings.push(`旋钮对应的变量没有被用到，拖动不会有效果：${idle.join('、')}`);

@@ -77,7 +77,7 @@ export async function getProjectStatus(actor: Actor, db: DB, projectId: string) 
   const workstations = await Promise.all(
     detail.workstations.map(async (w) => {
       const o = overview.workstations.find((x) => x.id === w.id);
-      const designs = w.pluginId === 'design'
+      const designs = w.pluginId === 'dev'
         ? (() => {
             const rows = entities.filter((e) => e.workstationId === w.id && e.entityType === 'Design').map((e) => dataOf<{ status?: string }>(e).status ?? 'draft');
             return { draft: rows.filter((s) => s === 'draft').length, approved: rows.filter((s) => s === 'approved').length, handed_off: rows.filter((s) => s === 'handed_off').length };
@@ -90,7 +90,7 @@ export async function getProjectStatus(actor: Actor, db: DB, projectId: string) 
         active: o?.tasks.active ?? 0,
         blocked: o?.tasks.blocked ?? 0,
         pendingReviews: o?.pendingReviews ?? 0,
-        ...(w.pluginId === 'qa' ? { quality: await qaContextOf(db, w.id) } : {}),
+        ...(w.pluginId === 'dev' && entities.some((e) => e.workstationId === w.id && e.entityType === 'TestSuite') ? { quality: await qaContextOf(db, w.id) } : {}),
         ...(designs ? { designs } : {}),
       };
     }),

@@ -91,7 +91,7 @@ export async function ensureRepo(s: DevSettings): Promise<{ ok: true; created: b
   if (!existsSync(s.repoPath)) return { ok: false, error: `仓库路径不存在：${s.repoPath}` };
   let created = false;
   if ((await git(s.repoPath, ['rev-parse', '--is-inside-work-tree'])).code !== 0) {
-    if (readdirSync(s.repoPath).length > 0) return { ok: false, error: `不是 git 仓库且目录非空：${s.repoPath}` };
+    if (readdirSync(s.repoPath).length > 0) return { ok: false, error: `不是 git 仓库且目录非空：${s.repoPath}（可在工作台设置里初始化为 git 仓库）` };
     const init = await git(s.repoPath, ['init', '-b', s.baseBranch]);
     if (init.code !== 0) return { ok: false, error: init.stderr.trim() };
     created = true;

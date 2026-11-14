@@ -33,7 +33,7 @@ test('根台建任务 → 派发到开发台 → 协作室与运行轨迹', asyn
 
   // 开发台：manifest 板块 + 平台板块 + 成员
   await openWs(page, '开发');
-  for (const t of ['任务看板', '改动审阅', '测试结果', '架构决策', '文件树', '页面预览', '成员', '设置']) {
+  for (const t of ['任务看板', '改动审阅', '测试运行', '质量总览', '缺陷', '架构决策', '文件树', '页面预览', '成员', '设置']) {
     await expect(tab(page, t)).toBeVisible();
   }
   await expect(page.getByTestId('member-row').filter({ hasText: '架构师' })).toContainText('steward');
@@ -100,7 +100,7 @@ test('剧本 A 全链路：父任务完成 + 面板数据', async ({ page }) => 
   const { root, dev } = await workstations();
   const task = (await (await fetch(`${api}/api/workstations/${root.id}/tasks`, json({ title: 'e2e剧本A', input: { module: 'src/board' } }))).json()) as { id: string };
   await fetch(`${api}/api/tasks/${task.id}/dispatch`, json({ targetWorkstationId: dev.id, typeId: 'dev.issue', input: { title: 'e2e剧本A', kind: 'feature', priority: 'p1', module: 'src/board' }, acceptance: [{ kind: 'command', run: 'node check.js' }] }));
-  let detail = { task: { status: '' }, children: [] as { title: string; status: string; stage: string; blockedReason: string | null }[] };
+  let detail = { task: { status: '' }, children: [] as { id: string; title: string; status: string; stage: string; blockedReason: string | null }[] };
   for (let i = 0; i < 120; i++) {
     await new Promise((r) => setTimeout(r, 2000));
     detail = (await (await fetch(`${api}/api/tasks/${task.id}`)).json()) as typeof detail;
@@ -114,11 +114,6 @@ test('剧本 A 全链路：父任务完成 + 面板数据', async ({ page }) => 
   await page.getByTestId('proposal-list').getByText('已合并').first().click({ timeout: 10000 });
   await expect(page.getByTestId('diff-view')).toBeVisible();
 
-  await tab(page, '测试结果').click();
-  await expect(page.getByTestId('testrun-table').getByText('通过').first()).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: '输出' }).first().click();
-  await expect(page.getByTestId('testrun-table').locator('pre')).toBeVisible();
-
   // 文件树能进目录、能打开文件（修复前进目录后停在原地）
   await tab(page, '文件树').click();
   await page.getByTestId('file-entry').filter({ hasText: 'src/' }).click();
@@ -130,6 +125,14 @@ test('剧本 A 全链路：父任务完成 + 面板数据', async ({ page }) => 
   await page.goto(`/projects/proj-aw/tasks/${task.id}`);
   await expect(page.getByTestId('task-status')).toHaveText('完成');
   await expect(page.getByTestId('acceptance-checks')).toContainText('通过');
+
+  // 验收命令的原始输出留在开发任务页的「测试」视图
+  const child = detail.children.find((c) => c.title === 'e2e剧本A')!;
+  await page.goto(`/projects/proj-aw/tasks/${child.id}`);
+  await page.getByTestId('task-view-tests').click();
+  await expect(page.getByTestId('testrun-table').getByText('通过').first()).toBeVisible({ timeout: 10000 });
+  await page.getByRole('button', { name: '输出' }).first().click();
+  await expect(page.getByTestId('testrun-table').locator('pre')).toBeVisible();
 
   await page.goto('/projects/proj-aw/runs');
   await expect(page.getByTestId('run-row').first()).toBeVisible();

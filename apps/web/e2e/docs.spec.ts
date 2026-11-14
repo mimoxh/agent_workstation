@@ -43,6 +43,9 @@ test('挂文档台 → 新建文档 → 预览 → 评论 → 请求核对唤醒
   await expect(page.getByTestId('doc-gate-reason').first()).toBeVisible();
 
   // 请求核对：状态拨到核对中，事实核对被 @ 醒来回话（回话折在结论卡里）
+  // 核对回话发在大群；侧栏默认是负责人私聊，先切过去
+  await page.getByTestId('doc-tab-chat').click();
+  await page.getByTestId('chat-rail-target').selectOption('ws');
   await page.getByTestId('doc-request-review').click();
   await expect(page.getByTestId('doc-status')).toHaveText('核对中');
   await page.getByRole('button', { name: /展开.*讨论/ }).click({ timeout: 20000 });

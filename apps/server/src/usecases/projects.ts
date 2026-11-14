@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { agent, artifact, pluginInstall, project, workstation } from '../db/schema.js';
 import { captureScreenshot, diffRatio } from '../runtime/visual.js';
+import { checkFolder } from '../runtime/folder.js';
 import { readRepoBlob } from './repo.js';
 import { logEvent, manifestOf } from './core.js';
 import { addAgentInstance, mountWorkstation } from './workstations.js';
@@ -28,9 +29,11 @@ async function applyDevTemplate(actor: Actor, db: DB, projectId: string, rootId:
   return dev;
 }
 
-export async function createProject(actor: Actor, db: DB, input: { name: string; goal?: string | undefined; template?: DevTemplate | undefined }) {
+export async function createProject(actor: Actor, db: DB, input: { name: string; goal?: string | undefined; folder?: string | undefined; template?: DevTemplate | undefined }) {
+  const folder = input.folder !== undefined ? checkFolder(input.folder) : null;
+  if (folder && !folder.ok) return { kind: 'error' as const, status: 400 as const, error: folder.error };
   const id = uid();
-  await db.insert(project).values({ id, workspaceId: 'default', name: input.name, goal: input.goal ?? null, status: 'active', createdAt: now() });
+  await db.insert(project).values({ id, workspaceId: 'default', name: input.name, goal: input.goal ?? null, status: 'active', ...(folder?.ok ? { folderPath: folder.root } : {}), createdAt: now() });
   const root = await mountWorkstation(actor, db, { projectId: id, parentId: null, pluginId: 'pm', name: '根' });
   if (root.kind !== 'ok') {
     await db.delete(project).where(eq(project.id, id));
@@ -112,10 +115,20 @@ export async function updateAgent(
   return { kind: 'ok' as const, agent: (await db.select().from(agent).where(eq(agent.id, agentId)))[0]! };
 }
 
-export async function updateProject(actor: Actor, db: DB, projectId: string, input: { budget?: { tokens?: number | undefined; costMicros?: number | undefined } | null | undefined }) {
+export async function updateProject(actor: Actor, db: DB, projectId: string, input: { budget?: { tokens?: number | undefined; costMicros?: number | undefined } | null | undefined; folder?: string | null | undefined }) {
   const p = (await db.select().from(project).where(eq(project.id, projectId)))[0];
   if (!p) return { kind: 'not_found' as const, status: 404 as const, error: '项目不存在' };
-  if (input.budget !== undefined) await db.update(project).set({ budgetJson: input.budget ? JSON.stringify(input.budget) : null }).where(eq(project.id, projectId));
+  const patch: Partial<typeof project.$inferInsert> = {};
+  if (input.budget !== undefined) patch.budgetJson = input.budget ? JSON.stringify(input.budget) : null;
+  if (input.folder !== undefined) {
+    if (input.folder === null) patch.folderPath = null;
+    else {
+      const f = checkFolder(input.folder);
+      if (!f.ok) return { kind: 'error' as const, status: 400 as const, error: f.error };
+      patch.folderPath = f.root;
+    }
+  }
+  if (Object.keys(patch).length > 0) await db.update(project).set(patch).where(eq(project.id, projectId));
   await logEvent(db, actor, 'project_updated', 'project', projectId, {});
   return { kind: 'ok' as const };
 }

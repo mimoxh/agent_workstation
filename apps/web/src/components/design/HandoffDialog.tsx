@@ -4,28 +4,28 @@ import { useState } from 'react';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
-import type { ProjectDetail } from '@/lib/queries';
+import type { ProjectDetail, WorkstationDetail } from '@/lib/queries';
 import type { DesignDoc } from './model';
 
-export function HandoffDialog({ design, project, openComments, onClose }: { design: DesignDoc; project: ProjectDetail; openComments: number; onClose: () => void }) {
+export function HandoffDialog({ design, ws, project, openComments, onClose }: { design: DesignDoc; ws: WorkstationDetail; project: ProjectDetail; openComments: number; onClose: () => void }) {
   const targets = project.workstations.filter((w) => w.pluginId === 'dev');
-  const hasQa = project.workstations.some((w) => w.pluginId === 'qa');
   const navigate = useNavigate();
-  const [target, setTarget] = useState(targets[0]?.id ?? '');
+  const [target, setTarget] = useState(targets.find((w) => w.id === ws.id)?.id ?? targets[0]?.id ?? '');
   const [module, setModule] = useState('');
   const [priority, setPriority] = useState<'p0' | 'p1' | 'p2'>('p1');
   const [note, setNote] = useState('');
-  const [qaCases, setQaCases] = useState(hasQa);
+  const [qaCases, setQaCases] = useState(false);
+  const [pageUrl, setPageUrl] = useState('');
   const send = useMutation({
     meta: { silent: true },
-    mutationFn: async () => unwrap(await api.designs[':id'].handoff.$post({ param: { id: design.id }, json: { targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}), ...(hasQa ? { qaCases } : {}) } })),
+    mutationFn: async () => unwrap(await api.designs[':id'].handoff.$post({ param: { id: design.id }, json: { targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}), ...(pageUrl.trim() ? { pageUrl: pageUrl.trim() } : {}), ...(qaCases ? { qaCases } : {}) } })),
     onSuccess: (r) => {
       onClose();
       void navigate({ to: '/projects/$projectId/tasks/$taskId', params: { projectId: project.id, taskId: r.taskId } });
     },
   });
   return (
-    <Dialog title="交给开发" onClose={onClose} testId="handoff-dialog">
+    <Dialog title="生成实现任务" onClose={onClose} testId="handoff-dialog">
       {targets.length === 0 ? (
         <p className="text-sm text-muted">这个项目还没有开发工作台。先用顶栏的 + 挂载一个，绑定代码仓库后再交接。</p>
       ) : (
@@ -34,7 +34,7 @@ export function HandoffDialog({ design, project, openComments, onClose }: { desi
             冻结「{design.data.title}」v{design.version} 的快照，在开发台起草一个任务，确认后由你派发。
             {openComments > 0 && <span className="text-accent"> 还有 {openComments} 条未解决的评论，它们不会带过去。</span>}
           </p>
-          <Field label="开发工作台">
+          <Field label="开发工作台" hint={target === ws.id ? '默认本台，也可以交给项目里其他开发台' : undefined}>
             <Select value={target} onChange={(e) => setTarget(e.target.value)} data-testid="handoff-target">
               {targets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </Select>
@@ -52,11 +52,12 @@ export function HandoffDialog({ design, project, openComments, onClose }: { desi
           <Field label="给开发的备注">
             <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
-          {hasQa && (
-            <label className="flex items-center gap-2 text-sm text-ink-2">
-              <input type="checkbox" checked={qaCases} onChange={(e) => setQaCases(e.target.checked)} data-testid="handoff-qa-cases" />同时请测试台起草验收用例
-            </label>
-          )}
+          <Field label="页面地址" hint="填了就在验收里加一条设计稿对比：平台起「视觉验收服务」后截图，与设计稿差异超过 25% 判失败">
+            <Input className="measured" value={pageUrl} placeholder="http://localhost:{port}/" onChange={(e) => setPageUrl(e.target.value)} data-testid="handoff-page-url" />
+          </Field>
+          <label className="flex items-center gap-2 text-sm text-ink-2">
+            <input type="checkbox" checked={qaCases} onChange={(e) => setQaCases(e.target.checked)} data-testid="handoff-qa-cases" />同时请目标台的用例设计起草验收用例
+          </label>
         </DialogForm>
       )}
     </Dialog>

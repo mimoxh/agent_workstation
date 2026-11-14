@@ -1,5 +1,5 @@
 import type { Actor } from '@aw/domain';
-import { and, desc, eq, inArray, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, or } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { agent, artifact, block, entity, eventLog, inboxItem, message, pluginInstall, project, proposal, reviewComment, run, task, taskDependency, thread, workstation } from '../db/schema.js';
 import { pluginRegistry } from '../plugins.js';
@@ -33,7 +33,7 @@ export async function listProjects(actor: Actor, db: DB) {
   const projects = await db.select().from(project);
   const tasks = await db.select({ projectId: task.projectId, status: task.status }).from(task);
   const open = await db.select({ projectId: inboxItem.projectId }).from(inboxItem).where(eq(inboxItem.status, 'open'));
-  const stations = await db.select({ projectId: workstation.projectId }).from(workstation);
+  const stations = await db.select({ projectId: workstation.projectId }).from(workstation).where(ne(workstation.status, 'archived'));
   return projects.map((p) => ({
     ...p,
     tasks: countTasks(tasks.filter((t) => t.projectId === p.id)),
@@ -50,7 +50,7 @@ export async function getProjectDetail(actor: Actor, db: DB, projectId: string) 
   let workstations = await db
     .select()
     .from(workstation)
-    .where(eq(workstation.projectId, projectId));
+    .where(and(eq(workstation.projectId, projectId), ne(workstation.status, 'archived')));
   if (visible) workstations = workstations.filter((w) => visible.includes(w.id));
   const ids = workstations.map((w) => w.id);
   const agents = ids.length
@@ -405,6 +405,7 @@ async function describeInbox(db: DB, item: typeof inboxItem.$inferSelect) {
   let runId: string | null = null;
   let proposalId: string | null = null;
   let proposalTarget: string | null = null;
+  let proposalPatch: string | null = null;
   const gates = (payload as { gates?: { text: string }[] }).gates;
   let detail: string | null = payload.reason ?? payload.question ?? (gates ? `进入下一阶段前需要你确认：${gates.map((g) => g.text).join('；')}` : null);
 
@@ -419,6 +420,7 @@ async function describeInbox(db: DB, item: typeof inboxItem.$inferSelect) {
     proposalId = item.refId;
     const p = (await db.select().from(proposal).where(eq(proposal.id, item.refId)))[0];
     proposalTarget = p?.targetType ?? null;
+    if (p?.targetType === 'file') proposalPatch = p.patchJson ?? null;
     if (p?.taskId) taskRow = (await db.select().from(task).where(eq(task.id, p.taskId)))[0];
     detail ??= p?.reason ?? null;
   }
@@ -444,6 +446,7 @@ async function describeInbox(db: DB, item: typeof inboxItem.$inferSelect) {
     runId,
     proposalId,
     proposalTarget,
+    proposalPatch,
     detail,
     command: payload.command ?? null,
     cwd: payload.cwd ?? null,

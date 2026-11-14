@@ -1,7 +1,8 @@
 import type { Actor } from '@aw/domain';
 import { eq } from 'drizzle-orm';
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type { DB } from '../db/client.js';
 import { proposal, task, workstation } from '../db/schema.js';
 import { revertMerged, syncBaseIntoTarget, syncTaskBranch } from '../runtime/dev_workflow.js';
@@ -113,8 +114,10 @@ export async function repoStatus(db: DB, wsId: string) {
   if (!existsSync(s.repoPath)) return { ok: false, error: `仓库路径不存在：${s.repoPath}`, branch: null, targetExists: false, baseExists: false };
   const fresh = readdirSync(s.repoPath).length === 0;
   const isRepo = !fresh && (await git(s.repoPath, ['rev-parse', '--is-inside-work-tree'])).code === 0;
+  // 非空目录但不是仓库：人要显式确认才初始化（repo/init），这里只报告状态
+  if (!fresh && !isRepo) return { ok: false, error: `不是 git 仓库：${s.repoPath}`, notGit: true, branch: null, targetExists: false, baseExists: false };
   if (fresh || (isRepo && (await git(s.repoPath, ['rev-parse', '--verify', '--quiet', 'HEAD'])).code !== 0)) {
-    return { ok: true, error: null, branch: null, targetExists: false, baseExists: false, empty: true, drift };
+    return { ok: true, error: null, branch: null, targetExists: false, baseExists: false, empty: true, drift, notGit: false };
   }
   const head = await git(s.repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (head.code !== 0) return { ok: false, error: `不是可用的 git 仓库：${s.repoPath}`, branch: null, targetExists: false, baseExists: false };
@@ -126,12 +129,31 @@ export async function repoStatus(db: DB, wsId: string) {
   const conflict = branch === s.targetBranch ? `目标分支 ${s.targetBranch} 被主工作区检出，Agent 无法建 worktree` : null;
   const missing = !targetExists && !baseExists ? `基线分支 ${s.baseBranch} 不存在，无法创建目标分支` : null;
   const error = conflict ?? missing;
-  return { ok: error === null, error, branch, targetExists, baseExists, empty: false, drift };
+  return { ok: error === null, error, branch, targetExists, baseExists, empty: false, drift, notGit: false };
 }
 
 // ===== 漂移 / 同步 / 回滚 / GitHub：路由层薄封装，返回统一 { kind } =====
 type Fail = { kind: 'error'; status: 400 | 404 | 409; error: string };
 const bad = (error: string, status: 400 | 404 | 409 = 409): Fail => ({ kind: 'error', status, error });
+
+// 人显式同意后把非空文件夹变成仓库：init + 现有文件做成初始提交
+export async function initRepo(actor: Actor, db: DB, wsId: string) {
+  const r = await settingsOf(db, wsId);
+  if ('error' in r) return bad(r.error, r.status);
+  const s = r.settings;
+  if (!existsSync(s.repoPath)) return bad(`仓库路径不存在：${s.repoPath}`, 404);
+  if ((await git(s.repoPath, ['rev-parse', '--is-inside-work-tree'])).code === 0) return bad('已经是 git 仓库', 409);
+  const init = await git(s.repoPath, ['init', '-b', s.baseBranch]);
+  if (init.code !== 0) return bad(init.stderr.trim() || 'git init 失败');
+  if (!existsSync(path.join(s.repoPath, '.gitignore'))) writeFileSync(path.join(s.repoPath, '.gitignore'), 'node_modules/\ndata/worktrees/\n');
+  const add = await git(s.repoPath, ['add', '-A']);
+  if (add.code !== 0) return bad(add.stderr.trim() || 'git add 失败');
+  const commit = await git(s.repoPath, ['-c', 'user.name=aw-platform', '-c', 'user.email=platform@aw.local', 'commit', '--allow-empty', '-m', 'Initial commit']);
+  if (commit.code !== 0) return bad(commit.stderr.trim() || '初始提交失败');
+  const files = (await git(s.repoPath, ['ls-files'])).stdout.split('\n').filter(Boolean).length;
+  await logEvent(db, actor, 'repo_initialized', 'workstation', wsId, { files });
+  return { kind: 'ok' as const, files };
+}
 
 export async function syncBase(actor: Actor, db: DB, wsId: string) {
   const r = await settingsOf(db, wsId);

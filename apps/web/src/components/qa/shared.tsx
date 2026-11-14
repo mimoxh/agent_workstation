@@ -47,20 +47,24 @@ export function Toolbar({ children, className }: { children: ReactNode; classNam
 
 export const VerdictBadge = ({ level }: { level: string }) => <Badge tone={VERDICT_TONE[level] ?? 'neutral'}>{VERDICT_LABEL[level] ?? level}</Badge>;
 
-export function HandoffDialog({ title, defaultModule, defaultPriority, devStations, submitting, error, onSubmit, onClose }: {
-  title: string; defaultModule?: string | undefined; defaultPriority: 'p0' | 'p1' | 'p2'; devStations: { id: string; name: string }[]; submitting: boolean; error?: string | undefined;
+// 缺陷和用例默认在本台生成开发任务，也可以交给项目里其他开发台
+export function HandoffDialog({ title, defaultModule, defaultPriority, wsId, devStations, submitting, error, onSubmit, onClose }: {
+  title: string; defaultModule?: string | undefined; defaultPriority: 'p0' | 'p1' | 'p2'; wsId: string; devStations: { id: string; name: string }[]; submitting: boolean; error?: string | undefined;
   onSubmit: (v: { targetWorkstationId?: string; module: string; priority: 'p0' | 'p1' | 'p2'; note?: string }) => void; onClose: () => void;
 }) {
-  const [target, setTarget] = useState(devStations[0]?.id ?? '');
+  const [target, setTarget] = useState(devStations.find((w) => w.id === wsId)?.id ?? devStations[0]?.id ?? '');
   const [module, setModule] = useState(defaultModule ?? '');
   const [priority, setPriority] = useState(defaultPriority);
   const [note, setNote] = useState('');
   return (
     <Dialog title={title} onClose={onClose} testId="qa-handoff-dialog">
-      <DialogForm error={error} submitting={submitting} submitLabel="交给开发台" canSubmit={!!module.trim() && !!target} onSubmit={() => onSubmit({ targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}) })} onCancel={onClose}>
-        <Field label="开发台" required>
-          <Select value={target} onChange={(e) => setTarget(e.target.value)}>{devStations.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</Select>
-        </Field>
+      <DialogForm error={error} submitting={submitting} submitLabel="创建开发任务" canSubmit={!!module.trim() && !!target} onSubmit={() => onSubmit({ targetWorkstationId: target, module: module.trim(), priority, ...(note.trim() ? { note: note.trim() } : {}) })} onCancel={onClose}>
+        <p className="text-sm text-muted">把当前信息冻结进任务描述，起草一个开发任务，确认后由你派发给实现者。</p>
+        {devStations.length > 1 && (
+          <Field label="开发工作台" hint={target === wsId ? '默认本台，也可以交给项目里其他开发台' : undefined}>
+            <Select value={target} onChange={(e) => setTarget(e.target.value)} data-testid="qa-handoff-target">{devStations.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</Select>
+          </Field>
+        )}
         <Field label="改动范围" required hint="开发任务只能改这些路径，多个用逗号分隔，. 表示整个仓库">
           <Input className="measured" autoFocus value={module} onChange={(e) => setModule(e.target.value)} data-testid="qa-handoff-module" />
         </Field>

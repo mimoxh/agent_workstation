@@ -52,14 +52,20 @@ const USAGE = {
 };
 
 const MOCK_DESIGN = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>mock</title><style>
+:root{--font-sans:system-ui,sans-serif;--font-display:Georgia,"Songti SC",serif;--color-bg:#faf9f6;--color-text:#1c1b19;--color-primary:#1f4d3f;--color-on-primary:#fff;--radius-md:8px;--space-3:16px;--space-6:64px}
 body{margin:0;font-family:var(--font-sans);background:var(--color-bg);color:var(--color-text)}
 main{padding:var(--space-6);display:grid;gap:var(--space-3)}
 h1{font-family:var(--font-display);font-size:48px;margin:0}
 button{justify-self:start;padding:var(--pad) calc(var(--pad)*2);border:0;border-radius:var(--radius-md);background:var(--color-primary);color:var(--color-on-primary)}
 </style></head><body><main><h1>Mock 落地页</h1><p>一句说明文字</p><button>开始使用</button></main></body></html>`;
 
-// 设计师的回合：消息带评论就处理评论，否则出一份新稿
+// 设计师的回合：消息带选中的元素就改那个元素，带评论就处理评论，否则出一份新稿
 function designerTurn<T>(user: string, calls: (items: [string, unknown][]) => T): T {
+  if (user.includes('人选中了这些元素')) {
+    const elDesign = user.match(/id: ([\w-]+) v\d+/)?.[1];
+    const anchor = user.match(/<\w+>「([^」]*)」 selector:/)?.[1];
+    if (elDesign && anchor) return calls([['edit_design', { id: elDesign, edits: [{ oldText: anchor, newText: `${anchor}（已修订）` }], reason: '按选中元素修改（mock）' }]]);
+  }
   const designId = user.match(/design: ([\w-]+)/)?.[1];
   if (designId) {
     const ids = [...user.matchAll(/comment id: ([\w-]+)/g)].map((m) => m[1]);
@@ -89,13 +95,13 @@ export function createScriptedMock() {
 
       const done = (text: string): Result => ({
         content: [{ type: 'text', text }],
-        finishReason: 'stop' as never,
+        finishReason: { unified: 'stop', raw: 'stop' } as never,
         usage: USAGE as never,
         warnings: [],
       });
       const calls = (items: [string, unknown][]): Result => ({
         content: items.map(([n, a], i) => toolCall(n, a, `call_${toolRounds}_${i}`)),
-        finishReason: 'tool-calls' as never,
+        finishReason: { unified: 'tool-calls', raw: 'tool-calls' } as never,
         usage: USAGE as never,
         warnings: [],
       });
@@ -122,8 +128,8 @@ export function createScriptedMock() {
         }
         if (tpl === 'case-designer') return calls([['save_test_cases', { cases: [{ title: '空输入时提示必填（mock）', priority: 'p1', steps: [{ action: '提交空表单', expected: '显示必填提示' }] }] }]]);
         if (tpl === 'qa-lead') return calls([['qa_overview', {}]]);
+        if (tpl === 'designer' && (trigger === 'moderated' || trigger === 'human_reply')) return designerTurn(user, calls);
         if (trigger === 'moderated') {
-          if (tpl === 'designer') return designerTurn(user, calls);
           if (tpl === 'pm') return calls([['create_task', { title: lastLine.split('] ').at(-1)?.slice(0, 30) || '新任务（mock）', intent: '由对话起草（mock）' }]]);
           const others = agents.filter((a) => a.templateId !== tpl);
           const spoke = /agent:[^\n]*\[chat\]/.test(user);

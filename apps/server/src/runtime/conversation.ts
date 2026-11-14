@@ -1,7 +1,7 @@
 import { extractMentions, TERMINAL, type TaskStatus } from '@aw/domain';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { agent, task, thread, workstation } from '../db/schema.js';
+import { agent, task, thread, threadMember, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { manifestOf } from '../usecases/core.js';
 import { executingWs, stewardOf } from '../usecases/flow.js';
@@ -69,9 +69,23 @@ const silence = async (db: DB, threadId: string, note: string) => {
   await postMessage(db, threadId, PLATFORM, note, 'status');
 };
 
+// 讨论的主持人是本台 steward；人工群聊的主持人是建群时定下的群主
+async function moderatorOf(db: DB, th: ThreadRow, wsId: string | null) {
+  if (th.kind === 'group') {
+    const host = (await db.select().from(threadMember).where(and(eq(threadMember.threadId, th.id), eq(threadMember.participantType, 'agent'), eq(threadMember.role, 'host'))))[0];
+    if (!host) return null;
+    return (await db.select().from(agent).where(eq(agent.id, host.participantId)))[0] ?? null;
+  }
+  return wsId ? stewardOf(db, wsId) : null;
+}
+
 // 人默认在和负责这件事的 Agent 说话；讨论线程由 steward 主持
 async function defaultResponder(db: DB, th: ThreadRow): Promise<Turn | null> {
   if (th.kind === 'dm') return th.scopeId ? { agentId: th.scopeId, trigger: 'human_reply' } : null;
+  if (th.kind === 'group') {
+    const host = await moderatorOf(db, th, null);
+    return host ? { agentId: host.id, trigger: 'moderated' } : null;
+  }
   if (th.scopeType === 'workstation') {
     if (th.mode !== 'moderated') return null;
     const steward = await stewardOf(db, th.scopeId ?? '');
@@ -123,7 +137,7 @@ async function onAgent(db: DB, th: ThreadRow, senderId: string, content: string)
   const { conf, ws } = await settingsOf(db, await hostWs(db, th));
   const turnCount = th.turnCount + 1;
   await db.update(thread).set({ turnCount }).where(eq(thread.id, th.id));
-  const moderator = ws ? await stewardOf(db, ws.id) : null;
+  const moderator = await moderatorOf(db, th, ws?.id ?? null);
 
   if (turnCount >= conf.maxTurns) {
     await db.update(thread).set({ state: 'concluding' }).where(eq(thread.id, th.id));
@@ -133,7 +147,7 @@ async function onAgent(db: DB, th: ThreadRow, senderId: string, content: string)
     const turns = await mentionedTurns(db, th, content, senderId);
     for (const t of turns) enqueue(th.id, t);
     // 讨论里没人被点名时回到主持人；任务线程只跟随点名，避免 steward 每句都插话
-    if (turns.length === 0 && th.kind === 'discussion' && moderator && moderator.id !== senderId) {
+    if (turns.length === 0 && (th.kind === 'discussion' || th.kind === 'group') && moderator && moderator.id !== senderId) {
       enqueue(th.id, { agentId: moderator.id, trigger: 'moderated' });
     }
     if (turnCount % conf.summaryEvery === 0 && moderator) enqueue(th.id, { agentId: moderator.id, trigger: 'conclude' });
@@ -170,6 +184,16 @@ export function startConversation(db: DB): () => void {
     speaking.clear();
   };
 }
+
+// 停掉这条线程：丢掉排队的回合；正在跑的 run 由 stopThread 取消
+export function clearThreadQueue(threadId: string) {
+  const q = queues.get(threadId);
+  queues.delete(threadId);
+  // pump 持有同一个数组引用：要原地清空，光从 Map 里删掉它还会接着跑
+  return q?.splice(0).length ?? 0;
+}
+
+export const threadQueueLength = (threadId: string) => queues.get(threadId)?.length ?? 0;
 
 // scheduler.idle 之外，测试需要知道发言队列也排空了
 export const conversationIdle = () => speaking.size === 0 && [...queues.values()].every((q) => q.length === 0);

@@ -34,8 +34,6 @@ export const BUILTIN_TOOLS = [
   'read_design',
   'write_design',
   'edit_design',
-  'read_design_system',
-  'update_design_system',
   'comment_design',
   'resolve_design_comments',
   'read_design_handoff',
@@ -67,9 +65,13 @@ export const BUILTIN_TOOLS = [
   'save_test_cases',
   'draft_bug',
   'save_plan_summary',
+  'list_folder',
+  'read_folder_file',
+  'search_folder',
+  'propose_file_change',
 ] as const;
 
-export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:knowledge'] as const;
+export const SYSTEM_ENTITIES = ['system:task', 'system:proposal', 'system:files', 'system:folder', 'system:knowledge'] as const;
 
 export type ValidateResult =
   | { ok: true; manifest: WorkbenchManifest }

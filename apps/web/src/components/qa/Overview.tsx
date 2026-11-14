@@ -87,7 +87,7 @@ export function Overview({ ws, go }: QaProps) {
       {o.suites.length === 0 ? (
         <div className="mx-auto mt-12 max-w-md" data-testid="qa-empty">
           <p className="text-title font-medium text-ink-2">先配置一个测试套件</p>
-          <p className="mt-1 text-sm text-muted">套件是一条会生成 JUnit 报告的命令。配好后平台在「{o.source.name}」的目标分支 <code className="measured">{o.source.targetBranch}</code> 上执行，逐用例记录结果。</p>
+          <p className="mt-1 text-sm text-muted">套件是一条会生成 JUnit 报告的命令。配好后平台在本台仓库的目标分支 <code className="measured">{o.source.targetBranch}</code> 上执行，逐用例记录结果；也能在开发任务的验收里引用。</p>
           <Button variant="primary" className="mt-3" onClick={() => go('runs', 'suites')} data-testid="qa-go-suites">配置套件</Button>
         </div>
       ) : (

@@ -17,7 +17,8 @@ export {
   transitionTaskUc,
   updateTask,
 } from './tasks.js';
-export { addAgentInstance, mountWorkstation, syncWorkstations } from './workstations.js';
+export { addAgentInstance, migrateDesignWorkstations, migrateQaWorkstations, mountWorkstation, syncWorkstations } from './workstations.js';
+export { freezeDesignTokens, LEGACY_DEFAULT_TOKENS } from './design_tokens.js';
 export {
   addDocComment,
   citationLabelsOf,

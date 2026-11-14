@@ -11,7 +11,8 @@ import { startRepoWatch } from './runtime/repo_watch.js';
 import { startQaSchedule } from './runtime/qa/schedule.js';
 import { recoverMergeQueue } from './runtime/dev_workflow.js';
 import { recoverQaRuns } from './usecases/qa.js';
-import { syncWorkstations } from './usecases/workstations.js';
+import { migrateDesignWorkstations, migrateQaWorkstations, syncWorkstations } from './usecases/workstations.js';
+import { freezeDesignTokens } from './usecases/design_tokens.js';
 
 // 最后一道兜底：单个任务的漏网异常不能带走常驻进程和其他 run
 process.on('unhandledRejection', (e) => {
@@ -23,6 +24,9 @@ await loadModels();
 
 const { db, sqlite } = createDb();
 migrateDb(sqlite);
+await migrateDesignWorkstations(db);
+await migrateQaWorkstations(db);
+await freezeDesignTokens(db);
 await seed(db);
 await syncWorkstations(db);
 

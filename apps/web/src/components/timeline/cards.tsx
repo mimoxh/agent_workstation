@@ -70,7 +70,9 @@ export function Avatar({ name, human, className }: { name: string; human?: boole
 export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<string, string>; lane?: string | null | undefined }) {
   const human = m.senderType === 'human';
   const who = senderOf(m, names);
-  const design = parseJson<{ design?: { title: string; version: number } }>(m.metaJson, {}).design;
+  const meta = parseJson<{ design?: { title: string; version: number }; elements?: { tag: string; anchor: string }[] }>(m.metaJson, {});
+  const design = meta.design;
+  const elements = meta.elements ?? [];
   return (
     <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2.5" data-testid="thread-message">
       <Avatar name={who} human={human} />
@@ -81,6 +83,13 @@ export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<stri
           <Lane lane={lane} />
         </p>
         {design && <p className="text-xs text-muted" data-testid="message-design">看着 {design.title} v{design.version}</p>}
+        {elements.length > 0 && (
+          <p className="mt-0.5 flex flex-wrap items-center gap-1" data-testid="message-elements">
+            {elements.map((e, i) => (
+              <span key={i} className="rounded-chip border border-rule px-1.5 py-0.5 text-xs text-muted"><span className="measured">&lt;{e.tag}&gt;</span> {e.anchor}</span>
+            ))}
+          </p>
+        )}
         <p className="whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink"><Rich text={m.content ?? ''} /></p>
       </div>
     </div>

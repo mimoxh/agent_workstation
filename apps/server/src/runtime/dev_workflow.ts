@@ -12,14 +12,18 @@ import { snapshotDb } from '../usecases/backup.js';
 import { logEvent, manifestOf } from '../usecases/core.js';
 import { noteMergeImpact, reconcileDocHandoffs } from '../usecases/docs.js';
 import { pushInbox } from '../usecases/inbox.js';
-import { qaSourceOf, quarantinedKeys, startRun } from '../usecases/qa.js';
+import { quarantinedKeys, startRun } from '../usecases/qa.js';
 import { rollupStage } from '../usecases/tasks.js';
 import { postHandoff, postStatus } from '../usecases/threads.js';
 import { abortQaRun, DEFAULT_TIMEOUT_SEC } from './qa/runner.js';
 import { triggerRun } from './scheduler.js';
-import { resolveUrl, runVisualCheck, withServer, type VisualResult } from './visual.js';
+import { renderDesign } from './design_render.js';
+import { stopPreview, stopPreviewForWorktree } from './preview.js';
+import { captureScreenshot, diffImage, ENV_PATTERN, resolveUrl, runVisualCheck, withServer, type VisualResult } from './visual.js';
 import type { TaskRow } from './types.js';
 import type { SandboxConfig } from './sandbox.js';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const now = () => new Date().toISOString();
@@ -161,9 +165,49 @@ export async function afterReview(ctx: Pick<WorkflowCtx, 'db' | 'actor' | 'task'
 }
 
 // ===== 验收 =====
-interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number; suite?: string }
+interface Check { kind: string; run?: string; url?: string; baseline?: string; maxDiff?: number; suite?: string; artifact?: string }
 export interface AcceptanceExec { serve?: string | undefined; sandbox?: SandboxConfig | undefined }
 export const acceptanceExec = (s: DevSettings): AcceptanceExec => ({ serve: s.commands.serve, sandbox: s.sandbox });
+
+interface DesignMatchResult { status: 'passed' | 'failed' | 'error'; output: string; env?: boolean; meta: Record<string, unknown> }
+
+// 截图产物落库：文件写在 db 旁边的 screenshots/ 里，跟预览截图一个目录
+async function saveShot(db: DB, wsId: string, taskId: string | undefined, name: string, data: Buffer) {
+  const id = uid();
+  const target = path.join(path.dirname(db.$client.name || '.'), 'screenshots', `${id}.png`);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, data);
+  await db.insert(artifact).values({ id, workstationId: wsId, taskId: taskId ?? null, type: 'screenshot', name, ref: target, createdAt: now() });
+  return id;
+}
+
+// 设计稿对比：交接 HTML 渲染成 1280×800，和实现的同尺寸截图做像素对比，差异率超 maxDiff（默认 25%）判失败
+async function designMatchCheck(db: DB, wsId: string, c: Check, ports: Record<string, string>, taskId?: string): Promise<DesignMatchResult> {
+  const a = c.artifact ? (await db.select().from(artifact).where(eq(artifact.id, c.artifact)))[0] : undefined;
+  const aWs = a?.workstationId ? (await db.select().from(workstation).where(eq(workstation.id, a.workstationId)))[0] : undefined;
+  const here = (await db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
+  const meta = { kind: 'design_match', artifact: c.artifact ?? null };
+  if (!a || a.type !== 'design_handoff' || !a.ref || !aWs || aWs.projectId !== here?.projectId) {
+    return { status: 'error', output: '设计交接件不存在或不属于本项目', meta };
+  }
+  const maxDiff = c.maxDiff ?? 0.25;
+  try {
+    const designPng = await renderDesign(a.ref, { width: 1280, height: 800, fullPage: false, format: 'png' });
+    const actualPath = path.join(os.tmpdir(), 'aw-design-match', `${uid()}.png`);
+    await captureScreenshot(resolveUrl(c.url!, ports), actualPath);
+    const actualPng = fs.readFileSync(actualPath);
+    const { ratio, png } = diffImage(designPng, actualPng);
+    const designShot = await saveShot(db, wsId, taskId, `设计稿 ${a.name}`, designPng);
+    const actualShot = await saveShot(db, wsId, taskId, `实现 ${c.url}`, actualPng);
+    const diffShot = png ? await saveShot(db, wsId, taskId, '差异', png) : null;
+    const status = ratio <= maxDiff ? 'passed' : 'failed';
+    const output = `差异 ${(ratio * 100).toFixed(2)}%，上限 ${(maxDiff * 100).toFixed(2)}%`;
+    return { status, output, meta: { ...meta, ratio, maxDiff, designShot, actualShot, diffShot } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { status: 'error', output: msg, env: ENV_PATTERN.test(msg), meta };
+  }
+}
 export interface AcceptanceResult { command: string; status: string; duration: number; output: string; env: boolean }
 
 const envSummary = (results: AcceptanceResult[]) => results.filter((r) => r.env).map((r) => `${r.command}: ${r.output.trim().slice(0, 300)}`).join('\n');
@@ -236,18 +280,29 @@ export async function runAcceptance(db: DB, wsId: string, worktree: string, chec
       results.push(await runQaSuiteCheck(db, wsId, worktree, c.suite!, head, batchId, taskId));
     }
     const visuals = checks.filter((x) => x.kind === 'visual' && x.url && x.baseline);
+    const matches = checks.filter((x) => x.kind === 'design_match' && x.url && x.artifact);
     const ports = portEnv(path.basename(worktree));
     const visualOut: { c: Check; v: VisualResult; duration: number }[] = [];
-    if (visuals.length > 0) {
-      const served = await withServer({ cwd: worktree, command: exec.serve, sandbox: exec.sandbox, env: ports, probeUrl: resolveUrl(visuals[0]!.url!, ports) }, async () => {
+    const matchOut: { c: Check; v: DesignMatchResult; duration: number }[] = [];
+    if (visuals.length + matches.length > 0) {
+      // 预览占着同一个端口槽位：平台要自己起 serve 时先停掉
+      if (exec.serve && taskId) stopPreviewForWorktree(taskId, worktree);
+      const probe = resolveUrl((visuals[0] ?? matches[0])!.url!, ports);
+      const served = await withServer({ cwd: worktree, command: exec.serve, sandbox: exec.sandbox, env: ports, probeUrl: probe }, async () => {
         for (const c of visuals) {
           const started = Date.now();
           const v = await runVisualCheck(worktree, { url: resolveUrl(c.url!, ports), baseline: c.baseline!, maxDiff: c.maxDiff ?? 0.02 });
           visualOut.push({ c, v, duration: (Date.now() - started) / 1000 });
         }
+        for (const c of matches) {
+          const started = Date.now();
+          const v = await designMatchCheck(db, wsId, c, ports, taskId);
+          matchOut.push({ c, v, duration: (Date.now() - started) / 1000 });
+        }
       });
       if (!served.ok) {
         for (const c of visuals) visualOut.push({ c, v: { status: 'error', ratio: null, output: served.error, shot: null, env: true }, duration: 0 });
+        for (const c of matches) matchOut.push({ c, v: { status: 'error', output: served.error, env: true, meta: { kind: 'design_match', artifact: c.artifact ?? null } }, duration: 0 });
       }
     }
     for (const { c, v, duration } of visualOut) {
@@ -257,6 +312,17 @@ export async function runAcceptance(db: DB, wsId: string, worktree: string, chec
       await db.insert(entity).values({
         id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
         dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null }),
+        createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
+      });
+      results.push({ command, status: v.status, duration, output: v.output, env: v.env === true });
+    }
+    for (const { c, v, duration } of matchOut) {
+      const command = `design_match ${c.url}`;
+      const aid = uid();
+      await db.insert(artifact).values({ id: aid, workstationId: wsId, taskId: taskId ?? null, type: 'test_output', name: 'design_match', ref: v.output, metaJson: JSON.stringify(v.meta), createdAt: now() });
+      await db.insert(entity).values({
+        id: uid(), workstationId: wsId, entityType: 'TestRun', version: 1,
+        dataJson: JSON.stringify({ command, status: v.status, duration, output_ref: aid, commit_sha: head, batch_id: batchId, task_id: taskId ?? null, ...(v.env ? { env_error: true } : {}) }),
         createdByType: 'system', createdById: 'platform', createdAt: now(), updatedAt: now(),
       });
       results.push({ command, status: v.status, duration, output: v.output, env: v.env === true });
@@ -297,7 +363,7 @@ async function waitQaRunFinished(db: DB, runId: string, timeoutMs: number) {
   return finished;
 }
 
-// qa_suite 验收：套件必须在绑定本开发台的测试台上；实际输出在 qa:<runId>，这里只写状态行
+// qa_suite 验收：套件必须是本台的；实际输出在 qa:<runId>，这里只写状态行
 async function runQaSuiteCheck(db: DB, wsId: string, worktree: string, suiteId: string, head: string, batchId: string, taskId: string | undefined): Promise<AcceptanceResult> {
   const actor: Actor = { type: 'human', id: 'local' };
   const started = Date.now();
@@ -314,17 +380,8 @@ async function runQaSuiteCheck(db: DB, wsId: string, worktree: string, suiteId: 
     });
     return { command: label, status, duration: (Date.now() - started) / 1000, output, env };
   };
-  let bound = false;
-  if (suite && suiteRow) {
-    const qaWs = (await db.select().from(workstation).where(eq(workstation.id, suiteRow.workstationId)))[0];
-    const devWs = (await db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
-    if (qaWs && devWs && qaWs.projectId === devWs.projectId) {
-      const source = await qaSourceOf(db, suiteRow.workstationId);
-      bound = source.ok && source.workstationId === wsId;
-    }
-  }
-  if (!bound) return record('error', '套件不存在或没有绑定本开发台', true, null);
-  const qaWsId = suiteRow!.workstationId;
+  if (!suite || suiteRow?.workstationId !== wsId) return record('error', '套件不存在或不在本台', true, null);
+  const qaWsId = wsId;
   const live = taskId ? startLive(`task:${taskId}`, `QA 套件：${suite!.name}`) : null;
   live?.write(`套件「${suite!.name}」已排队\n`);
   const branch = (await git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
@@ -579,6 +636,7 @@ async function doMerge(db: DB, actor: Actor, taskId: string, s: DevSettings) {
   await logEvent(db, actor, 'proposal_merged', 'proposal', p?.id ?? '', { merge_sha: mergeSha });
   await postHandoff(db, taskId, `已合并到 ${s.targetBranch}（${mergeSha.slice(0, 8)}）`, { from: '合并队列', to: 'steward', refs: { merge_sha: mergeSha } });
   await condTransition(db, actor, taskId, 'approve');
+  stopPreview(taskId);
   await removeTaskWorktree(s, t.workstationId, taskId);
   events.emit('inbox_created', { kind: 'merged', refId: taskId });
   if (s.remote?.autoPush) await afterMergePush(db, taskId, s);

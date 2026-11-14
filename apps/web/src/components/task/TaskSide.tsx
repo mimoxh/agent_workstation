@@ -137,7 +137,7 @@ function Plan({ detail, projectId }: { detail: TaskDetail; projectId: string }) 
   );
 }
 
-// 合并后各测试台有没有在这次合并之上的提交跑过；回归失败可以直接回滚
+// 合并后本台的测试套件有没有在这次合并之上的提交跑过；回归失败可以直接回滚
 function PostMerge({ detail, projectId }: { detail: TaskDetail; projectId: string }) {
   const { task } = detail;
   const merged = !!parseJson<{ merge_sha?: string } | null>(task.codeRefJson, null)?.merge_sha;
@@ -162,8 +162,7 @@ function PostMerge({ detail, projectId }: { detail: TaskDetail; projectId: strin
       {data.reverted && <p className="pb-1 text-xs text-muted">这次合并已回滚</p>}
       {data.sources.map((src) => (
         <div key={src.qaWorkstationId} className="pb-1.5">
-          <p className="text-xs text-muted">{src.name}</p>
-          <ul className="space-y-1 pt-1">
+          <ul className="space-y-1">
             {src.suites.map((s) => (
               <li key={s.suiteId} className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-xs text-ink-2">{s.name}</span>

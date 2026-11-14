@@ -36,6 +36,8 @@ export const project = sqliteTable('project', {
   goal: text('goal'),
   status: text('status'),
   budgetJson: text('budget_json'),
+  // 项目级共享文件夹：非开发项目给 Agent 读、提案写（开发台仍用绑定的 git 仓库）
+  folderPath: text('folder_path'),
   createdAt: text('created_at').notNull(),
 });
 
@@ -276,7 +278,7 @@ export const artifact = sqliteTable('artifact', {
   createdAt: text('created_at').notNull(),
 });
 
-// 测试台的一次套件运行。config_json 是发起时的命令快照：套件之后被改，这次跑的仍是当时审定的命令
+// 质量套件的一次运行。config_json 是发起时的命令快照：套件之后被改，这次跑的仍是当时审定的命令
 export const qaRun = sqliteTable(
   'qa_run',
   {

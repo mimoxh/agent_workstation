@@ -1,8 +1,6 @@
 // pnpm smoke:model — 对每个已配置 provider 发一次带单工具的请求（不打印 key）
-import { generateText, jsonSchema, tool, type ToolSet } from 'ai';
-import { z } from 'zod';
-import { zodToJson } from './runtime/loop.js';
-import { loadModels, modelRegistry, sanitizeError } from './runtime/models.js';
+import { loadModels, modelRegistry } from './runtime/models.js';
+import { probeModel } from './runtime/probe.js';
 
 await loadModels();
 
@@ -11,20 +9,8 @@ if (modelRegistry.size === 0) {
   process.exit(0);
 }
 
-const tools = {
-  echo: tool({ description: '回显文本', inputSchema: jsonSchema(zodToJson(z.object({ text: z.string() }))) }),
-} as unknown as ToolSet;
-
 for (const route of modelRegistry.values()) {
-  try {
-    const res = await generateText({
-      model: route.model,
-      prompt: '请调用 echo 工具，text 填 "ping"。',
-      tools,
-    });
-    const called = (res.toolCalls ?? []).length > 0;
-    console.log(`${route.id}  tool_call=${called}  usage=${JSON.stringify(res.usage)}`);
-  } catch (e) {
-    console.log(`${route.id}  ERROR ${sanitizeError(e instanceof Error ? e.message : String(e))}`);
-  }
+  const r = await probeModel(route);
+  if (r.ok) console.log(`${route.id}  tool_call=${r.toolCall}  latency=${r.latencyMs}ms${r.maxOutputChecked ? `  max_output=${r.maxOutputChecked}` : ''}`);
+  else console.log(`${route.id}  ERROR ${r.error}`);
 }

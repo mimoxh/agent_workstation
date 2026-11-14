@@ -108,11 +108,9 @@ beforeEach(async () => {
   migrateDb(r.sqlite);
   await seed(db);
   app = createApp(db).app;
-  const root = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
   devId = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!.id;
-  const m = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'qa', name: '测试', settings: { sourceWorkstationId: devId } });
-  if (m.kind !== 'ok') throw new Error(m.error);
-  wsId = m.id;
+  // 测试台已并入开发台（D32）：质量数据和开发任务在同一个台
+  wsId = devId;
   await loadModels();
   stop = startScheduler(db);
 });
@@ -243,7 +241,7 @@ describe('运行闭环', () => {
     expect((await db.select().from(qaRun).where(eq(qaRun.id, 'stale')))[0]).toMatchObject({ status: 'interrupted' });
   });
 
-  it('没有开发台时给出明确提示', async () => {
+  it('开发台没绑定仓库时给出明确提示', async () => {
     await db.update(workstation).set({ settingsJson: null }).where(eq(workstation.id, devId));
     expect((await overview()).source.ok).toBe(false);
   });
@@ -280,7 +278,7 @@ describe('缺陷闭环', () => {
     return r.id;
   }
 
-  it('确认 → 派给开发台 → 开发完成 → 回归通过自动验证', async () => {
+  it('确认 → 生成本台修复任务 → 开发完成 → 回归通过自动验证', async () => {
     const s = await suite();
     commit([{ name: 'a', fail: 'boom' }]);
     const failing = await detail(await run(s));
@@ -337,7 +335,7 @@ describe('缺陷闭环', () => {
     expect((await bugOf(id)).status).toBe('verified');
   });
 
-  it('用例补自动化走开发台，且只能交接一次', async () => {
+  it('用例补自动化生成本台开发任务，且只能交接一次', async () => {
     const c = await json<{ id: string }>(req('POST', `/api/workstations/${wsId}/entities`, { entityType: 'TestCase', data: { title: '登录', status: 'active', steps: [{ action: '点', expected: '进' }] } }));
     const h = await json<{ taskId: string }>(req('POST', `/api/qa-cases/${c.id}/handoff`, { module: 'test/', priority: 'p2' }));
     expect((await db.select().from(task).where(eq(task.id, h.taskId)))[0]!.title).toBe('补自动化：登录');
@@ -455,7 +453,8 @@ describe('Agent 工具', () => {
   });
 
   it('跨工作台的运行读不到', async () => {
-    await db.insert(qaRun).values({ id: 'other', workstationId: devId, suiteId: 's', suiteName: 'n', configJson: '{"command":"x"}', ref: 'x', commitSha: 'y', status: 'passed', trigger: 'human', createdAt: new Date().toISOString() });
+    const other = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!.id;
+    await db.insert(qaRun).values({ id: 'other', workstationId: other, suiteId: 's', suiteName: 'n', configJson: '{"command":"x"}', ref: 'x', commitSha: 'y', status: 'passed', trigger: 'human', createdAt: new Date().toISOString() });
     expect((await call('get_test_run', { runId: 'other' })).error).toContain('不存在');
     expect((await call('save_triage', { runId: 'other', groups: [{ fingerprint: 'f', category: 'flaky', confidence: 'low', summary: 's', evidence: 'e' }] })).error).toContain('不存在');
   });
@@ -521,23 +520,21 @@ describe('验收套件', () => {
     expect((await db.select().from(qaRun).where(eq(qaRun.trigger, 'acceptance')))[0]!.status).toBe('failed');
   });
 
-  it('不存在或绑定别的开发台的套件直接报错', async () => {
+  it('不存在或别的开发台的套件直接报错', async () => {
     const r = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: 'nonexistent' }], 60);
-    expect(r).toMatchObject({ allPassed: false, envError: true, results: [{ status: 'error', output: '套件不存在或没有绑定本开发台', env: true }] });
+    expect(r).toMatchObject({ allPassed: false, envError: true, results: [{ status: 'error', output: '套件不存在或不在本台', env: true }] });
     const root = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
     const dev2 = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'dev', name: '开发二', settings: { repoPath: repo, targetBranch: 'develop' } });
     if (dev2.kind !== 'ok') throw new Error(dev2.error);
-    const qa2 = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'qa', name: '测试二', settings: { sourceWorkstationId: dev2.id } });
-    if (qa2.kind !== 'ok') throw new Error(qa2.error);
-    const s2 = (await json<{ id: string }>(req('POST', `/api/workstations/${qa2.id}/entities`, { entityType: 'TestSuite', data: { name: 's2', command: 'node run.js', report_path: 'report.xml' } }))).id;
+    const s2 = (await json<{ id: string }>(req('POST', `/api/workstations/${dev2.id}/entities`, { entityType: 'TestSuite', data: { name: 's2', command: 'node run.js', report_path: 'report.xml' } }))).id;
     const r2 = await runAcceptance(db, devId, repo, [{ kind: 'qa_suite', suite: s2 }], 60);
-    expect(r2.results[0]).toMatchObject({ status: 'error', output: '套件不存在或没有绑定本开发台', env: true });
+    expect(r2.results[0]).toMatchObject({ status: 'error', output: '套件不存在或不在本台', env: true });
   });
 
-  it('qa-gate-suites 只列绑定这台开发台的套件', async () => {
+  it('qa-gate-suites 只列本台的套件', async () => {
     const s = await suite();
-    const rows = await json<{ id: string; name: string; qaWorkstationId: string; qaWorkstationName: string }[]>(req('GET', `/api/workstations/${devId}/qa-gate-suites`));
-    expect(rows).toContainEqual({ id: s, name: '单测', qaWorkstationId: wsId, qaWorkstationName: '测试' });
+    const rows = await json<{ id: string; name: string }[]>(req('GET', `/api/workstations/${devId}/qa-gate-suites`));
+    expect(rows).toEqual([{ id: s, name: '单测' }]);
   });
 });
 
@@ -588,9 +585,9 @@ describe('签字同步', () => {
 
 describe('插件登记', () => {
   it('老库重启后补上新插件的登记', async () => {
-    await db.delete(pluginInstall).where(eq(pluginInstall.pluginId, 'qa'));
+    await db.delete(pluginInstall).where(eq(pluginInstall.pluginId, 'docs'));
     await seed(db);
-    expect(await db.select().from(pluginInstall).where(eq(pluginInstall.pluginId, 'qa'))).toHaveLength(1);
+    expect(await db.select().from(pluginInstall).where(eq(pluginInstall.pluginId, 'docs'))).toHaveLength(1);
   });
 });
 

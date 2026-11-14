@@ -32,10 +32,20 @@ export function diffRatio(a: Buffer, b: Buffer): number {
   return pixelmatch(x.data, y.data, undefined, x.width, x.height, { threshold: 0.1 }) / (x.width * x.height);
 }
 
+// 同 diffRatio，同时产出像素差异图（洋红标出差异）；尺寸不同没有差异图
+export function diffImage(a: Buffer, b: Buffer): { ratio: number; png: Buffer | null } {
+  const x = PNG.sync.read(a);
+  const y = PNG.sync.read(b);
+  if (x.width !== y.width || x.height !== y.height) return { ratio: 1, png: null };
+  const out = new PNG({ width: x.width, height: x.height });
+  const n = pixelmatch(x.data, y.data, out.data, x.width, x.height, { threshold: 0.1 });
+  return { ratio: n / (x.width * x.height), png: PNG.sync.write(out) };
+}
+
 // env：页面打不开 / 浏览器没装，是环境问题不是改动的问题
 export interface VisualResult { status: 'passed' | 'failed' | 'error'; ratio: number | null; output: string; shot: string | null; env?: boolean }
 
-const ENV_PATTERN = /ERR_CONNECTION_REFUSED|ECONNREFUSED|Executable doesn't exist|browserType\.launch|ERR_NAME_NOT_RESOLVED/;
+export const ENV_PATTERN = /ERR_CONNECTION_REFUSED|ECONNREFUSED|Executable doesn't exist|browserType\.launch|ERR_NAME_NOT_RESOLVED/;
 
 export async function runVisualCheck(worktree: string, check: { url: string; baseline: string; maxDiff: number }): Promise<VisualResult> {
   const baseline = path.resolve(worktree, check.baseline);
@@ -56,7 +66,7 @@ export async function runVisualCheck(worktree: string, check: { url: string; bas
 // visual 验收的 url 可写 {port}：换成这个 worktree 分到的 web 端口
 export const resolveUrl = (url: string, env: Record<string, string>) => url.replace(/\{port\}/g, env.AW_E2E_WEB_PORT ?? '').replace(/\{apiPort\}/g, env.AW_E2E_API_PORT ?? '');
 
-async function reachable(url: string): Promise<boolean> {
+export async function reachable(url: string): Promise<boolean> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
     return r.status < 500;

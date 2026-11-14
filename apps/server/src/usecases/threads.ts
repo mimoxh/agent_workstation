@@ -2,19 +2,21 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { Actor } from '@aw/domain';
 import type { ModulesConfig } from '@aw/plugin-spec';
 import type { DB } from '../db/client.js';
-import { agent, message, proposal, task, thread, threadMember, workstation } from '../db/schema.js';
+import { agent, message, proposal, run, task, thread, threadMember, workstation } from '../db/schema.js';
 import { events } from '../events.js';
+import { clearThreadQueue, threadQueueLength } from '../runtime/conversation.js';
+import { cancelRun } from '../runtime/loop.js';
 import { logEvent, manifestOf } from './core.js';
-import { executingWs } from './flow.js';
+import { executingWs, stewardOf } from './flow.js';
 import { pushInbox } from './inbox.js';
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 
-export type ThreadKind = 'task' | 'review' | 'discussion' | 'dm';
+export type ThreadKind = 'task' | 'review' | 'discussion' | 'dm' | 'group';
 type Conversation = NonNullable<ModulesConfig['conversation']>;
 
-const DEFAULT_MODES: Record<ThreadKind, Conversation['defaultMode']> = { task: 'relay', review: 'moderated', discussion: 'moderated', dm: 'relay' };
+const DEFAULT_MODES: Record<ThreadKind, Conversation['defaultMode']> = { task: 'relay', review: 'moderated', discussion: 'moderated', dm: 'relay', group: 'moderated' };
 const DEFAULT_MAX_TURNS = 12;
 const DEFAULT_SUMMARY_EVERY = 6;
 
@@ -25,7 +27,9 @@ export function conversationOf(ws: { pluginId: string | null; settingsJson: stri
   const patch = manifest?.presets?.find((p) => p.id === presetId)?.patch as { modules?: ModulesConfig } | undefined;
   const conf: Partial<Conversation> = { ...manifest?.modules?.conversation, ...patch?.modules?.conversation };
   return {
-    modeOf: (kind: ThreadKind) => conf.threadOverrides?.[kind] ?? (conf.defaultMode && kind !== 'dm' ? conf.defaultMode : DEFAULT_MODES[kind]),
+    modeOf: (kind: ThreadKind) =>
+      (conf.threadOverrides as Partial<Record<ThreadKind, Conversation['defaultMode']> | undefined>)?.[kind]
+      ?? (conf.defaultMode && kind !== 'dm' && kind !== 'group' ? conf.defaultMode : DEFAULT_MODES[kind]),
     maxTurns: conf.maxTurns ?? DEFAULT_MAX_TURNS,
     summaryEvery: conf.summaryEvery ?? DEFAULT_SUMMARY_EVERY,
   };
@@ -58,11 +62,28 @@ export async function wsThreadOf(db: DB, wsId: string) {
   return (await db.select().from(thread).where(eq(thread.id, id)))[0]!;
 }
 
+// 线程的最近活跃时间：最后一条消息，没有消息看创建时间
+async function lastAt(db: DB, threadId: string, fallback: string) {
+  const msgs = await db.select().from(message).where(eq(message.threadId, threadId));
+  let at = fallback;
+  for (const m of msgs) if (m.createdAt > at) at = m.createdAt;
+  return at;
+}
+
+// 同一个 Agent 可以有多条私聊：这里取最近活跃的那条，没有就建
 export async function dmThreadOf(db: DB, agentId: string) {
   const a = (await db.select().from(agent).where(eq(agent.id, agentId)))[0];
   if (!a) return null;
   const rows = await db.select().from(thread).where(and(eq(thread.kind, 'dm'), eq(thread.scopeId, agentId)));
-  if (rows[0]) return rows[0];
+  if (rows.length > 0) {
+    let best = rows[0]!;
+    let bestAt = await lastAt(db, best.id, best.createdAt);
+    for (const r of rows.slice(1)) {
+      const at = await lastAt(db, r.id, r.createdAt);
+      if (at > bestAt) [best, bestAt] = [r, at];
+    }
+    return best;
+  }
   const id = uid();
   await db.insert(thread).values({ id, scopeType: 'agent', scopeId: agentId, kind: 'dm', mode: 'relay', title: a.name, createdAt: now() });
   await db.insert(threadMember).values([
@@ -72,8 +93,72 @@ export async function dmThreadOf(db: DB, agentId: string) {
   return (await db.select().from(thread).where(eq(thread.id, id)))[0]!;
 }
 
-// 能在这条线程发言的 Agent：本台成员，加上可以向父级发言的子台 steward（I2）
+// 人工建会话：1 个成员是私聊，多个是群聊；群主优先 steward，否则第一个成员
+export async function createConversation(actor: Actor, db: DB, wsId: string, input: { agentIds: string[]; title?: string | undefined }) {
+  const ws = await wsRow(db, wsId);
+  if (!ws) return { kind: 'not_found' as const, status: 404 as const, error: '工作台不存在' };
+  const ids = [...new Set(input.agentIds)];
+  const members = ids.length ? await db.select().from(agent).where(inArray(agent.id, ids)) : [];
+  if (ids.length === 0 || members.length !== ids.length || members.some((a) => a.workstationId !== wsId)) {
+    return { kind: 'error' as const, status: 400 as const, error: '成员要都是本台的 Agent' };
+  }
+  const id = uid();
+  const title = input.title?.trim() ? input.title.trim() : null;
+  if (ids.length === 1) {
+    await db.insert(thread).values({ id, scopeType: 'agent', scopeId: ids[0]!, kind: 'dm', mode: 'relay', title, createdAt: now() });
+    await db.insert(threadMember).values([
+      { threadId: id, participantType: 'human', participantId: 'local', role: 'member' },
+      { threadId: id, participantType: 'agent', participantId: ids[0]!, role: 'member' },
+    ]);
+  } else {
+    const steward = await stewardOf(db, wsId);
+    const host = steward && ids.includes(steward.id) ? steward.id : ids[0]!;
+    await db.insert(thread).values({ id, scopeType: 'workstation', scopeId: wsId, kind: 'group', mode: 'moderated', title, createdAt: now() });
+    await db.insert(threadMember).values([
+      { threadId: id, participantType: 'human', participantId: 'local', role: 'member' },
+      ...ids.map((aid) => ({ threadId: id, participantType: 'agent', participantId: aid, role: aid === host ? 'host' : 'member' })),
+    ]);
+  }
+  await logEvent(db, actor, 'thread_created', 'thread', id, { workstationId: wsId });
+  const th = (await db.select().from(thread).where(eq(thread.id, id)))[0]!;
+  return { kind: 'ok' as const, thread: th };
+}
+
+// Agent 页的会话列表：本台所有私聊 + 本台的人工群聊，按最近活跃倒序
+export async function listConversations(db: DB, wsId: string) {
+  const wsAgents = await db.select().from(agent).where(eq(agent.workstationId, wsId));
+  const dmRows = wsAgents.length
+    ? await db.select().from(thread).where(and(eq(thread.kind, 'dm'), inArray(thread.scopeId, wsAgents.map((a) => a.id))))
+    : [];
+  const groupRows = await db.select().from(thread).where(and(eq(thread.kind, 'group'), eq(thread.scopeId, wsId)));
+  const out = [];
+  for (const th of [...dmRows, ...groupRows]) {
+    const members = await db.select().from(threadMember).where(and(eq(threadMember.threadId, th.id), eq(threadMember.participantType, 'agent')));
+    const msgs = await db.select().from(message).where(eq(message.threadId, th.id));
+    let last = msgs[0];
+    for (const m of msgs) if (last === undefined || m.createdAt > last.createdAt) last = m;
+    out.push({
+      id: th.id,
+      kind: th.kind,
+      title: th.title,
+      state: th.state,
+      turnCount: th.turnCount,
+      agentIds: members.map((m) => m.participantId),
+      hostId: members.find((m) => m.role === 'host')?.participantId ?? null,
+      lastAt: last?.createdAt ?? th.createdAt,
+      lastPreview: last?.content ?? null,
+      createdAt: th.createdAt,
+    });
+  }
+  return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+}
+
+// 能在这条线程发言的 Agent：群聊只看群成员；其余是本台成员，加上可以向父级发言的子台 steward（I2）
 export async function threadAgents(db: DB, th: typeof thread.$inferSelect) {
+  if (th.kind === 'group') {
+    const members = await db.select().from(threadMember).where(and(eq(threadMember.threadId, th.id), eq(threadMember.participantType, 'agent')));
+    return members.length ? db.select().from(agent).where(inArray(agent.id, members.map((m) => m.participantId))) : [];
+  }
   if (th.scopeType === 'agent') return db.select().from(agent).where(eq(agent.id, th.scopeId ?? ''));
   let wsIds: string[];
   if (th.scopeType === 'task') {
@@ -104,6 +189,10 @@ export async function postThreadMessage(actor: Actor, db: DB, threadId: string, 
   const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
   if (!th) return null;
   const m = await postMessage(db, threadId, actor, content, 'chat', meta);
+  // 人开的第一句话给未命名的私聊/群聊起题
+  if (actor.type === 'human' && (th.kind === 'dm' || th.kind === 'group') && th.title === null) {
+    await db.update(thread).set({ title: content.replace(/\s+/g, ' ').slice(0, 24) }).where(eq(thread.id, threadId));
+  }
   await logEvent(db, actor, 'message_posted', 'thread', threadId, {});
   return m;
 }
@@ -124,6 +213,38 @@ export async function postStatus(db: DB, taskId: string, content: string, sender
 export async function listMessages(db: DB, threadId: string) {
   const rows = await db.select().from(message).where(eq(message.threadId, threadId));
   return rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+// 这条线程有没有正在生成或排队的回复：会话页据此显示「正在回复…」与停止按钮
+export async function threadActivity(db: DB, threadId: string) {
+  const running = await db.select().from(run).where(and(eq(run.threadId, threadId), eq(run.status, 'running')));
+  return {
+    running: running.length > 0,
+    runIds: running.map((r) => r.id),
+    agentIds: running.map((r) => r.agentId).filter((id): id is string => !!id),
+    queued: threadQueueLength(threadId),
+  };
+}
+
+// 停掉这条线程正在进行与排队中的回复：不静默，人发新消息照常继续
+export async function stopThread(actor: Actor, db: DB, threadId: string) {
+  const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
+  if (!th) return { kind: 'not_found' as const, status: 404 as const, error: '会话不存在' };
+  let stopped = clearThreadQueue(threadId);
+  const running = await db.select().from(run).where(and(eq(run.threadId, threadId), eq(run.status, 'running')));
+  for (const r of running) {
+    stopped += 1;
+    // 不在内存 active 表里的 running 记录按孤儿处理，同 /runs/:id/cancel
+    if (!cancelRun(r.id)) {
+      await db.update(run).set({ status: 'cancelled', stopReason: 'cancelled', endedAt: now() }).where(eq(run.id, r.id));
+      events.emit('run_finished', { runId: r.id, agentId: r.agentId, taskId: r.taskId, stopReason: 'cancelled' });
+    }
+  }
+  if (stopped > 0) {
+    await postMessage(db, threadId, PLATFORM, '已停止，发新消息会继续。', 'status');
+    await logEvent(db, actor, 'thread_stopped', 'thread', threadId, { stopped });
+  }
+  return { kind: 'ok' as const, stopped };
 }
 
 export async function silenceThread(actor: Actor, db: DB, threadId: string, silenced: boolean) {

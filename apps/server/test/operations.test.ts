@@ -5,10 +5,11 @@ import { createApp } from '../src/app.js';
 import { createDb, migrateDb, type DB } from '../src/db/client.js';
 import { seed } from '../src/db/seed.js';
 import { agent, block, entity, inboxItem, project, run, task, workstation } from '../src/db/schema.js';
-import { loadPlugins } from '../src/plugins.js';
+import { loadPlugins, pluginRegistry } from '../src/plugins.js';
 import { budgetLevels } from '../src/runtime/budget.js';
 import { writeModelConfig } from '../src/runtime/config.js';
 import { fallbackRoutes, isRetryable, loadModels, modelRegistry, reloadModels, resolveModel } from '../src/runtime/models.js';
+import { probeModel } from '../src/runtime/probe.js';
 import { replayMessages, scheduler } from '../src/runtime/scheduler.js';
 import { executeTool, type RunCtx } from '../src/runtime/tools/index.js';
 import { buildPermCtx, createTaskUc, pushRunFailure, syncWorkstations } from '../src/usecases/index.js';
@@ -169,6 +170,75 @@ describe('模型路由', () => {
     await post('/api/settings/models', { ...body, providers: [{ name: 'cloud', kind: 'openai-compatible', model: 'm', baseUrl: 'http://x' }] }, 'PUT');
     expect(JSON.parse(await (await app.request('/api/settings/models')).text()).providers[0].hasKey).toBe(true);
   });
+
+  it('provider 可配上下文窗口与最大输出；最大输出不小于窗口时拒收', async () => {
+    const provider = { name: 'mimo', kind: 'openai-compatible', model: 'm', baseUrl: 'http://x', contextWindow: 128000, maxOutputTokens: 64000 };
+    expect((await post('/api/settings/models', { providers: [provider], chain: [], prices: {} }, 'PUT')).status).toBe(200);
+    const got = (await (await app.request('/api/settings/models')).json()) as { providers: { contextWindow?: number; maxOutputTokens?: number }[] };
+    expect(got.providers[0]).toMatchObject({ contextWindow: 128000, maxOutputTokens: 64000 });
+
+    const bad = await post('/api/settings/models', { providers: [{ ...provider, maxOutputTokens: 128000 }], chain: [], prices: {} }, 'PUT');
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe('最大输出要小于上下文窗口');
+  });
+
+  it('probeModel：provider 配了最大输出就带着发，结果回报检查值', async () => {
+    const seen: unknown[] = [];
+    const m = new MockLanguageModelV4({
+      provider: 'x',
+      modelId: 'x',
+      doGenerate: async (options) => {
+        seen.push(options.maxOutputTokens);
+        return {
+          content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'echo', input: '{"text":"ping"}' }],
+          finishReason: { unified: 'tool-calls', raw: 'tool-calls' } as never,
+          usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 7, text: 7, reasoning: 0 } } as never,
+          warnings: [],
+        };
+      },
+    });
+    const r = await probeModel({ id: 'x:m', model: m as never, supportsParallelTools: true, maxOutputTokens: 5000 });
+    expect(r.maxOutputChecked).toBe(5000);
+    expect(seen[0]).toBe(5000);
+    const r2 = await probeModel({ id: 'x:m', model: m as never, supportsParallelTools: true });
+    expect(r2.maxOutputChecked).toBeNull();
+    expect(seen[1]).toBeUndefined();
+  });
+
+  it('probeModel：能调用工具即通过，报错信息里的密钥被脱敏', async () => {
+    const calling = new MockLanguageModelV4({
+      provider: 'x',
+      modelId: 'x',
+      doGenerate: async () => ({
+        content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'echo', input: '{"text":"ping"}' }],
+        finishReason: 'tool-calls' as never,
+        usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 7, text: 7, reasoning: 0 } } as never,
+        warnings: [],
+      }),
+    });
+    const ok = await probeModel({ id: 'x:m', model: calling as never, supportsParallelTools: true });
+    expect(ok).toMatchObject({ ok: true, toolCall: true });
+    expect(ok.latencyMs).toBeGreaterThanOrEqual(0);
+
+    const bad = await probeModel({ id: 'x:m', model: failing('401 invalid apiKey=sk-abc123') as never, supportsParallelTools: true });
+    expect(bad).toMatchObject({ ok: false, toolCall: false });
+    expect(bad.error).not.toContain('sk-abc123');
+  });
+
+  it('测试接口：缺地址报 400，沿用已存密钥测试且不写配置', async () => {
+    const noUrl = await post('/api/settings/models/test', { name: 'x', kind: 'openai-compatible', model: 'm' });
+    expect(noUrl.status).toBe(400);
+    expect(((await noUrl.json()) as { error: string }).error).toBe('请填地址');
+
+    await post('/api/settings/models', { providers: [{ name: 'cloud', kind: 'openai-compatible', model: 'm', baseUrl: 'http://x', apiKey: 'sk-secret-value' }], chain: [], prices: {} }, 'PUT');
+    // 表单留空密钥：沿用同名 provider 已保存的 key；打不通的地址返回 200 + 不可用
+    const res = await post('/api/settings/models/test', { name: 'cloud', kind: 'openai-compatible', model: 'm', baseUrl: 'http://127.0.0.1:9' });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: false, toolCall: false });
+
+    const saved = (await (await app.request('/api/settings/models')).json()) as { providers: { name: string; baseUrl?: string; hasKey: boolean }[] };
+    expect(saved.providers).toEqual([expect.objectContaining({ name: 'cloud', baseUrl: 'http://x', hasKey: true })]);
+  });
 });
 
 describe('知识库', () => {
@@ -270,7 +340,7 @@ describe('插件升级', () => {
     expect(tools).toContain('search_knowledge');
     expect(tools).not.toContain('git_diff');
     expect((await db.select().from(block).where(and(eq(block.workstationId, dev.id), eq(block.panelId, 'knowledge'))))).toHaveLength(1);
-    expect((await db.select().from(workstation).where(eq(workstation.id, dev.id)))[0]!.pluginVersion).toBe('1.5.0');
+    expect((await db.select().from(workstation).where(eq(workstation.id, dev.id)))[0]!.pluginVersion).toBe(pluginRegistry.get('dev')!.version);
   });
 });
 

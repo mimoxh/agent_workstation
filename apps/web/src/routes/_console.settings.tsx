@@ -12,7 +12,7 @@ import { useModelConfig, useModels, type ModelConfig } from '@/lib/queries';
 export const Route = createFileRoute('/_console/settings')({ component: SettingsPage });
 
 type Kind = 'anthropic' | 'openai-compatible' | 'ollama';
-interface ProviderForm { name: string; kind: Kind; model: string; baseUrl: string; apiKey: string; hasKey: boolean; vision: boolean }
+interface ProviderForm { name: string; kind: Kind; model: string; baseUrl: string; apiKey: string; hasKey: boolean; vision: boolean; contextWindow: string; maxOutput: string }
 
 const KINDS: { id: Kind; label: string }[] = [
   { id: 'anthropic', label: 'Anthropic' },
@@ -20,10 +20,23 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: 'ollama', label: 'Ollama（本地）' },
 ];
 
-const blank = (): ProviderForm => ({ name: '', kind: 'anthropic', model: '', baseUrl: '', apiKey: '', hasKey: false, vision: false });
+const blank = (): ProviderForm => ({ name: '', kind: 'anthropic', model: '', baseUrl: '', apiKey: '', hasKey: false, vision: false, contextWindow: '', maxOutput: '' });
 
 const toForm = (c: ModelConfig): ProviderForm[] =>
-  c.providers.map((p) => ({ name: p.name, kind: p.kind, model: p.model, baseUrl: p.baseUrl ?? '', apiKey: '', hasKey: p.hasKey, vision: p.vision ?? false }));
+  c.providers.map((p) => ({ name: p.name, kind: p.kind, model: p.model, baseUrl: p.baseUrl ?? '', apiKey: '', hasKey: p.hasKey, vision: p.vision ?? false, contextWindow: p.contextWindow != null ? String(p.contextWindow) : '', maxOutput: p.maxOutputTokens != null ? String(p.maxOutputTokens) : '' }));
+
+const toPayload = (p: ProviderForm) => ({
+  name: p.name.trim(),
+  kind: p.kind,
+  model: p.model.trim(),
+  ...(p.baseUrl.trim() ? { baseUrl: p.baseUrl.trim() } : {}),
+  ...(p.apiKey ? { apiKey: p.apiKey } : {}),
+  ...(p.vision ? { vision: true } : {}),
+  ...(p.contextWindow.trim() ? { contextWindow: Number(p.contextWindow.trim()) } : {}),
+  ...(p.maxOutput.trim() ? { maxOutputTokens: Number(p.maxOutput.trim()) } : {}),
+});
+
+const validNum = (s: string) => !s.trim() || Number.isInteger(Number(s.trim()));
 
 // 价格按行编辑：provider:model 输入价 输出价
 const pricesToText = (p: ModelConfig['prices']) => Object.entries(p).map(([k, v]) => `${k} ${v.input} ${v.output}`).join('\n');
@@ -38,7 +51,14 @@ function textToPrices(text: string) {
 }
 
 function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (next: ProviderForm) => void; onRemove: () => void }) {
-  const set = (patch: Partial<ProviderForm>) => onChange({ ...p, ...patch });
+  const test = useMutation({
+    mutationFn: async () => unwrap(await api.settings.models.test.$post({ json: toPayload(p) })),
+    meta: { silent: true },
+  });
+  const set = (patch: Partial<ProviderForm>) => {
+    test.reset();
+    onChange({ ...p, ...patch });
+  };
   return (
     <div className="grid grid-cols-2 gap-3 rounded-card border border-rule p-3" data-testid="provider-row">
       <Field label="名称" required hint="用于 provider:model 引用">
@@ -55,6 +75,16 @@ function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (ne
       <Field label="地址" hint={p.kind === 'ollama' ? '留空用 http://localhost:11434/v1' : p.kind === 'anthropic' ? '可选' : '必填'}>
         <Input className="measured" value={p.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} />
       </Field>
+      <Field label="上下文窗口" hint="tokens，留空不限；用于裁剪过长的工具结果、给输出留空间">
+        <Input className="measured" inputMode="numeric" value={p.contextWindow} onChange={(e) => set({ contextWindow: e.target.value })} data-testid="provider-context" />
+        <span className="mt-1 block text-xs text-faint">按模型文档填写，例如 128000</span>
+        {!validNum(p.contextWindow) && <span className="mt-1 block text-xs text-bad">请填整数</span>}
+      </Field>
+      <Field label="最大输出" hint="tokens；写设计稿这类大输出的 Agent 单次最多生成这么多，留空用默认 16000（AW_LARGE_OUTPUT_TOKENS）">
+        <Input className="measured" inputMode="numeric" value={p.maxOutput} onChange={(e) => set({ maxOutput: e.target.value })} data-testid="provider-max-output" />
+        <span className="mt-1 block text-xs text-faint">按模型文档填写，例如 128000</span>
+        {!validNum(p.maxOutput) && <span className="mt-1 block text-xs text-bad">请填整数</span>}
+      </Field>
       {p.kind !== 'ollama' && (
         <Field label="API Key" hint={p.hasKey ? '已保存，留空沿用' : '加密存在本地，不进数据库和日志'} className="col-span-2">
           <Input type="password" autoComplete="off" value={p.apiKey} onChange={(e) => set({ apiKey: e.target.value })} data-testid="provider-key" />
@@ -64,9 +94,33 @@ function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (ne
         <input type="checkbox" checked={p.vision} onChange={(e) => set({ vision: e.target.checked })} data-testid="provider-vision" />支持看图
         <span className="text-xs text-faint">工具结果（如 view_design 截图）会作为图片发给模型；不开就只给文字说明</span>
       </label>
-      <div className="col-span-2 flex justify-end">
+      <div className="col-span-2 flex justify-end gap-2">
+        <Button size="sm" disabled={test.isPending || !p.name.trim() || !p.model.trim()} onClick={() => test.mutate()} data-testid="provider-test">
+          {test.isPending ? '测试中…' : '测试'}
+        </Button>
         <Button size="sm" variant="danger" onClick={onRemove}>移除</Button>
       </div>
+      {(test.data ?? test.error) && (
+        <div className="col-span-2 flex items-center gap-2" data-testid="provider-test-result">
+          {test.isError ? (
+            <>
+              <Badge tone="bad">不可用</Badge>
+              <span className="break-all text-xs text-muted">{test.error.message}</span>
+            </>
+          ) : test.data!.ok ? (
+            test.data!.toolCall ? (
+              <Badge tone="ok">可用 · {test.data!.latencyMs} ms{typeof test.data!.maxOutputChecked === 'number' ? ` · 最大输出 ${test.data!.maxOutputChecked} 已接受` : ''}</Badge>
+            ) : (
+              <Badge tone="amber">能对话，但没调用工具 · Agent 需要工具调用</Badge>
+            )
+          ) : (
+            <>
+              <Badge tone="bad">不可用</Badge>
+              {test.data!.error && <span className="break-all text-xs text-muted">{test.data!.error}</span>}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -83,7 +137,7 @@ function ModelForm({ config }: { config: ModelConfig }) {
       unwrap(
         await api.settings.models.$put({
           json: {
-            providers: providers.map((p) => ({ name: p.name.trim(), kind: p.kind, model: p.model.trim(), ...(p.baseUrl.trim() ? { baseUrl: p.baseUrl.trim() } : {}), ...(p.apiKey ? { apiKey: p.apiKey } : {}), ...(p.vision ? { vision: true } : {}) })),
+            providers: providers.map(toPayload),
             ...(defaultModel.trim() ? { defaultModel: defaultModel.trim() } : {}),
             chain: chain.split('\n').map((l) => l.trim()).filter(Boolean),
             prices: textToPrices(prices),
@@ -110,7 +164,7 @@ function ModelForm({ config }: { config: ModelConfig }) {
       <Field label="单价" hint="每行：provider:model 输入价 输出价（美元 / 百万 token）。没填单价的模型只统计 token">
         <Textarea className="measured" rows={3} value={prices} onChange={(e) => setPrices(e.target.value)} />
       </Field>
-      <Button type="submit" variant="primary" disabled={save.isPending} data-testid="models-save">{save.isPending ? '保存中…' : '保存模型配置'}</Button>
+      <Button type="submit" variant="primary" disabled={save.isPending || providers.some((p) => !validNum(p.contextWindow) || !validNum(p.maxOutput))} data-testid="models-save">{save.isPending ? '保存中…' : '保存模型配置'}</Button>
     </form>
   );
 }

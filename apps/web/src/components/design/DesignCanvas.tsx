@@ -1,7 +1,5 @@
-import type { DesignToken } from '@aw/domain';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WsThread } from '@/components/chat/Thread';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MenuItem, Popover, toast } from '@/components/ui/feedback';
@@ -9,12 +7,14 @@ import { Icon } from '@/components/ui/icons';
 import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson, when } from '@/lib/format';
-import { useEntityVersions, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
+import { useAgentThread, useEntityVersions, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { DesignChat } from './DesignChat';
 import { DEVICES, DesignFrame, type Device } from './DesignFrame';
 import { HandoffDialog } from './HandoffDialog';
 import { CommentsPane, Segmented, TweaksPane, type PendingComment } from './panes';
-import { applyDraft, applyElementText, commentsPrompt, compareDesigns, downloadName, exportDoc, issuesPrompt, previewDoc, STATUS_LABEL, tweakVars, type CanvasMode, type DesignComment, type DesignData, type DesignDoc, type FrameEvent, type Pin } from './model';
+import { applyDraft, applyElementText, commentsPrompt, compareDesigns, downloadName, exportDoc, issuesPrompt, previewDoc, STATUS_LABEL, tweakVars, type CanvasMode, type DesignComment, type DesignData, type DesignDoc, type FrameEvent, type Pin, type SelectItem } from './model';
+import { useResizableWidth, ResizeHandle } from './resize';
 
 type RailTab = 'chat' | 'comments' | 'tweaks';
 
@@ -22,6 +22,7 @@ const MODES: { id: CanvasMode; label: string }[] = [
   { id: 'view', label: '浏览' },
   { id: 'comment', label: '评论' },
   { id: 'edit', label: '改字' },
+  { id: 'select', label: '选择' },
 ];
 
 function RailTabButton({ on, onClick, label, count, testId }: { on: boolean; onClick: () => void; label: string; count?: number; testId: string }) {
@@ -34,12 +35,12 @@ function RailTabButton({ on, onClick, label, count, testId }: { on: boolean; onC
 
 type CompareSel = { id: string; version: number };
 
-function CompareSide({ sel, designs, tokens, device, onSel, testId }: { sel: CompareSel; designs: DesignDoc[]; tokens: DesignToken[]; device: Device; onSel: (s: CompareSel) => void; testId: string }) {
+function CompareSide({ sel, designs, device, onSel, testId }: { sel: CompareSel; designs: DesignDoc[]; device: Device; onSel: (s: CompareSel) => void; testId: string }) {
   const vers = useEntityVersions(sel.id);
   const d = designs.find((x) => x.id === sel.id);
   const hist = d && sel.version !== d.version ? parseJson<DesignData | null>((vers.data ?? []).find((v) => v.version === sel.version)?.dataJson ?? null, null) : null;
   const data = hist ?? d?.data;
-  const doc = useMemo(() => (data ? previewDoc(data.html, tokens, data.tweaks ?? []) : ''), [data, tokens]);
+  const doc = useMemo(() => (data ? previewDoc(data.html, data.legacyTokens ?? [], data.tweaks ?? []) : ''), [data]);
   const vOptions = useMemo(() => {
     const list = (vers.data ?? []).map((v) => v.version);
     if (d && !list.includes(d.version)) list.push(d.version);
@@ -60,10 +61,27 @@ function CompareSide({ sel, designs, tokens, device, onSel, testId }: { sel: Com
   );
 }
 
-export function DesignCanvas({ design, designs, comments, tokens, ws, project, running, onBack }: { design: DesignDoc; designs: DesignDoc[]; comments: DesignComment[]; tokens: DesignToken[]; ws: WorkstationDetail; project: ProjectDetail; running: boolean; onBack: () => void }) {
+// 删除前确认；已交接的稿子提示开发任务读的是交接快照，不受影响
+export function useDeleteDesign(onDeleted?: () => void) {
+  const del = useMutation({
+    mutationFn: async (id: string) => unwrap(await api.designs[':id'].$delete({ param: { id } })),
+    onSuccess: () => {
+      toast('设计稿已删除', 'ok');
+      onDeleted?.();
+    },
+  });
+  const confirmDelete = (d: DesignDoc) => {
+    const note = d.data.status === 'handed_off' ? '\n\n已生成的实现任务不受影响，它读的是交接时的快照。' : '';
+    if (window.confirm(`删除设计稿「${d.data.title}」？它的历史版本和评论会一起删掉，无法恢复。${note}`)) del.mutate(d.id);
+  };
+  return { confirmDelete, pending: del.isPending };
+}
+
+export function DesignCanvas({ design, designs, comments, ws, project, running, chatThread, onChatThread, onBack }: { design: DesignDoc; designs: DesignDoc[]; comments: DesignComment[]; ws: WorkstationDetail; project: ProjectDetail; running: boolean; chatThread: string | null; onChatThread: (id: string) => void; onBack: () => void }) {
   const names = useMemo(() => Object.fromEntries(project.agents.map((a) => [a.id, a.name])), [project.agents]);
   const versions = useEntityVersions(design.id);
-  const thread = useQuery({ queryKey: ['thread', 'ws', ws.id], queryFn: async () => unwrap(await api.workstations[':id'].thread.$get({ param: { id: ws.id } })) });
+  const designer = ws.agents.find((a) => a.templateId === 'designer' && a.status === 'active');
+  const thread = useAgentThread(designer?.id);
   const stage = useRef<HTMLDivElement>(null);
   const [rail, setRail] = useState<RailTab>('chat');
   const [railOpen, setRailOpen] = useState(() => window.innerWidth >= 768);
@@ -78,13 +96,17 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [issues, setIssues] = useState<string[]>([]);
   const [handoff, setHandoff] = useState(false);
+  const [sel, setSel] = useState<SelectItem[]>([]);
+  const [railWidth, railResize] = useResizableWidth('aw.designChatWidth');
+  const remove = useDeleteDesign(onBack);
 
   const old = pinned !== null && pinned !== design.version;
   const oldData = old ? parseJson<DesignData | null>(versions.data?.find((v) => v.version === pinned)?.dataJson ?? null, null) : null;
   const shown = oldData ?? design.data;
   const tweaks = useMemo(() => shown.tweaks ?? [], [shown.tweaks]);
-  const doc = useMemo(() => previewDoc(shown.html, tokens, tweaks), [shown.html, tokens, tweaks]);
-  const latestDoc = useMemo(() => previewDoc(design.data.html, tokens, design.data.tweaks ?? []), [design.data.html, design.data.tweaks, tokens]);
+  const legacy = shown.legacyTokens ?? [];
+  const doc = useMemo(() => previewDoc(shown.html, legacy, tweaks), [shown.html, legacy, tweaks]);
+  const latestDoc = useMemo(() => previewDoc(design.data.html, design.data.legacyTokens ?? [], design.data.tweaks ?? []), [design.data.html, design.data.legacyTokens, design.data.tweaks]);
   const vars = useMemo(() => tweakVars(tweaks, draft), [tweaks, draft]);
 
   const open = useMemo(() => comments.filter((c) => c.status !== 'resolved').sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [comments]);
@@ -120,8 +142,10 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
   });
   const send = useMutation({
     mutationFn: async (content: string) => {
-      if (!thread.data) throw new Error('会话还没加载好');
-      return unwrap(await api.threads[':id'].messages.$post({ param: { id: thread.data.thread.id }, json: { content, meta: designRef } }));
+      if (!designer) throw new Error('本台没有设计师');
+      const id = chatThread ?? thread.data?.thread.id;
+      if (!id) throw new Error('会话还没加载好');
+      return unwrap(await api.threads[':id'].messages.$post({ param: { id }, json: { content, meta: designRef } }));
     },
     onSuccess: () => setRail('chat'),
   });
@@ -139,6 +163,12 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
       setMissing((cur) => (cur.join() === e.pins.join() ? cur : e.pins));
     } else if (e.type === 'issue') {
       setIssues((cur) => (cur.includes(e.text) ? cur : [...cur, e.text].slice(-20)));
+    } else if (e.type === 'select') {
+      setSel(e.items);
+      if (e.items.length > 0) {
+        setRail('chat');
+        setRailOpen(true);
+      }
     } else {
       const r = applyElementText(design.data.html, e.selector, e.text);
       if (r.ok) patch.mutate({ data: { html: r.html, status: 'draft' }, reason: `直接改字：${e.text.slice(0, 30)}` });
@@ -152,7 +182,7 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
   };
 
   const exportHtml = () => {
-    const url = URL.createObjectURL(new Blob([exportDoc(shown.html, tokens, applyDraft(tweaks, draft))], { type: 'text/html;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob([exportDoc(shown.html, legacy, applyDraft(tweaks, draft))], { type: 'text/html;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = downloadName(shown.title, pinned ?? design.version);
@@ -185,7 +215,8 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
   return (
     <div className="relative flex min-h-0 flex-1" data-testid="design-canvas">
       {railOpen && (
-        <aside className="flex w-[22rem] shrink-0 flex-col border-r border-rule bg-paper max-md:absolute max-md:inset-0 max-md:z-20 max-md:w-full" aria-label="设计侧栏">
+        <aside className="relative flex w-[22rem] shrink-0 flex-col border-r border-rule bg-paper max-md:absolute max-md:inset-0 max-md:z-20 max-md:w-full" style={{ width: railWidth }} aria-label="设计侧栏">
+          <ResizeHandle {...railResize} />
           <div className="flex shrink-0 items-center border-b border-rule px-1">
             <RailTabButton on={rail === 'chat'} onClick={() => setRail('chat')} label="对话" testId="rail-chat" />
             <RailTabButton on={rail === 'comments'} onClick={() => setRail('comments')} label="评论" count={open.length} testId="rail-comments" />
@@ -193,10 +224,18 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
             <button type="button" className="ml-auto grid size-7 place-items-center rounded-pill text-muted hover:bg-hover hover:text-ink md:hidden" aria-label="收起侧栏" onClick={() => setRailOpen(false)}><Icon name="chev" className="rotate-90" /></button>
           </div>
           <div className={cn('flex min-h-0 flex-1 flex-col', rail !== 'chat' && 'hidden')}>
-            <WsThread wsId={ws.id} projectId={project.id} names={names} root={false} meta={designRef} hint={`对话针对「${design.data.title}」`} placeholder="想怎么改？比如：标题再大胆一点" />
+            {designer ? (
+              <DesignChat
+                ws={ws} project={project} designer={designer} threadId={chatThread} onThread={onChatThread}
+                meta={{ ...designRef, ...(sel.length > 0 ? { elements: sel } : {}) }}
+                hint={`对话针对「${design.data.title}」`} placeholder="想怎么改？比如：标题再大胆一点"
+                selection={{ items: sel, onRemove: (s) => setSel((cur) => cur.filter((x) => x.selector !== s)), onClear: () => setSel([]) }}
+                onSent={() => setSel([])}
+              />
+            ) : <p className="p-3 text-sm text-muted">本台没有设计师，到「成员」里添加</p>}
           </div>
           {rail === 'comments' && (
-            <CommentsPane open={open} resolved={resolved} active={activePin} missing={missing} pending={pending} names={names} canSend={!old} sending={send.isPending}
+            <CommentsPane open={open} resolved={resolved} active={activePin} missing={missing} pending={pending} names={names} canSend={!old && !!designer} sending={send.isPending}
               onFocus={setActivePin} onResolve={(c) => resolve.mutate(c)} onCancelPending={() => setPending(null)}
               onSubmit={(body) => pending && addComment.mutate({ body, target: pending })}
               onSend={() => send.mutate(commentsPrompt(design.id, open))} />
@@ -217,7 +256,7 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
           <Badge tone={status === 'draft' ? 'neutral' : 'ok'}>{STATUS_LABEL[status]}</Badge>
           {running && <span className="animate-pulse-soft text-xs text-cool" data-testid="canvas-running">设计师工作中…</span>}
           <span className="flex-1" />
-          <Segmented label="模式" value={old ? 'view' : mode} options={MODES} onChange={changeMode} disabled={old || !!cmp} />
+          <Segmented label="模式" testId="canvas-mode" value={old ? 'view' : mode} options={MODES} onChange={changeMode} disabled={old || !!cmp} />
           <Segmented label="设备" value={device} options={DEVICES.map(({ id, label }) => ({ id, label }))} onChange={setDevice} />
           <Button variant="quiet" aria-pressed={!!cmp} onClick={() => (cmp ? setCmp(null) : enterCompare())} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="canvas-compare">{cmp ? '退出对比' : '对比'}</Button>
           <Popover
@@ -258,10 +297,11 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
                 <MenuItem onClick={() => { void exportRender('pdf', 'desktop'); close(); }} data-testid="canvas-export-pdf">PDF</MenuItem>
                 <MenuItem onClick={() => { void stage.current?.requestFullscreen(); close(); }}>全屏演示</MenuItem>
                 {status !== 'handed_off' && <MenuItem onClick={() => { patch.mutate({ data: { status: status === 'approved' ? 'draft' : 'approved' }, reason: status === 'approved' ? '取消定稿' : '定稿' }); close(); }} data-testid="canvas-approve">{status === 'approved' ? '取消定稿' : '标记为定稿'}</MenuItem>}
+                <MenuItem danger disabled={remove.pending} onClick={() => { close(); remove.confirmDelete(design); }} data-testid="canvas-delete">删除设计稿</MenuItem>
               </>
             )}
           </Popover>
-          <Button variant="primary" onClick={() => setHandoff(true)} data-testid="canvas-handoff">交给开发</Button>
+          <Button variant="primary" onClick={() => setHandoff(true)} data-testid="canvas-handoff">生成实现任务</Button>
         </div>
 
         {old && (
@@ -276,20 +316,20 @@ export function DesignCanvas({ design, designs, comments, tokens, ws, project, r
         <div ref={stage} className="flex min-h-0 flex-1 bg-paper-3">
           {cmp ? (
             <>
-              <CompareSide sel={cmp.a} designs={cmpDesigns} tokens={tokens} device={device} onSel={(a) => setCmp({ ...cmp, a })} testId="compare-left" />
+              <CompareSide sel={cmp.a} designs={cmpDesigns} device={device} onSel={(a) => setCmp({ ...cmp, a })} testId="compare-left" />
               <div className="flex min-w-0 flex-1 border-l border-rule">
-                <CompareSide sel={cmp.b} designs={cmpDesigns} tokens={tokens} device={device} onSel={(b) => setCmp({ ...cmp, b })} testId="compare-right" />
+                <CompareSide sel={cmp.b} designs={cmpDesigns} device={device} onSel={(b) => setCmp({ ...cmp, b })} testId="compare-right" />
               </div>
             </>
           ) : (
             <>
-              <DesignFrame doc={doc} title={shown.title} device={device} mode={old ? 'view' : mode} pins={pins} vars={vars} onEvent={onFrame} testId="design-frame" {...(old && compare ? { caption: `v${pinned}` } : {})} />
+              <DesignFrame doc={doc} title={shown.title} device={device} mode={old ? 'view' : mode} pins={pins} vars={vars} selected={sel.map((s) => s.selector)} onEvent={onFrame} testId="design-frame" {...(old && compare ? { caption: `v${pinned}` } : {})} />
               {old && compare && <div className="flex min-w-0 flex-1 border-l border-rule"><DesignFrame doc={latestDoc} title={`${design.data.title} 最新版本`} device={device} caption={`v${design.version}（最新）`} /></div>}
             </>
           )}
         </div>
       </section>
-      {handoff && <HandoffDialog design={design} project={project} openComments={open.length} onClose={() => setHandoff(false)} />}
+      {handoff && <HandoffDialog design={design} ws={ws} project={project} openComments={open.length} onClose={() => setHandoff(false)} />}
     </div>
   );
 }

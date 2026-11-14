@@ -26,7 +26,7 @@ function Section({ label, text }: { label: string; text: string | undefined }) {
   return <div className="mt-3"><p className="text-xs text-muted">{label}</p><p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-2">{text}</p></div>;
 }
 
-function BugDetail({ doc, project, go, onClose }: { doc: Doc<BugData>; project: QaProps['project']; go: QaProps['go']; onClose: () => void }) {
+function BugDetail({ doc, wsId, project, go, onClose }: { doc: Doc<BugData>; wsId: string; project: QaProps['project']; go: QaProps['go']; onClose: () => void }) {
   const d = doc.data;
   const status = d.status ?? 'open';
   const [handing, setHanding] = useState(false);
@@ -62,14 +62,14 @@ function BugDetail({ doc, project, go, onClose }: { doc: Doc<BugData>; project: 
         {status === 'draft' && btn('reject', '驳回')}
         {status === 'draft' && btn('confirm', '确认缺陷', true)}
         {(status === 'open' || status === 'reopened') && btn('reject', '不修复')}
-        {(status === 'open' || status === 'reopened') && <Button variant="primary" onClick={() => setHanding(true)} data-testid="qa-bug-handoff">派给开发台</Button>}
+        {(status === 'open' || status === 'reopened') && <Button variant="primary" onClick={() => setHanding(true)} data-testid="qa-bug-handoff">生成修复任务</Button>}
         {status === 'fixing' && btn('dev_done', '已修复，进入验证')}
         {status === 'verifying' && btn('verify_fail', '验证未通过')}
         {status === 'verifying' && btn('verify_pass', '验证通过', true)}
         {(status === 'verified' || status === 'wontfix') && btn('reopen', '重开')}
         <Button variant="quiet" onClick={onClose}>关闭</Button>
       </div>
-      {handing && <HandoffDialog title="派给开发台" defaultModule={d.module} defaultPriority={severity} devStations={devStations} submitting={handoff.isPending} error={handoff.error?.message} onSubmit={(v) => handoff.mutate(v)} onClose={() => setHanding(false)} />}
+      {handing && <HandoffDialog title="生成修复任务" defaultModule={d.module} defaultPriority={severity} wsId={wsId} devStations={devStations} submitting={handoff.isPending} error={handoff.error?.message} onSubmit={(v) => handoff.mutate(v)} onClose={() => setHanding(false)} />}
     </Dialog>
   );
 }
@@ -115,7 +115,7 @@ export function Bugs({ ws, project, item, go }: QaProps) {
           </table>
         </div>
       )}
-      {open && <BugDetail key={open.id} doc={open} project={project} go={go} onClose={() => go('bugs')} />}
+      {open && <BugDetail key={open.id} doc={open} wsId={ws.id} project={project} go={go} onClose={() => go('bugs')} />}
       {creating && <NewBugDialog wsId={ws.id} draft={{}} onClose={() => setCreating(false)} onDone={(id) => go('bugs', id)} />}
     </Scroll>
   );

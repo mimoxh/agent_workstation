@@ -70,7 +70,7 @@ describe('项目与工作台', () => {
     const detail = await get<{ workstations: { name: string; parentId: string | null }[]; agents: unknown[] }>(`/api/projects/${id}`);
     expect(detail.workstations.map((w) => w.name).sort()).toEqual(['开发二', '根']);
     expect(detail.workstations.filter((w) => w.parentId === null)).toHaveLength(1);
-    expect(detail.agents.length).toBe(6);
+    expect(detail.agents.length).toBe(11);
   });
 
   it('空名字、未知插件、跨项目父节点都被拒绝', async () => {

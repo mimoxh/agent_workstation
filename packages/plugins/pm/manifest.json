@@ -1,7 +1,7 @@
 {
   "id": "pm",
   "name": "项目管理",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "根工作台：任务立项、派发、依赖与验收",
   "entities": {
     "Milestone": {
@@ -49,6 +49,8 @@
     { "id": "gantt", "type": "gantt", "entity": "system:task", "title": "甘特图", "editableBy": ["human"] },
     { "id": "risks", "type": "table", "entity": "Risk", "title": "风险登记", "editableBy": ["human", "agent"] },
     { "id": "reports", "type": "table", "entity": "StatusReport", "title": "进展报告", "editableBy": ["human", "agent"] },
+    { "id": "folder", "type": "tree", "entity": "system:folder", "title": "文件夹", "editableBy": ["human"] },
+    { "id": "changes", "type": "diff", "entity": "system:proposal", "title": "改动审阅", "editableBy": ["human"] },
     { "id": "knowledge", "type": "knowledge", "entity": "system:knowledge", "title": "知识库", "editableBy": ["human"] }
   ],
   "agents": [
@@ -57,7 +59,7 @@
       "name": "项目经理",
       "role": "拆解目标、起草任务契约、分派任务、跟踪阻塞",
       "promptFile": "pm.md",
-      "tools": ["read_entity", "list_entities", "propose_entity", "search_workstation", "search_knowledge", "create_task", "dispatch_task", "list_tasks", "plan_task", "project_status", "send_message", "record_decision", "request_human", "respond_task"],
+      "tools": ["read_entity", "list_entities", "propose_entity", "search_workstation", "search_knowledge", "create_task", "dispatch_task", "list_tasks", "plan_task", "project_status", "send_message", "record_decision", "request_human", "respond_task", "list_folder", "read_folder_file", "search_folder", "propose_file_change"],
       "triggers": ["mentioned", "task_assigned"]
     }
   ],

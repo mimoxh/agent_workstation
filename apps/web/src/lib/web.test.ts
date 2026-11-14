@@ -4,6 +4,7 @@ import { fromChecks, parseChecks, qaSuiteChecks, toChecks } from '../components/
 import { mentionQuery } from '../components/chat/mention';
 import { foldByDecision } from '../components/timeline/fold';
 import { layoutGantt } from '../components/pm/gantt';
+import { panelGroups } from '../components/workstation/home';
 import { parseDiff } from './diff';
 import { duration, parseJson, seconds, tokens, when } from './format';
 import { keysFor } from './live';
@@ -146,6 +147,19 @@ describe('验收命令', () => {
   });
 });
 
+describe('panelGroups', () => {
+  const b = (panelId: string, config?: Record<string, unknown>) => ({ id: panelId, panelId, configJson: config ? JSON.stringify(config) : null }) as never;
+
+  it('声明 group 的板块归到同名分组，其余留在「功能」，顺序不变', () => {
+    const groups = panelGroups([b('board'), b('runs', { group: '测试' }), b('changes'), b('bugs', { group: '测试' })]);
+    expect(groups.map((g) => [g.title, g.blocks.map((x) => x.panelId)])).toEqual([['功能', ['board', 'changes']], ['测试', ['runs', 'bugs']]]);
+  });
+
+  it('没有分组时只有「功能」', () => {
+    expect(panelGroups([b('board')]).map((g) => g.title)).toEqual(['功能']);
+  });
+});
+
 describe('mentionQuery', () => {
   it('只在 @ 紧贴光标的词上触发', () => {
     expect(mentionQuery('hi @架', 5)).toBe('架');
@@ -244,7 +258,7 @@ describe('实时失效映射', () => {
   it('任务变更刷新看板、详情和收件箱', () => {
     expect(keysFor('task_status_changed')).toEqual(expect.arrayContaining(['tasks', 'task', 'inbox']));
   });
-  it('消息刷新时间线和会话', () => expect(keysFor('message_created')).toEqual(['timeline', 'thread-messages']));
+  it('消息刷新时间线和会话', () => expect(keysFor('message_created')).toEqual(['timeline', 'thread-messages', 'conversations']));
   it('运行步骤只刷新脉搏和时间线', () => expect(keysFor('run_step')).toEqual(['pulse', 'timeline']));
   it('未知动作不触发刷新', () => expect(keysFor('unknown_action')).toEqual([]));
 });
@@ -256,6 +270,24 @@ describe('设计稿', () => {
     expect(parseFrameEvent({ aw: 'design-frame', type: 'edit', selector: 1, text: 'x' })).toBeNull();
     expect(parseFrameEvent({ aw: 'other', type: 'pin', n: 1 })).toBeNull();
     expect(parseFrameEvent('x')).toBeNull();
+  });
+
+  it('select 事件校验形状、截断超长字段、最多 8 项', () => {
+    const item = { selector: 'body > h1', anchor: '标题', tag: 'h1', html: '<h1>标题</h1>' };
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'select', items: [item] })).toEqual({ type: 'select', items: [item] });
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'select', items: [] })).toEqual({ type: 'select', items: [] });
+    const big = {
+      selector: 's'.repeat(3000), anchor: 'a'.repeat(100), tag: 't'.repeat(60), html: 'h'.repeat(3000),
+    };
+    const r = parseFrameEvent({ aw: 'design-frame', type: 'select', items: [big] }) as { items: { selector: string; anchor: string; tag: string; html: string }[] };
+    expect(r.items[0]!.selector.length).toBe(2000);
+    expect(r.items[0]!.anchor.length).toBe(60);
+    expect(r.items[0]!.tag.length).toBe(40);
+    expect(r.items[0]!.html.length).toBe(1500);
+    expect((parseFrameEvent({ aw: 'design-frame', type: 'select', items: Array(10).fill(item) }) as { items: unknown[] }).items).toHaveLength(8);
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'select', items: [{ selector: 1 }, { html: 'x' }, item] })).toEqual({ type: 'select', items: [item] });
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'select' })).toBeNull();
+    expect(parseFrameEvent({ aw: 'design-frame', type: 'select', items: 'x' })).toBeNull();
   });
 
   it('发给设计师的评论带上 id、元素和内容', () => {

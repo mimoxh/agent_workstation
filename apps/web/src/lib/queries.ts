@@ -9,7 +9,6 @@ const fetchProjectRuns = async (id: string) => unwrap(await api.projects[':id'].
 const fetchWorkstation = async (id: string) => unwrap(await api.workstations[':id'].$get({ param: { id } }));
 const fetchWsTasks = async (id: string) => unwrap(await api.workstations[':id'].tasks.$get({ param: { id } }));
 const fetchWsProposals = async (id: string) => unwrap(await api.workstations[':id'].proposals.$get({ param: { id } }));
-const fetchWsTestRuns = async (id: string) => unwrap(await api.workstations[':id'].testruns.$get({ param: { id } }));
 const fetchWsEntities = async (id: string) => unwrap(await api.workstations[':id'].entities.$get({ param: { id } }));
 const fetchAgentStatus = async (id: string) => unwrap(await api.workstations[':id'].agents.status.$get({ param: { id } }));
 const fetchRepoStatus = async (id: string) => unwrap(await api.workstations[':id'].repo.$get({ param: { id } }));
@@ -19,6 +18,8 @@ const fetchTaskQuality = async (id: string) => unwrap(await api.tasks[':id'].qua
 const fetchFiles = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].files.$get({ param: { id }, query: { path, branch } }));
 const fetchBranches = async (id: string) => unwrap(await api.workstations[':id'].branches.$get({ param: { id } }));
 const fetchFile = async (id: string, path: string, branch: string) => unwrap(await api.workstations[':id'].file.$get({ param: { id }, query: { path, branch } }));
+const fetchFolderFiles = async (id: string, path: string) => unwrap(await api.projects[':id'].folder.files.$get({ param: { id }, query: { path } }));
+const fetchFolderFile = async (id: string, path: string) => unwrap(await api.projects[':id'].folder.file.$get({ param: { id }, query: { path } }));
 const fetchTask = async (id: string) => unwrap(await api.tasks[':id'].$get({ param: { id } }));
 const fetchTaskRuns = async (id: string) => unwrap(await api.tasks[':id'].runs.$get({ param: { id } }));
 const fetchTaskProposals = async (id: string) => unwrap(await api.tasks[':id'].proposals.$get({ param: { id } }));
@@ -32,6 +33,7 @@ const fetchTimeline = async (id: string) => unwrap(await api.tasks[':id'].timeli
 const fetchPulse = async (id: string) => unwrap(await api.projects[':id'].pulse.$get({ param: { id } }));
 const fetchThreadMessages = async (id: string) => unwrap(await api.threads[':id'].messages.$get({ param: { id } }));
 const fetchThreadMembers = async (id: string) => unwrap(await api.threads[':id'].members.$get({ param: { id } }));
+const fetchThreadActive = async (id: string) => unwrap(await api.threads[':id'].active.$get({ param: { id } }));
 const fetchLedger = async (id: string) => unwrap(await api.projects[':id'].ledger.$get({ param: { id } }));
 const fetchModelConfig = async () => unwrap(await api.settings.models.$get());
 const fetchSources = async (id: string) => unwrap(await api.projects[':id'].knowledge.$get({ param: { id }, query: {} }));
@@ -39,7 +41,7 @@ const fetchKnowledgeSearch = async (id: string, q: string) => unwrap(await api.p
 const fetchChunk = async (id: string) => unwrap(await api.knowledge.chunks[':id'].$get({ param: { id } }));
 const fetchPlugins = async () => unwrap(await api.plugins.$get());
 const fetchModels = async () => unwrap(await api.models.$get());
-const fetchDesignSystem = async (id: string) => unwrap(await api.workstations[':id']['design-system'].$get({ param: { id } }));
+
 const fetchDocs = async (id: string) => unwrap(await api.workstations[':id'].docs.$get({ param: { id } }));
 const fetchDoc = async (id: string) => unwrap(await api.docs[':id'].$get({ param: { id } }));
 const fetchDocRepos = async (id: string) => unwrap(await api.workstations[':id']['doc-repos'].$get({ param: { id } }));
@@ -57,6 +59,8 @@ const fetchQaHistory = async (id: string, key: string) => unwrap(await api.works
 const fetchQaPlan = async (id: string, planId: string) => unwrap(await api.workstations[':id'].qa.plans[':planId'].$get({ param: { id, planId } }));
 const fetchQaGateSuites = async (id: string) => unwrap(await api.workstations[':id']['qa-gate-suites'].$get({ param: { id } }));
 const fetchProjectStatus = async (id: string) => unwrap(await api.projects[':id'].status.$get({ param: { id } }));
+const fetchConversations = async (id: string) => unwrap(await api.workstations[':id'].conversations.$get({ param: { id } }));
+const fetchAgentThread = async (id: string) => unwrap(await api.agents[':id'].thread.$get({ param: { id } }));
 
 export type QaOverview = Awaited<ReturnType<typeof fetchQaOverview>>;
 export type QaRunRow = Awaited<ReturnType<typeof fetchQaRuns>>[number];
@@ -94,7 +98,7 @@ export type BoardTask = Awaited<ReturnType<typeof fetchWsTasks>>[number];
 export type TaskDetail = Awaited<ReturnType<typeof fetchTask>>;
 export type TaskEventRow = TaskDetail['events'][number];
 export type Proposal = Awaited<ReturnType<typeof fetchWsProposals>>[number];
-export type TestRun = Awaited<ReturnType<typeof fetchWsTestRuns>>[number];
+export type TestRun = Awaited<ReturnType<typeof fetchTaskTestRuns>>[number];
 export type EntityRow = Awaited<ReturnType<typeof fetchWsEntities>>['entities'][number];
 export type RunRow = Awaited<ReturnType<typeof fetchProjectRuns>>[number];
 export type RunDetail = Awaited<ReturnType<typeof fetchRun>>;
@@ -117,6 +121,7 @@ export type TaskBranch = NonNullable<Awaited<ReturnType<typeof fetchTaskBranch>>
 export type Gate = TaskDetail['flow']['gates'][number];
 export type ProjectTask = Awaited<ReturnType<typeof fetchProjectTasks>>[number];
 export type ProjectStatus = Awaited<ReturnType<typeof fetchProjectStatus>>;
+export type ConversationRow = Awaited<ReturnType<typeof fetchConversations>>['conversations'][number];
 
 const on = <T,>(id: T | null | undefined) => id !== null && id !== undefined && id !== '';
 
@@ -125,11 +130,12 @@ export const useProject = (id: string, enabled = true) => useQuery({ queryKey: [
 export const useOverview = (id: string) => useQuery({ queryKey: ['overview', id], queryFn: () => fetchOverview(id) });
 export const useProjectTasks = (id: string, enabled = true) => useQuery({ queryKey: ['project-tasks', id], queryFn: () => fetchProjectTasks(id), enabled });
 export const useProjectStatus = (id: string | null | undefined) => useQuery({ queryKey: ['project-status', id], queryFn: () => fetchProjectStatus(id!), enabled: on(id) });
+export const useConversations = (id: string | null | undefined) => useQuery({ queryKey: ['conversations', id], queryFn: () => fetchConversations(id!), enabled: on(id) });
+export const useAgentThread = (id: string | null | undefined) => useQuery({ queryKey: ['thread', 'dm', id], queryFn: () => fetchAgentThread(id!), enabled: on(id) });
 export const useProjectRuns = (id: string) => useQuery({ queryKey: ['runs', 'project', id], queryFn: () => fetchProjectRuns(id) });
 export const useWorkstation = (id: string | null | undefined) => useQuery({ queryKey: ['ws', id], queryFn: () => fetchWorkstation(id!), enabled: on(id) });
 export const useWsTasks = (id: string) => useQuery({ queryKey: ['tasks', id], queryFn: () => fetchWsTasks(id) });
 export const useWsProposals = (id: string) => useQuery({ queryKey: ['proposals', 'ws', id], queryFn: () => fetchWsProposals(id) });
-export const useWsTestRuns = (id: string) => useQuery({ queryKey: ['testruns', 'ws', id], queryFn: () => fetchWsTestRuns(id) });
 export const useWsEntities = (id: string | null | undefined) => useQuery({ queryKey: ['entities', id], queryFn: () => fetchWsEntities(id!), enabled: on(id) });
 export const useAgentStatus = (id: string | null | undefined) => useQuery({ queryKey: ['agent-status', id], queryFn: () => fetchAgentStatus(id!), enabled: on(id) });
 export const useRepoStatus = (id: string) => useQuery({ queryKey: ['repo', id], queryFn: () => fetchRepoStatus(id) });
@@ -139,10 +145,25 @@ export const useTaskQuality = (id: string, enabled = true) => useQuery({ queryKe
 export const useFiles = (id: string, path: string, branch = '') => useQuery({ queryKey: ['files', id, branch, path], queryFn: () => fetchFiles(id, path, branch) });
 export const useBranches = (id: string) => useQuery({ queryKey: ['files', id, 'branches'], queryFn: () => fetchBranches(id) });
 export const useFile = (id: string, path: string | null, branch = '') => useQuery({ queryKey: ['file', id, branch, path], queryFn: () => fetchFile(id, path!, branch), enabled: on(path) });
+export const useFolderFiles = (id: string, path: string) => useQuery({ queryKey: ['folder', id, 'files', path], queryFn: () => fetchFolderFiles(id, path) });
+export const useFolderFile = (id: string, path: string | null) => useQuery({ queryKey: ['folder', id, 'file', path], queryFn: () => fetchFolderFile(id, path!), enabled: on(path) });
 export const useTask = (id: string | null | undefined) => useQuery({ queryKey: ['task', id], queryFn: () => fetchTask(id!), enabled: on(id) });
 export const useTaskRuns = (id: string) => useQuery({ queryKey: ['runs', 'task', id], queryFn: () => fetchTaskRuns(id) });
 export const useTaskProposals = (id: string) => useQuery({ queryKey: ['proposals', 'task', id], queryFn: () => fetchTaskProposals(id) });
 export const useTaskTestRuns = (id: string) => useQuery({ queryKey: ['testruns', 'task', id], queryFn: () => fetchTaskTestRuns(id) });
+export interface TaskPreviewStatus { status: 'starting' | 'running' | 'failed' | 'stopped'; url?: string; error?: string; log?: string }
+// 预览轮询：启动中 2s，跑起来后 30s 当心跳（不动会 10 分钟被回收）
+export const useTaskPreview = (id: string) => useQuery<TaskPreviewStatus>({
+  queryKey: ['task-preview', id],
+  queryFn: async () => unwrap(await api.tasks[':id'].preview.$get({ param: { id } })) as Promise<TaskPreviewStatus>,
+  refetchInterval: (q) => (q.state.data?.status === 'starting' ? 2000 : q.state.data?.status === 'running' ? 30_000 : false),
+});
+export const useTaskDesignHandoff = (id: string | null | undefined) => useQuery({
+  queryKey: ['design-handoff', id],
+  queryFn: async () => (unwrap(await api.tasks[':id']['design-handoff'].$get({ param: { id: id! } })) as Promise<{ title: string; version: number; html: string }>).catch(() => null),
+  enabled: on(id),
+  staleTime: Number.POSITIVE_INFINITY,
+});
 export const useInbox = (projectId: string, status = 'open') =>
   useQuery({ queryKey: ['inbox', projectId, status], queryFn: () => fetchInbox(projectId, status), refetchInterval: 15000 });
 // 控制台跨项目汇总；key 仍以 inbox 开头，实时失效规则照常命中
@@ -154,6 +175,7 @@ export const useArtifact = (id: string | null) => useQuery({ queryKey: ['artifac
 export const useTimeline = (id: string) => useQuery({ queryKey: ['timeline', id], queryFn: () => fetchTimeline(id) });
 export const useTeamPulse = (id: string) => useQuery({ queryKey: ['pulse', id], queryFn: () => fetchPulse(id) });
 export const useThreadMessages = (id: string) => useQuery({ queryKey: ['thread-messages', id], queryFn: () => fetchThreadMessages(id) });
+export const useThreadActive = (id: string) => useQuery({ queryKey: ['thread-active', id], queryFn: () => fetchThreadActive(id) });
 export const useThreadMembers = (id: string) => useQuery({ queryKey: ['thread-members', id], queryFn: () => fetchThreadMembers(id), staleTime: 60000 });
 export const useLedger = (id: string) => useQuery({ queryKey: ['ledger', id], queryFn: () => fetchLedger(id) });
 export const useModelConfig = () => useQuery({ queryKey: ['model-config'], queryFn: fetchModelConfig });
@@ -161,7 +183,7 @@ export const useKnowledgeSources = (id: string) => useQuery({ queryKey: ['knowle
 export const useKnowledgeSearch = (id: string, q: string) => useQuery({ queryKey: ['knowledge', id, 'search', q], queryFn: () => fetchKnowledgeSearch(id, q) });
 export const useChunk = (id: string | null) => useQuery({ queryKey: ['chunk', id], queryFn: () => fetchChunk(id!), enabled: on(id) });
 export const usePlugins = () => useQuery({ queryKey: ['plugins'], queryFn: fetchPlugins });
-export const useDesignSystem = (id: string) => useQuery({ queryKey: ['design-system', id], queryFn: () => fetchDesignSystem(id) });
+
 export const useDocs = (id: string) => useQuery({ queryKey: ['docs', id], queryFn: () => fetchDocs(id) });
 export const useDoc = (id: string | null | undefined) => useQuery({ queryKey: ['doc', id], queryFn: () => fetchDoc(id!), enabled: on(id) });
 export const useDocRepos = (id: string) => useQuery({ queryKey: ['doc-repos', id], queryFn: () => fetchDocRepos(id) });

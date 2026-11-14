@@ -1,7 +1,7 @@
 import { compareRuns, computeVerdict, flakiness, isBugOpen, isFailing, type Actor, type CaseSample } from '@aw/domain';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { artifact, qaCaseResult, qaRun, task, workstation } from '../db/schema.js';
+import { artifact, qaCaseResult, qaRun, task } from '../db/schema.js';
 import { git } from '../runtime/git.js';
 import type { Coverage } from '../runtime/qa/reports.js';
 import { baselineOf, entitiesOf, planVerdict, qaSourceOf, quarantinedKeys, type BugData, type CaseData, type PlanData, type QuarantineData, type SuiteData, type Triage } from '../usecases/qa.js';
@@ -224,26 +224,10 @@ export async function bugTaskStatuses(actor: Actor, db: DB, wsId: string) {
   return Object.fromEntries(rows.map((r) => [r.id, r]));
 }
 
-// 开发台的验收套件：项目里把这台开发台当测试来源的测试台，其全部 TestSuite
+// 开发台的验收套件：就是本台的 TestSuite
 export async function qaGateSuites(actor: Actor, db: DB, devWsId: string) {
   void actor;
-  const dev = (await db.select().from(workstation).where(eq(workstation.id, devWsId)))[0];
-  if (!dev) return [];
-  const qas = await db.select().from(workstation).where(and(eq(workstation.projectId, dev.projectId), eq(workstation.pluginId, 'qa')));
-  const out: { id: string; name: string; qaWorkstationId: string; qaWorkstationName: string }[] = [];
-  for (const ws of qas) {
-    const source = await qaSourceOf(db, ws.id);
-    if (!source.ok || source.workstationId !== devWsId) continue;
-    for (const s of await entitiesOf<SuiteData>(db, ws.id, 'TestSuite')) {
-      out.push({ id: s.row.id, name: s.data.name, qaWorkstationId: ws.id, qaWorkstationName: ws.name });
-    }
-  }
-  return out;
-}
-
-export async function listQaSources(actor: Actor, db: DB, projectId: string) {
-  void actor;
-  return (await db.select({ id: workstation.id, name: workstation.name, settingsJson: workstation.settingsJson }).from(workstation).where(and(eq(workstation.projectId, projectId), eq(workstation.pluginId, 'dev')))).map((w) => ({ id: w.id, name: w.name }));
+  return (await entitiesOf<SuiteData>(db, devWsId, 'TestSuite')).map((s) => ({ id: s.row.id, name: s.data.name }));
 }
 
 export async function qaContextOf(db: DB, wsId: string) {

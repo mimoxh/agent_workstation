@@ -81,12 +81,12 @@ function CaseEditor({ wsId, doc, automated, devStations, onClose }: { wsId: stri
             {status === 'draft' && <Button size="sm" onClick={() => save.mutate('deprecated')}>驳回</Button>}
             {status === 'active' && <Button size="sm" onClick={() => save.mutate('deprecated')}>废弃</Button>}
             {status === 'deprecated' && <Button size="sm" onClick={() => save.mutate('active')}>恢复</Button>}
-            {!automation && !d?.handoff && status === 'active' && <Button size="sm" onClick={() => setHanding(true)} data-testid="qa-case-handoff">补自动化（交给开发台）</Button>}
-            {d?.handoff && <span className="self-center text-xs text-muted">已交给开发台补自动化</span>}
+            {!automation && !d?.handoff && status === 'active' && <Button size="sm" onClick={() => setHanding(true)} data-testid="qa-case-handoff">生成自动化任务</Button>}
+            {d?.handoff && <span className="self-center text-xs text-muted">已生成补自动化的开发任务</span>}
           </div>
         )}
       </DialogForm>
-      {handing && <HandoffDialog title="补自动化" defaultModule={module} defaultPriority="p2" devStations={devStations} submitting={handoff.isPending} error={handoff.error?.message} onSubmit={(v) => handoff.mutate(v)} onClose={() => setHanding(false)} />}
+      {handing && <HandoffDialog title="生成自动化任务" defaultModule={module} defaultPriority="p2" wsId={wsId} devStations={devStations} submitting={handoff.isPending} error={handoff.error?.message} onSubmit={(v) => handoff.mutate(v)} onClose={() => setHanding(false)} />}
     </Dialog>
   );
 }

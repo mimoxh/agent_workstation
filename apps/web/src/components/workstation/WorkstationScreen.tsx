@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import type { BoardFilter, FlagFilter, StatusFilter } from '@/components/board/filter';
 import { TaskBoard } from '@/components/board/TaskBoard';
 import { DesignStudio } from '@/components/design/DesignStudio';
-import { DesignSystemPanel } from '@/components/design/DesignSystemPanel';
 import { DocStudio } from '@/components/docs/DocStudio';
 import { HealthPanel } from '@/components/docs/HealthPanel';
 import { StyleGuidePanel } from '@/components/docs/StyleGuidePanel';
@@ -13,14 +12,15 @@ import { GanttPanel } from '@/components/pm/GanttPanel';
 import { MilestonePanel } from '@/components/pm/MilestonePanel';
 import { ReportsPanel } from '@/components/pm/ReportsPanel';
 import { FilesPanel } from '@/components/panels/FilesPanel';
+import { FolderPanel } from '@/components/panels/FolderPanel';
 import { KnowledgePanel } from '@/components/panels/KnowledgePanel';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { WsProposalsPanel } from '@/components/panels/ProposalReview';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
-import { WsTestRunsPanel } from '@/components/panels/TestRuns';
 import { QualityPanel } from '@/components/qa/QualityPanel';
 import { WsThread } from '@/components/chat/Thread';
 import { PageHeader } from '@/components/layout/Page';
+import { AgentTalk } from './AgentTalk';
 import { TeamPulse } from '@/components/team/TeamPulse';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/feedback';
@@ -29,7 +29,7 @@ import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 
-export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; assignee?: string; flag?: FlagFilter; design?: string; item?: string }
+export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; assignee?: string; flag?: FlagFilter; design?: string; item?: string; thread?: string }
 
 const STATUSES: StatusFilter[] = ['open', 'attention', 'done'];
 const FLAG_IDS: FlagFilter[] = ['overdue', 'waiting'];
@@ -39,6 +39,7 @@ export const parseWsSearch = (s: Record<string, unknown>): WsSearch => ({
   ...(typeof s.q === 'string' && s.q ? { q: s.q } : {}),
   ...(typeof s.design === 'string' && s.design ? { design: s.design } : {}),
   ...(typeof s.item === 'string' && s.item ? { item: s.item } : {}),
+  ...(typeof s.thread === 'string' && s.thread ? { thread: s.thread } : {}),
   ...(typeof s.assignee === 'string' && s.assignee ? { assignee: s.assignee } : {}),
   ...(FLAG_IDS.includes(s.flag as FlagFilter) ? { flag: s.flag as FlagFilter } : {}),
   ...(STATUSES.includes(s.status as StatusFilter) ? { status: s.status as StatusFilter } : {}),
@@ -56,9 +57,8 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
     case 'diff':
       return <WsProposalsPanel wsId={ws.id} projectId={project.id} />;
     case 'tree':
-      return <FilesPanel wsId={ws.id} />;
+      return block.entityType === 'system:folder' ? <FolderPanel project={project} /> : <FilesPanel wsId={ws.id} />;
     case 'table':
-      if (block.entityType === 'TestRun') return <WsTestRunsPanel wsId={ws.id} projectId={project.id} />;
       if (block.entityType === 'StatusReport' && def) return <ReportsPanel ws={ws} project={project} def={def} editable={editable} />;
       if (block.entityType === 'Module' && def) return <ModulesPanel ws={ws} def={def} editable={editable} />;
       return def ? <EntityPanel wsId={ws.id} entityType={block.entityType!} def={def} editable={editable} /> : null;
@@ -70,7 +70,7 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
     case 'knowledge':
       return <KnowledgePanel projectId={project.id} />;
     case 'tokens':
-      return <DesignSystemPanel ws={ws} project={project} />;
+      return <Empty title="这个板块已从插件中移除" />;
     case 'doc':
       return parseJson<{ view?: string }>(block.configJson, {}).view === 'style' ? <StyleGuidePanel ws={ws} /> : <Empty title="文档台请在工作台主视图打开" />;
     case 'quality':
@@ -161,6 +161,7 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
 
   let content: ReactNode;
   if (search.panel === '_agents') content = <PanelFrame icon="people" title="成员" desc={`${ws.name}的 Agent 编制：模型、权限、预算`}><AgentsPanel ws={ws} /></PanelFrame>;
+  else if (search.panel === '_talk') content = <PanelFrame icon="chat" title="Agent" desc="和成员私聊，或拉几位一起开群"><AgentTalk ws={ws} project={project} selected={search.thread} onSelect={(id) => onSearch({ panel: '_talk', ...(id ? { thread: id } : {}) })} /></PanelFrame>;
   else if (search.panel === '_settings') content = <PanelFrame icon="gear" title="工作台设置" desc={budgetNote}><SettingsPanel key={ws.id} ws={ws} project={project} /></PanelFrame>;
   else if (block?.panelType === 'canvas') content = <DesignStudio ws={ws} project={project} openId={search.design} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { design: id } : {}) })} />;
   else if (block?.panelType === 'doc' && parseJson<{ view?: string }>(block.configJson, {}).view === 'health') {

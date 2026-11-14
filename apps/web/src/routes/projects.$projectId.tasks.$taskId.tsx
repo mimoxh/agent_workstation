@@ -8,6 +8,7 @@ import { TaskTestRunsPanel } from '@/components/panels/TestRuns';
 import { RunTable } from '@/components/run/RunTable';
 import { StreamBlocks, useLiveOutput } from '@/components/run/LiveOutput';
 import { TaskHeader } from '@/components/task/TaskHeader';
+import { TaskPreview } from '@/components/task/TaskPreview';
 import { TaskSide } from '@/components/task/TaskSide';
 import { Timeline } from '@/components/timeline/Timeline';
 import { Button } from '@/components/ui/button';
@@ -15,10 +16,11 @@ import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
 import { Field, Input, Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
+import { parseJson } from '@/lib/format';
 import { nameMaps, useInbox, useProject, useTask, useTaskProposals, useTaskRuns, useTaskTestRuns, useWorkstation, type RunRow, type TaskDetail, type WsAgent } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-const VIEWS = ['timeline', 'changes', 'tests', 'runs', 'output'] as const;
+const VIEWS = ['timeline', 'changes', 'tests', 'runs', 'output', 'preview'] as const;
 type ViewId = (typeof VIEWS)[number];
 
 export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
@@ -132,7 +134,11 @@ function TaskPage() {
     tests: <>验收 <span className="measured text-xs">{testRows.length}</span></>,
     runs: <>运行 <span className="measured text-xs">{runRows.length}</span></>,
     output: '实时输出',
+    preview: '预览',
   };
+  // 预览只在开发台任务上有意义（要 worktree + serve 命令）
+  const views = VIEWS.filter((v) => v !== 'preview' || owner.data?.pluginId === 'dev');
+  const hasDesignHandoff = !!((parseJson<{ design_artifact?: string }>(d.task.inputJson, {})).design_artifact);
   const liveRunning = liveStreams.some((s) => !s.done);
 
   return (
@@ -155,7 +161,7 @@ function TaskPage() {
                 onAction={(a) => actions.run(a, d.task)}
               />
               <nav className="mt-5 flex gap-0.5 border-b border-rule" role="tablist" aria-label="任务视图">
-                {VIEWS.map((v) => (
+                {views.map((v) => (
                   <button
                     key={v}
                     type="button"
@@ -176,12 +182,13 @@ function TaskPage() {
               </nav>
             </div>
           </div>
-          <div className={view === 'timeline' ? '' : 'px-1 py-2 md:px-6'}>
+          <div className={cn(view === 'timeline' ? '' : 'px-1 py-2 md:px-6', view === 'preview' && 'flex h-full min-h-0 flex-col')}>
             {view === 'timeline' && <Timeline taskId={taskId} projectId={projectId} names={names.agent} stages={stageNames} embedded />}
             {view === 'changes' && <TaskProposalsPanel taskId={taskId} projectId={projectId} />}
             {view === 'tests' && <TaskTestRunsPanel taskId={taskId} projectId={projectId} />}
             {view === 'runs' && <RunsView taskId={taskId} projectId={projectId} runs={runRows} agents={[...(owner.data?.agents ?? []), ...(exec.data && exec.data.id !== owner.data?.id ? exec.data.agents : [])]} />}
             {view === 'output' && <div className="px-4 md:px-10 lg:px-14"><div className="mx-auto max-w-[54rem]"><StreamBlocks streams={liveStreams} /></div></div>}
+            {view === 'preview' && <TaskPreview taskId={taskId} hasHandoff={hasDesignHandoff} />}
           </div>
         </div>
         <TaskComposer detail={d} running={runRows.some((r) => r.status === 'running')} />

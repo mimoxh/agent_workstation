@@ -29,10 +29,40 @@ function RepoStatus({ wsId, baseBranch }: { wsId: string; baseBranch: string }) 
     mutationFn: async () => unwrap(await api.workstations[':id'].repo['sync-base'].$post({ param: { id: wsId } })),
     onSuccess: (r) => toast(r.status === 'up_to_date' ? '目标分支已包含基线分支' : '已把基线分支合进目标分支', 'ok'),
   });
+  const init = useMutation({
+    mutationFn: async () => unwrap(await api.workstations[':id'].repo.init.$post({ param: { id: wsId } })),
+    onSuccess: (r) => {
+      toast(`已初始化，提交了 ${r.files} 个文件`, 'ok');
+      void q.refetch();
+    },
+  });
   const ack = useMutation({ mutationFn: async () => unwrap(await api.workstations[':id'].repo['ack-drift'].$post({ param: { id: wsId } })) });
   if (!q.data) return null;
   const d = q.data;
+  const notGit = 'notGit' in d && d.notGit;
   const drift = 'drift' in d ? d.drift : null;
+  if (notGit) {
+    return (
+      <div className="space-y-2" data-testid="repo-status">
+        <p className="flex items-center gap-2 text-sm">
+          <Badge tone="amber">不是 git 仓库</Badge>
+        </p>
+        <p className="text-sm text-ink-2">这个文件夹还不是 git 仓库。初始化会在这里 git init，并把现有文件做成初始提交（自动加 .gitignore 忽略 node_modules）。</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="primary"
+          disabled={init.isPending}
+          data-testid="repo-init"
+          onClick={() => {
+            if (window.confirm('确认在这个文件夹里初始化 git 仓库，并把现有文件做成初始提交？')) init.mutate();
+          }}
+        >
+          初始化为 git 仓库
+        </Button>
+      </div>
+    );
+  }
   return (
     <div className="space-y-2" data-testid="repo-status">
       <p className="flex items-center gap-2 text-sm">
@@ -100,18 +130,28 @@ function RemoteActions({ wsId }: { wsId: string }) {
 function ProjectSection({ project }: { project: ProjectDetail }) {
   const current = parseJson<{ tokens?: number } | null>(project.budgetJson, null);
   const [tokens, setTokens] = useState(String(current?.tokens ?? ''));
+  const [folder, setFolder] = useState(project.folderPath ?? '');
   const save = useMutation({
-    mutationFn: async () => unwrap(await api.projects[':id'].$patch({ param: { id: project.id }, json: { budget: Number(tokens) > 0 ? { tokens: Number(tokens) } : null } })),
-    onSuccess: () => toast('项目预算已保存', 'ok'),
+    mutationFn: async () =>
+      unwrap(
+        await api.projects[':id'].$patch({
+          param: { id: project.id },
+          json: { budget: Number(tokens) > 0 ? { tokens: Number(tokens) } : null, folder: folder.trim() ? folder.trim() : null },
+        }),
+      ),
+    onSuccess: () => toast('项目设置已保存', 'ok'),
   });
   return (
     <section className="space-y-3 border-t border-rule pt-4" aria-label="项目">
       <h3 className="text-sm text-ink-2">项目</h3>
+      <Field label="项目文件夹" hint="本地文件夹的绝对路径，不需要是 git 仓库；Agent 可读，改文件要你审批。留空则解绑">
+        <Input className="measured" value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="project-folder-setting" />
+      </Field>
       <div className="flex items-end gap-2">
         <Field label="项目预算（tokens）" hint="超限后所有 Agent 停止，留空不限" className="w-64">
           <Input className="measured" type="number" min={1} value={tokens} onChange={(e) => setTokens(e.target.value)} data-testid="project-budget" />
         </Field>
-        <Button disabled={save.isPending} onClick={() => save.mutate()} data-testid="project-budget-save">保存预算</Button>
+        <Button disabled={save.isPending} onClick={() => save.mutate()} data-testid="project-budget-save">保存</Button>
       </div>
       <p className="flex gap-3 text-sm">
         <a href={`/api/projects/${project.id}/export`} className="text-cool hover:underline" download>导出全量 JSON</a>

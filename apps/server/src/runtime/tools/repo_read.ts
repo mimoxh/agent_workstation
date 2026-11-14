@@ -9,7 +9,7 @@ const SAFE_PATH = /^[^-\0][^\0]*$/;
 
 const sourceOf = (ctx: RunCtx, repo: unknown) => repoSourceOf(ctx.db, ctx.agent.workstationId, repo as string | undefined);
 
-// 本项目开发台仓库的只读访问：测试台和文档台共用；repo 参数选仓库，缺省用工作台默认
+// 本项目开发台仓库的只读访问：开发台的质量成员和文档台共用；repo 参数选仓库，缺省用工作台默认
 export const repoReadTools: Record<string, ToolDef> = {
   list_repos: {
     taskless: true,

@@ -39,11 +39,16 @@ const typedEntity = async (db: DB, id: string, type: string) => {
 
 export type QaSource = { ok: true; workstationId: string; name: string; settings: DevSettings } | { ok: false; error: string };
 
-// 测试台不单独配仓库：读绑定的开发台设置，开发台改了这里自动跟上
+// 开发台读自己的仓库设置；其他台（文档台等）缺省读 settings.sourceWorkstationId 指定的、否则第一个开发台
 export async function qaSourceOf(db: DB, wsId: string): Promise<QaSource> {
   const ws = (await db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
   if (!ws) return { ok: false, error: '工作台不存在' };
-  const devs = (await db.select().from(workstation).where(and(eq(workstation.projectId, ws.projectId), eq(workstation.pluginId, 'dev')))).filter((w) => w.settingsJson);
+  if (ws.pluginId === 'dev') {
+    const settings = devSettings(ws.settingsJson);
+    if (!settings.repoPath || settings.repoPath === '.') return { ok: false, error: `「${ws.name}」还没有绑定仓库，先在工作台设置里绑定` };
+    return { ok: true, workstationId: ws.id, name: ws.name, settings };
+  }
+  const devs = (await db.select().from(workstation).where(and(eq(workstation.projectId, ws.projectId), eq(workstation.pluginId, 'dev'), ne(workstation.status, 'archived')))).filter((w) => w.settingsJson);
   if (devs.length === 0) return { ok: false, error: '这个项目还没有开发工作台，先挂载一个并绑定仓库' };
   const wanted = (JSON.parse(ws.settingsJson ?? '{}') as { sourceWorkstationId?: string }).sourceWorkstationId;
   const source = devs.find((d) => d.id === wanted) ?? devs[0]!;
@@ -170,7 +175,7 @@ export async function afterQaRun(db: DB, runId: string) {
   for (const s of suspects) await postStatus(db, s.taskId, `自动回归「${r.suiteName}」在 ${r.commitSha.slice(0, 7)} 新增 ${added} 个失败，这次合并在可疑范围内`);
 }
 
-// 合并后的质量回声：这个任务合进去之后，绑定同一开发台的各测试套件有没有在它之上的提交跑过
+// 合并后的质量回声：这个任务合进去之后，本台的各测试套件有没有在它之上的提交跑过
 export async function taskQuality(db: DB, taskId: string) {
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!t) return null;
@@ -184,11 +189,10 @@ export async function taskQuality(db: DB, taskId: string) {
       .orderBy(desc(eventLog.createdAt)).limit(1))[0];
     mergedAt = ev?.createdAt ?? null;
   }
-  const qaWss = await db.select().from(workstation).where(and(eq(workstation.projectId, t.projectId), eq(workstation.pluginId, 'qa')));
   const sources = [];
-  for (const ws of qaWss) {
-    const source = await qaSourceOf(db, ws.id);
-    if (!source.ok || source.workstationId !== t.workstationId) continue;
+  const ws = (await db.select().from(workstation).where(eq(workstation.id, t.workstationId)))[0];
+  const source = ws ? await qaSourceOf(db, ws.id) : null;
+  if (ws && source?.ok) {
     const suites = await entitiesOf<SuiteData>(db, ws.id, 'TestSuite');
     const rows = [];
     for (const s of suites) {
@@ -201,7 +205,7 @@ export async function taskQuality(db: DB, taskId: string) {
       }
       rows.push({ suiteId: s.row.id, name: s.data.name, autoRun: s.data.auto_run !== false, run: hit ? { id: hit.id, status: hit.status, passed: hit.passed, failed: hit.failed, total: hit.total, commitSha: hit.commitSha } : null });
     }
-    sources.push({ qaWorkstationId: ws.id, name: ws.name, suites: rows });
+    if (rows.length) sources.push({ qaWorkstationId: ws.id, name: ws.name, suites: rows });
   }
   return { merged: true as const, mergeSha: ref.merge_sha, reverted: !!ref.revert_sha, sources };
 }
@@ -245,12 +249,11 @@ export async function transitionBug(actor: Actor, db: DB, id: string, event: Bug
   return applyBugEvent(actor, db, row, data, event, note || '人工操作', note ? { note } : {});
 }
 
+// 默认在本台生成任务；也可以交给同项目的其他开发台
 async function handoffTarget(db: DB, wsId: string, targetId?: string) {
   const ws = (await db.select().from(workstation).where(eq(workstation.id, wsId)))[0];
-  const source = await qaSourceOf(db, wsId);
-  const id = targetId ?? (source.ok ? source.workstationId : undefined);
-  const target = id ? (await db.select().from(workstation).where(eq(workstation.id, id)))[0] : undefined;
-  if (!ws || !target || target.projectId !== ws.projectId || target.pluginId !== 'dev') return null;
+  const target = targetId && targetId !== wsId ? (await db.select().from(workstation).where(eq(workstation.id, targetId)))[0] : ws;
+  if (!ws || !target || target.projectId !== ws.projectId || target.pluginId !== 'dev' || target.status === 'archived') return null;
   return { ws, target };
 }
 
@@ -262,16 +265,16 @@ async function freeze(db: DB, wsId: string, type: string, name: string, body: st
 
 interface HandoffInput { targetWorkstationId?: string | undefined; module: string; priority: 'p0' | 'p1' | 'p2'; note?: string | undefined }
 
-// 测试台不写代码：把当时的事实冻结进任务描述和 Artifact，由开发台走自己的流程
+// 缺陷和用例本身不改代码：把当时的事实冻结进任务描述和 Artifact，修复走开发任务的 worktree、审查和合并
 export async function handoffBug(actor: Actor, db: DB, id: string, input: HandoffInput) {
   const row = await typedEntity(db, id, 'BugReport');
   if (!row) return err('缺陷不存在', 404);
   const d = dataOf<BugData>(row);
-  if (!bugTransition(d.status ?? 'open', 'dispatch')) return err('只有待修或重开的缺陷可以派给开发台');
+  if (!bugTransition(d.status ?? 'open', 'dispatch')) return err('只有待修或重开的缺陷可以生成修复任务');
   const place = await handoffTarget(db, row.workstationId, input.targetWorkstationId);
-  if (!place) return err('只能交接给同一项目的开发工作台');
+  if (!place) return err('只能交给同一项目的开发工作台');
   const body = [
-    `测试台「${place.ws.name}」确认的缺陷（${d.severity.toUpperCase()}）：${d.title}`,
+    `「${place.ws.name}」确认的缺陷（${d.severity.toUpperCase()}）：${d.title}`,
     d.case_name ? `失败用例：${d.case_name}` : '',
     d.run_id ? `测试运行：${d.run_id}` : '',
     d.steps ? `复现步骤：\n${d.steps}` : '',
@@ -287,7 +290,7 @@ export async function handoffBug(actor: Actor, db: DB, id: string, input: Handof
   });
   if (r.kind !== 'ok') return r;
   const taskId = r.task!.id;
-  const done = await applyBugEvent(actor, db, row, d, 'dispatch', `交给${place.target.name}`, { handoff: { taskId, workstationId: place.target.id, artifactId } });
+  const done = await applyBugEvent(actor, db, row, d, 'dispatch', place.target.id === place.ws.id ? '生成修复任务' : `交给${place.target.name}`, { handoff: { taskId, workstationId: place.target.id, artifactId } });
   if (done.kind !== 'ok') return done;
   await logEvent(db, actor, 'entity_handoff', 'entity', id, { taskId, artifactId });
   return { kind: 'ok' as const, taskId };
@@ -299,18 +302,18 @@ export async function handoffCase(actor: Actor, db: DB, id: string, input: Hando
   const d = dataOf<CaseData>(row);
   if (d.handoff) return err('这条用例已经交接过了');
   const place = await handoffTarget(db, row.workstationId, input.targetWorkstationId);
-  if (!place) return err('只能交接给同一项目的开发工作台');
+  if (!place) return err('只能交给同一项目的开发工作台');
   const steps = (d.steps ?? []).map((s, i) => `${i + 1}. ${s.action} → ${s.expected}`).join('\n');
-  const body = [`为测试台用例补自动化：${d.title}`, d.preconditions ? `前置条件：${d.preconditions}` : '', steps ? `步骤：\n${steps}` : '', d.requirement ? `需求来源：${d.requirement}` : '', input.note ? `备注：${input.note}` : ''].filter(Boolean).join('\n');
+  const body = [`为用例补自动化：${d.title}`, d.preconditions ? `前置条件：${d.preconditions}` : '', steps ? `步骤：\n${steps}` : '', d.requirement ? `需求来源：${d.requirement}` : '', input.note ? `备注：${input.note}` : ''].filter(Boolean).join('\n');
   const artifactId = await freeze(db, row.workstationId, 'qa_handoff', d.title, body, { caseId: id, version: row.version });
   const r = await createTaskUc(actor, db, place.target.id, {
     title: `补自动化：${d.title}`, intent: body, typeId: 'dev.issue',
     input: { kind: 'chore', priority: input.priority, module: input.module },
-    acceptance: [{ kind: 'manual', text: `测试覆盖用例「${d.title}」的全部步骤，并在测试台的回归里能看到结果` }],
+    acceptance: [{ kind: 'manual', text: `测试覆盖用例「${d.title}」的全部步骤，并在测试运行的回归里能看到结果` }],
   });
   if (r.kind !== 'ok') return r;
   const taskId = r.task!.id;
-  const saved = await updateEntity(actor, db, id, { data: { ...d, handoff: { taskId, workstationId: place.target.id, artifactId } } as unknown as Record<string, unknown>, baseVersion: row.version, reason: `交给${place.target.name}` });
+  const saved = await updateEntity(actor, db, id, { data: { ...d, handoff: { taskId, workstationId: place.target.id, artifactId } } as unknown as Record<string, unknown>, baseVersion: row.version, reason: place.target.id === place.ws.id ? '生成自动化任务' : `交给${place.target.name}` });
   if (saved.kind !== 'ok') return saved;
   return { kind: 'ok' as const, taskId };
 }
@@ -465,7 +468,7 @@ export async function qaTick(db: DB) {
   if (ticking) return;
   ticking = true;
   try {
-    for (const ws of await db.select().from(workstation).where(eq(workstation.pluginId, 'qa'))) {
+    for (const ws of await db.select().from(workstation).where(and(eq(workstation.pluginId, 'dev'), ne(workstation.status, 'archived')))) {
       try {
         await reconcileBugs(db, ws.id);
         const suites = (await entitiesOf<SuiteData>(db, ws.id, 'TestSuite')).filter((s) => s.data.auto_run);

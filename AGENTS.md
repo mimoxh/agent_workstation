@@ -14,8 +14,8 @@ apps/
 │     │  ├ board/    任务看板——剧本 A 的目标 Module，写干净、可扩展
 │     │  ├ panels/   其余板块渲染器（改动审阅 / 测试 / 实体 / 文件 / 知识库 / 预览 / 编制 / 设置）
 │     │  ├ workstation/  工作台屏幕（大群 / 板块）、板块注册表、控制台总览
-│     │  ├ design/   设计台：画布、沙箱 iframe 与检查脚本、评论 / 旋钮、设计系统、交接
-│     │  ├ qa/       测试台：质量总览、运行、用例库、测试计划、缺陷、不稳定用例、覆盖率
+│     │  ├ design/   设计画布等（原设计台，D29 起挂开发台）：沙箱 iframe 与检查脚本、评论 / 旋钮、元素圈选、交接
+│     │  ├ qa/       质量板块（原测试台，D32 起挂开发台「测试」分组）：质量总览、运行、用例库、测试计划、缺陷、不稳定用例、覆盖率
 │     │  ├ docs/     文档台：撰写（编辑 / 预览 / 评论 / 引用 / 核对 / 交接）、文档健康、风格指南
 │     │  ├ pm/       项目管理：甘特、里程碑进度、进展报告、排期对话框
 │     │  ├ timeline/ 协作时间线、交接与结论卡
@@ -37,7 +37,7 @@ apps/
 packages/
 ├ domain/         纯函数领域层：task-state 状态机、权限、@ 解析、三级预算
 ├ plugin-spec/    manifest 的 Zod schema 与校验（改了要 build，server 读 dist）
-└ plugins/        内置插件 pm、dev、design、qa、docs
+└ plugins/        内置插件 pm、dev、docs（设计台 D29、测试台 D32 已并入 dev）
 ```
 
 ## 命令
@@ -59,7 +59,7 @@ packages/
 - usecases 与 runtime 互相引用：`usecases/index.ts` 用具名导出，不要用 `export *`；runtime 从具体模块导入。
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
 - 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
-- 测试台不写仓库，改代码一律交接给开发台；测试报告是被测代码写的，按不可信处理。套件命令只能人审定，Agent 按 id 运行（docs/PLUGINS/QA.md）。
+- 质量成员（测试负责人 / 用例设计 / 失败分析）不写仓库，修缺陷、补自动化一律生成开发任务走审查合并；测试报告是被测代码写的，按不可信处理。套件命令只能人审定，Agent 按 id 运行（docs/PLUGINS/QA.md）。
 - 文档台每项目一个（manifest `singleton`），不写仓库，入库交接给开发台；引用由平台在写入时解析，核对结论绑定内容哈希（docs/PLUGINS/DOCS.md）。markdown 只用 react-markdown 渲染，不开 raw HTML。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
 - `live_*` 事件（命令实时输出）不进 /api/stream 的 `LIVE_PREFIXES`，客户端走 /api/live/:channel。
@@ -70,4 +70,4 @@ packages/
 
 
 ## 模型配置
-在 /settings 配置，或复制 .env.example 为 .env.local（环境变量优先）；AW_DEFAULT_MODEL 选默认；AW_AUTORUN=0 关自动运行；AW_ENABLE_MOCK=1 用脚本化 mock。冒烟：pnpm --filter @aw/server smoke:model（不回显 key）。mock 不看工具 schema，改工具或模型层后要用真实模型跑一次冒烟。
+在 /settings 配置，或复制 .env.example 为 .env.local（环境变量优先）；AW_DEFAULT_MODEL 选默认；AW_AUTORUN=0 关自动运行；AW_ENABLE_MOCK=1 用脚本化 mock。provider 可按模型文档填「上下文窗口」和「最大输出」（tokens）：窗口用于裁掉过长的工具结果并给输出留余量，最大输出只作用于写整页内容的 Agent，`AW_LARGE_OUTPUT_TOKENS`（默认 16000）降为没填时的兜底。冒烟：pnpm --filter @aw/server smoke:model（不回显 key）。mock 不看工具 schema，改工具或模型层后要用真实模型跑一次冒烟。

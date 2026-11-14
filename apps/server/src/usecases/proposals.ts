@@ -1,7 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { Actor } from '@aw/domain';
 import type { DB } from '../db/client.js';
 import { entity, entityVersion, proposal, reviewComment, task } from '../db/schema.js';
+import { hashContent, projectFolderOf, resolveInside } from '../runtime/folder.js';
 import { snapshotDb } from './backup.js';
 import { closeInboxFor } from './inbox.js';
 import { enqueueMerge, afterReview } from '../runtime/dev_workflow.js';
@@ -21,6 +24,29 @@ export async function decideProposal(actor: Actor, db: DB, proposalId: string, a
     await db.update(proposal).set({ status: 'rejected', decidedByType: 'human', decidedById: actor.id, decidedAt: now() }).where(eq(proposal.id, proposalId));
     await logEvent(db, actor, 'proposal_rejected', 'proposal', proposalId, { reason: reason ?? null });
     await closeInboxFor(db, 'proposal', proposalId, { action: 'reject' });
+    return { kind: 'ok' as const };
+  }
+
+  // 文件夹提案：不进实体表，比对内容哈希后直接落盘；中途被改过就标 superseded
+  if (p.targetType === 'file') {
+    const patch = JSON.parse(p.patchJson ?? '{}') as { path?: string; after?: string; baseHash?: string | null };
+    if (!patch.path || patch.after === undefined) return { kind: 'invalid' as const, status: 409 as const, error: '提案内容不完整' };
+    const f = p.workstationId ? await projectFolderOf(db, p.workstationId) : null;
+    if (!f?.ok) return { kind: 'invalid' as const, status: 409 as const, error: f?.error ?? '项目还没有绑定文件夹' };
+    const r = resolveInside(f.root, patch.path, { forFile: true });
+    if (!r.ok || r.rel.split('/').includes('.git')) return { kind: 'invalid' as const, status: 409 as const, error: '路径不合法' };
+    const current = fs.existsSync(r.abs) ? fs.readFileSync(r.abs).toString('utf8') : null;
+    const currentHash = current === null ? null : hashContent(current);
+    if (currentHash !== (patch.baseHash ?? null)) {
+      await db.update(proposal).set({ status: 'superseded', decidedByType: 'human', decidedById: actor.id, decidedAt: now() }).where(eq(proposal.id, proposalId));
+      await logEvent(db, actor, 'proposal_superseded', 'proposal', proposalId, { path: r.rel });
+      return { kind: 'conflict' as const, status: 409 as const, error: '文件在提案之后被改过，提案已标为 superseded' };
+    }
+    fs.mkdirSync(path.dirname(r.abs), { recursive: true });
+    fs.writeFileSync(r.abs, patch.after, 'utf8');
+    await db.update(proposal).set({ status: 'approved', decidedByType: 'human', decidedById: actor.id, decidedAt: now() }).where(eq(proposal.id, proposalId));
+    await logEvent(db, actor, 'proposal_approved', 'proposal', proposalId, { path: r.rel });
+    await closeInboxFor(db, 'proposal', proposalId, { action: 'approve' });
     return { kind: 'ok' as const };
   }
 

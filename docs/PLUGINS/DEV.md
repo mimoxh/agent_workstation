@@ -62,13 +62,13 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 |---|---|---|---|
 | `board` | board | `system:task` | 看板，按 stage 分列：需求 / 设计 / 实现 / 测试 / 评审 / 合并 |
 | `changes` | diff | `system:proposal` | **核心界面**：改动列表 + diff 审阅 + 评论 |
-| `tests` | table | TestRun | 测试结果，可点开原始输出 |
 | `decisions` | table | ADR | 架构决策 |
 | `files` | tree | `system:files` | 只读文件树（git 工作树），点开看代码 |
 | `preview` | preview | Page | 页面预览 + 截图对比 |
 | `knowledge` | knowledge | `system:knowledge` | 知识库：规范、资料、笔记 |
+| `overview` `runs` `cases` `plans` `bugs` `flaky` `coverage` | quality | TestSuite 等 | 质量板块（原测试台，D32 并入），侧栏归在「测试」分组，见 §15 |
 
-`diff` 是 M0 新增的 panel 类型，`preview` 于 M1。
+`diff` 是 M0 新增的 panel 类型，`preview` 于 M1。原 `tests`（TestRun 表格）板块在 1.9.0 撤掉：验收命令的原始输出看任务页「测试」视图，版本级的运行看「测试运行」。
 
 ## 4. 阶段
 
@@ -98,6 +98,7 @@ workbench DB      → 协作的真相源（任务、提案、评审、决策、�
 | `backend-dev` | API、数据层、任务编排 | 同 `frontend-dev` |
 | `test-engineer` | 写测试、跑测试、出报告 | `read_file` `search_code` `git_diff` `apply_patch` `git_commit` `run_command` `run_tests`（M1）`capture_screenshot`（M1）`send_message` |
 | `reviewer` | **只读 diff，独立上下文** | `git_diff` `read_file` `read_entity` `list_entities` `search_knowledge` `review_change` `send_message` |
+| `qa-lead` / `case-designer` / `failure-analyst` | 质量成员（原测试台）：发布结论、用例草稿、失败分诊，只在被 @ 时工作，不写仓库 | 见 §15 与 QA.md §2 |
 
 成员之间用 @ 互相询问，被 @ 的成员只回应问题，不能写 assignee 的 worktree；预设「快速接力」关闭任务内讨论（见 DECISIONS D22）。
 
@@ -153,11 +154,17 @@ acceptance:
     url: http://localhost:{port}/projects/1   # {port} 由平台换成这个 worktree 分到的端口
     baseline: shots/workspace-shell.png
     maxDiff: 0.02
+  - kind: design_match
+    url: http://localhost:{port}/           # 实现跑起来的页面
+    artifact: <design_handoff Artifact id>  # 交接冻结的设计稿
+    maxDiff: 0.25                           # 可省，默认 0.25
   - kind: manual
     text: 三栏在 1280 宽度下不换行
 ```
 
-前三种可自动判定，第四种给前端场景兜底。配了 `commands.serve` 时，平台在跑 visual 前于被验收的 worktree 里启动它（端口从环境变量 `PORT` 取），页面可访问后再截图，结束即停；不配就假设页面已经在跑。
+前三种可自动判定，第四种给前端场景兜底。配了 `commands.serve` 时，平台在跑 visual / design_match 前于被验收的 worktree 里启动它（端口从环境变量 `PORT` 取），页面可访问后再截图，结束即停；不配就假设页面已经在跑。
+
+`design_match` 把交接的设计稿 HTML 在服务端渲染成 1280×800 截图，实现的页面用同一视口截图，两者做像素对比，差异率超 `maxDiff`（默认 25%）判失败。产出三张 `screenshot` Artifact（设计稿 / 实现 / 差异）和一个带 `meta.kind = 'design_match'` 的 `test_output`，任务页与测试记录里并排展示、可叠加调透明度。交接件不存在、类型不对或属于别的项目时是 error（不算环境错误）；页面打不开、浏览器没装等仍算环境错误。`artifact` 必须指向同项目的 `design_handoff`，由「生成实现任务」对话框的「页面地址」自动写入，不手写。
 
 验收跑不起来（命令不存在、不在白名单、服务起不来、浏览器没装）算**环境错误**：任务转 blocked 进收件箱，不计退回次数，修好环境后解除阻塞、实现者重新提交再验收。超时和测试自身失败仍按退回处理。**任务能不能「完成」，不再靠 Agent 自评。**
 
@@ -228,7 +235,7 @@ acceptance:
     { "id": "implement",   "name": "实现", "activePanels": ["board", "changes"], "activeAgents": ["frontend-dev", "backend-dev"] },
     { "id": "test",        "name": "测试",
       "requirements": [{ "kind": "acceptance" }],
-      "activePanels": ["tests", "changes"], "activeAgents": ["test-engineer"] },
+      "activePanels": ["runs", "changes"], "activeAgents": ["test-engineer"] },
     { "id": "review",      "name": "评审",
       "requirements": [{ "kind": "approval" }],
       "activePanels": ["changes"], "activeAgents": ["reviewer"] },
@@ -237,7 +244,7 @@ acceptance:
   "panels": [
     { "id": "board",     "type": "board",   "entity": "system:task",     "title": "任务看板", "editableBy": ["human", "agent"] },
     { "id": "changes",   "type": "diff",    "entity": "system:proposal", "title": "改动审阅", "editableBy": ["human", "agent"], "config": { "showComments": true } },
-    { "id": "tests",     "type": "table",   "entity": "TestRun",         "title": "测试结果", "editableBy": ["human"] },
+    { "id": "runs",      "type": "quality", "entity": "TestSuite",       "title": "测试运行", "editableBy": ["human", "agent"], "config": { "view": "runs", "group": "测试" } },
     { "id": "decisions", "type": "table",   "entity": "ADR",             "title": "架构决策", "editableBy": ["human", "agent"] },
     { "id": "files",     "type": "tree",    "entity": "system:files",    "title": "文件树",   "editableBy": ["human"] },
     { "id": "preview",   "type": "preview", "entity": "Page",            "title": "页面预览", "editableBy": ["human"], "config": { "urlField": "route", "baselineField": "screenshot_ref" } }
@@ -459,8 +466,96 @@ M0 为了验证核心模型推迟了五件事，v0.3 起的状态：
 
 - **Module 登记板块**：`modules` 板块管理 Module 实体，每个模块显示在它范围内的进行中任务数；范围不在任何 Module 下的任务仍会在设计阶段要求 ADR。
 - **看板筛选与多选**：按成员（含「未指派」）、逾期、等待前置筛选，条件记进 URL；「多选」模式可批量设截止日期和批量取消，逐任务报错汇总提示。
-- **命令实时输出**：`run_command`、验收命令、环境准备、测试台套件运行的 stdout/stderr 经 `/api/live/:channel`（`task:<任务id>` / `qa:<运行id>`）实时推送，任务页「实时输出」标签和运行详情页直接看；`live_*` 事件不进 /api/stream。
+- **命令实时输出**：`run_command`、验收命令、环境准备、质量套件运行的 stdout/stderr 经 `/api/live/:channel`（`task:<任务id>` / `qa:<运行id>`）实时推送，任务页「实时输出」标签和运行详情页直接看；`live_*` 事件不进 /api/stream。
 - **合并后回归回显**：任务合并后，按 `merge_sha` 的祖先关系找到之后跑过的套件结果，任务右栏「合并后回归」逐套件显示结论并可一键回滚；自动回归新增失败时把可疑合并列进收件箱（`qa_regression` 的 `suspects`）并在任务会话留言。
-- **qa_suite 验收**：acceptance 支持 `{ kind: 'qa_suite', suite: <套件 id> }`，平台在任务分支上起一次 trigger=`acceptance` 的测试台运行，按非隔离失败判定通过与否；套件不存在或没绑定本开发台是环境错误，直接转人工。这类运行不进测试台总览和回归判定。派发 / 编辑 / 反提案对话框都能勾选项目里绑定本台的套件。
+- **qa_suite 验收**：acceptance 支持 `{ kind: 'qa_suite', suite: <套件 id> }`，平台在任务分支上起一次 trigger=`acceptance` 的套件运行，按非隔离失败判定通过与否；套件不存在或不在本台是环境错误，直接转人工。这类运行不进质量总览和回归判定。派发 / 编辑 / 反提案对话框都能勾选本台的套件。
 - **任务依赖**：任务可设 `dueAt` 和前置依赖（`task_dependency` 边，同项目、不成环）；前置全完成后自动开工并留言，前置取消时提醒后续任务调整依赖（见 PM.md）。
 - **验收现场恢复**：验收命令可能改动或新增 worktree 里的文件（如 pnpm 自动安装出的 node_modules / 锁文件），验收跑完把工作区恢复到执行前状态，避免这些产物误伤后续的 `git_commit` 范围检查和 integration worktree 干净检查。
+
+## 14. 设计（原设计台，D29 并入）
+
+**版本**：D29 并入开发台（dev manifest 1.7.0）
+
+前端设计的完整闭环搬进开发台：画布出稿 → 评论迭代 → 生成实现任务 → 实现 → 验收，都在同一台完成。原独立 `design` 插件已删除；老的设计工作台启动时自动迁移：项目里有开发台就把 `Design` / `DesignComment`（`DesignSystem` 开发台已有时保留开发台的）和 `design_handoff` / `screenshot` 产物并进最早的开发台、源台归档；没有开发台时就地转成开发台。
+
+### 14.1 成员
+
+设计师和设计评审是开发台的普通成员（`templateId: designer` / `design-critic`，只在被 @ 时工作）；台的负责人仍是架构师。设计侧栏的「和设计师对话」默认就是设计师私聊，画布上的评论和自检问题也发到这条私聊；台里没有设计师时侧栏提示去「成员」添加。
+
+| Agent | 职责 |
+|---|---|
+| 设计师 | 出稿、改稿、处理评论；配色字体间距按稿自定 |
+| 设计评审 | 只读，把意见钉在元素上；被 @ 时工作 |
+
+### 14.2 数据
+
+没有新表，都是普通实体，自带版本和回滚。设计台默认 `writeMode: direct`，并入后逐个实体显式声明 `writeMode: direct`（dev 默认是 propose）。
+
+| 实体 | 内容 |
+|---|---|
+| `Design` | `html`、`brief`、`group` / `direction`（方案组）、`tweaks`（旋钮）、`status`、`handoff`、`legacyTokens`（旧版令牌，见 §14.7） |
+| `DesignComment` | 锚定的 `selector` + `anchor`、`body`、`status` |
+
+板块：`canvas`（设计画布）跟在「任务看板」后面；默认视图仍是看板，不像原设计台那样 `config.home` 到画布。
+
+### 14.3 渲染与安全（与原设计台一致）
+
+稿子是模型写的代码，按不可信处理：
+
+- `<iframe sandbox="allow-scripts">`，不给 `allow-same-origin`，拿不到平台的接口和 cookie。
+- 注入 CSP（`DESIGN_CSP`）：断网，禁表单提交，外部资源只放行字体、图片和四个常见 CDN。
+- 外层只接受 `parseFrameEvent` 校验过的消息，内容一律当纯文本。
+
+文档由 `composeDesignDoc` 拼出：稿子的 `legacyTokens` 写 `:root`（新稿子为空），稿子可以覆盖；旋钮写 `:root:root`，总是生效。预览额外注入检查脚本，导出和交接不带。
+
+服务端渲染（导出和 `view_design` 共用 `renderDesign`）同样在隔离环境里跑：每次全新浏览器 + 上下文，`data:` / `blob:` / `about:` 之外的请求一律拦截，30s 硬超时；本机没装 Chromium 时报环境错误。
+
+检查脚本的浮层挂在 `<html>` 下、脚本和样式放 `<head>`，所以 `body` 内的 `nth-child` 选择器在预览和稿子原文里一致。评论钉和就地改字都依赖这一点。
+
+### 14.4 工具
+
+| 工具 | 说明 |
+|---|---|
+| `list_designs` / `read_design` | 清单 / 全文（可取历史版本）。`read_design` 的结果上限放宽到 120KB |
+| `write_design` / `edit_design` | 整份写入 / 原文替换，都产生新版本；返回 `lintDesign` 的警告 |
+| `comment_design` / `resolve_design_comments` | 钉评论 / 关闭评论 |
+| `view_design` | 服务端渲染当前（或指定）版本的截图：桌面 1440 / 平板 834 / 手机 390，整页封顶 6000px。截图存为 `screenshot` Artifact；开了「支持看图」的模型直接收到图片，没开的只拿到产物 id 和一句说明 |
+| `read_design_snapshot` | 用例设计专用，读 `design_handoff` Artifact 里冻结的成品文档（限同项目） |
+| `read_design_handoff` | 实现者用，读任务（或祖先任务）上声明的交接件 |
+
+写稿的 Agent 单次输出上限取 provider 的「最大输出」，没填时退回 `AW_LARGE_OUTPUT_TOKENS`（默认 16000，0 表示不设）；填了「上下文窗口」时上限再按上轮输入收敛，给输出留出余量。
+
+### 14.5 生成实现任务（原「交接」）
+
+画布上「生成实现任务」把当前版本冻结成 `design_handoff` Artifact，在目标开发台起草 `dev.issue`（默认本台，也可选项目里其他开发台），`input.design_artifact` 指向它，任务停在草稿由人确认后派发。之后继续改稿不影响已冻结的快照。
+
+对话框里可选填「页面地址」（限本机 http(s)，可写 `{port}`）：填了任务验收多一条 `design_match`（见 §7），实现跑起来后和稿子做像素对比。
+
+对话框可勾选「同时请目标台的用例设计起草验收用例」（默认不勾）：勾选后以人的身份在目标开发台会话 @用例设计 并带上快照 id，由用例设计读 `read_design_snapshot` 起草用例草稿（见 QA §6）；目标台没有在岗的用例设计时不发。
+
+### 14.6 导出与对比
+
+- **导出**：画布上可下载当前版本为独立 HTML，或导出 PNG（桌面 / 平板 / 手机三档）和 PDF；`GET /api/designs/:id/export` 也可取历史版本，文件名带标题和版本号。
+- **对比**：「对比」模式把两个版本并排渲染在同一个沙箱 iframe 规格里，左右各自选稿子和版本（候选限同方案组的稿），共享设备宽度切换，只用于人眼看差异。
+
+### 14.7 旧版令牌（legacyTokens）
+
+设计系统下线前，每份已有 `Design` 启动时被 `freezeDesignTokens` 冻结一份 `legacyTokens`：稿子里用到 `var(--` 的，取本台保存过的 `DesignSystem` 令牌，没有则取迁移内置的 `LEGACY_DEFAULT_TOKENS`；没用的记 `[]`。实体行和全部 `entity_version` 行原地更新（不产生新版本），幂等以 `legacyTokens` 键是否存在为准，每台记一条 `design_tokens_frozen` 事件。之后渲染、交接、导出、对比都注入这份冻结令牌，旧稿子显示不变；新稿子永远没有 `legacyTokens`，配色字体由设计师在稿子自己的 `:root` 里定义。`read_design` 对带旧版令牌的稿子会附一句说明。
+
+### 14.8 任务实时预览
+
+开发任务页有「预览」视图：平台在任务的 worktree 里后台起 `commands.serve`（和验收同一个命令、同一套端口分配，页面地址 `http://localhost:<分到的 web 端口>/`），起好后嵌 iframe 直接看实现效果，可切桌面 1280 / 平板 834 / 手机 390 三档宽度，能刷新、新窗口打开、手动停。任务带设计交接（`input.design_artifact`）时可开「对照设计稿」并排看快照——稿子仍走 `allow-scripts` 沙箱 iframe，预览 iframe 是另一个源（localhost 端口），与平台互不同源。
+
+规则：只对 dev 任务开放，任务有了 worktree（开始实现之后）才能起；没配 serve 命令先提示去工作台设置。预览占着这个 worktree 的端口槽位——验收要在同一 worktree 起 serve 时会先停掉预览；任务合并、完成或取消时预览一并回收。人停手（不再轮询状态）10 分钟后自动回收；同时最多 3 个预览，进程退出时全部停掉。
+
+## 15. 质量（原测试台，D32 并入）
+
+**版本**：D32 并入开发台（dev manifest 1.9.0）
+
+开发台的 test 阶段回答“这个任务能不能合并”，质量板块回答“这个版本能不能发”。两件事现在在同一台：用例、套件、回归、缺陷和发布结论都挂在开发台上，修缺陷、补自动化直接在本台起草开发任务。细节（执行、判定、分析、缺陷闭环）见 [QA.md](QA.md)。
+
+- **板块**：质量总览、测试运行、用例库、测试计划、缺陷、不稳定用例、覆盖率，侧栏归在「测试」分组（`config.group`，1.9.1 起由「质量」改名，升级时同步已有板块的配置）；默认视图仍是任务看板。测试阶段激活「测试运行」和「改动审阅」。
+- **成员**：测试负责人（`qa-lead`）、用例设计（`case-designer`）、失败分析（`failure-analyst`）是普通成员，只在被 @ 时工作，没有写代码、跑命令、改实体的工具；台的负责人仍是架构师，`test-engineer` 照旧负责任务内的测试。
+- **仓库**：套件跑在本台绑定的仓库和目标分支上，常驻分离头 worktree 是 `<worktree 根>/<开发台>/_qa`；没绑定仓库时质量总览提示先去设置里绑定。
+- **交接**：「生成修复任务」「生成自动化任务」默认在本台起草 `dev.issue` 草稿，项目里有多台开发台时可以选别的开发台。验收里的 `qa_suite` 只能引用本台套件。
+- **迁移**：老的测试工作台启动时自动迁移。它绑定的开发台还在就并进去（否则并进同项目最早的开发台）：`TestSuite` / `TestCase` / `TestPlan` / `BugReport` / `TestQuarantine`、`qa_run` / `qa_case_result`、`qa_handoff` / `qa_report` 产物一起挪，源台归档、成员暂停，旧 `_qa` worktree 删掉。项目里没有开发台时就地转成开发台（去掉 `sourceWorkstationId`，板块按开发台重建，补齐开发台成员，架构师接负责人），绑定仓库后即可用。已有开发台升级到 1.9.0 时各补一次三个质量成员，人删过的不再恢复。

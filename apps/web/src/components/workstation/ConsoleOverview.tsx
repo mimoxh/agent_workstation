@@ -1,7 +1,7 @@
 import { useQueries } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
-import { WsThread } from '@/components/chat/Thread';
+import { ChatRail } from '@/components/chat/ChatRail';
 import { InboxEntry } from '@/components/inbox/InboxEntry';
 import { NewProjectDialog } from '@/components/layout/Dialogs';
 import { Page, PageHeader, SectionTitle } from '@/components/layout/Page';
@@ -11,7 +11,7 @@ import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { api, unwrap } from '@/lib/api';
 import { tokens } from '@/lib/format';
-import { nameMaps, useAllInbox, useOverview, useProject, useProjects, type ProjectSummary } from '@/lib/queries';
+import { nameMaps, useAllInbox, useOverview, useProject, useProjects, useWorkstation, type ProjectSummary } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 function Stat({ icon, label, value, tone }: { icon: IconName; label: string; value: string | number; tone?: 'amber' | 'cool' | undefined }) {
@@ -78,8 +78,9 @@ function ProjectTable({ p }: { p: ProjectSummary }) {
 function PmThread({ projectId }: { projectId: string }) {
   const project = useProject(projectId);
   const rootId = project.data?.workstations.find((w) => w.parentId === null)?.id;
-  if (!project.data || !rootId) return <Loading />;
-  return <WsThread wsId={rootId} projectId={projectId} names={nameMaps(project.data).agent} root />;
+  const ws = useWorkstation(rootId);
+  if (!project.data || !ws.data) return <Loading />;
+  return <ChatRail ws={ws.data} projectId={projectId} names={nameMaps(project.data).agent} root />;
 }
 
 // 右侧常驻：和某个项目的项目经理对话

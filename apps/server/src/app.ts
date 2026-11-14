@@ -7,7 +7,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { z } from 'zod';
 import type { DB } from './db/client.js';
-import { agent, run, thread } from './db/schema.js';
+import { agent, run, task, thread } from './db/schema.js';
 import { events } from './events.js';
 import {
   agentStatus,
@@ -33,9 +33,11 @@ import {
 } from './repositories/index.js';
 import { getProjectStatus } from './repositories/plan.js';
 import { mergeProviders, publicModelConfig, readModelConfig, writeModelConfig } from './runtime/config.js';
+import { listFolder, projectFolderRoot, readFolderFile } from './runtime/folder.js';
 import { liveSnapshot } from './runtime/live_output.js';
 import { cancelRun } from './runtime/loop.js';
-import { defaultModelRef, loadModels, modelRegistry, reloadModels, sanitizeError } from './runtime/models.js';
+import { buildRoute, defaultModelRef, loadModels, modelRegistry, reloadModels, sanitizeError } from './runtime/models.js';
+import { probeModel } from './runtime/probe.js';
 import { scheduler, triggerRun } from './runtime/scheduler.js';
 import { exportMarkdown, exportProject } from './usecases/backup.js';
 import { createEntity, entityHistory, rollbackEntity, updateEntity } from './usecases/entities.js';
@@ -63,6 +65,7 @@ import {
   ackDrift,
   createPullRequest,
   importIssues,
+  initRepo,
   listBrowseRefs,
   listRepoFiles,
   pushWorkstation,
@@ -75,28 +78,33 @@ import {
   taskBranchStatus,
 } from './usecases/repo.js';
 import { confirmGates } from './usecases/gates.js';
-import { designSystemOf, handoffDesign, importDesignTokens, listDesigns, renderableDesign, saveDesign, saveDesignSystem } from './usecases/designs.js';
+import { previewStatus, startPreview, stopPreview } from './runtime/preview.js';
+import { deleteDesign, handoffDesign, listDesigns, readHandoffFor, renderableDesign, saveDesign } from './usecases/designs.js';
 import { ackDocReverse, addDocComment, citationLabelsOf, docGate, docHealth, docRow, docsSettingsOf, draftReleaseNotes, editDoc, handoffDoc, importDocReverse, listDocComments, listDocs, readDoc, repointDocDrift, requestReview, resolveDocComments, saveDoc, saveDocsSettings, saveStyleGuide, styleGuideOf } from './usecases/docs.js';
 import { listRepoSources } from './usecases/repo_source.js';
 import { docToHtml } from './runtime/doc_render.js';
 import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from './runtime/design_render.js';
 import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, taskQuality, transitionBug } from './usecases/qa.js';
-import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, listQaSources, qaGateSuites } from './repositories/qa.js';
-import { decisionToProposal, dmThreadOf, listMessages, postThreadMessage, silenceThread, taskThreadOf, threadAgents, wsThreadOf } from './usecases/threads.js';
+import { bugTaskStatuses, getAutomatedCases, getCaseHistory, getQaCoverage, getQaFlaky, getQaOverview, getQaPlanDetail, getQaRunDetail, listQaRuns, qaGateSuites } from './repositories/qa.js';
+import { createConversation, decisionToProposal, dmThreadOf, listConversations, listMessages, postThreadMessage, silenceThread, stopThread, taskThreadOf, threadActivity, threadAgents, wsThreadOf } from './usecases/threads.js';
 
 type Env = { Variables: { actor: Actor; db: DB } };
 
 const jsonRecord = z.record(z.string(), z.unknown());
 
+const providerBody = z.object({
+  name: z.string().trim().min(1, 'provider 名称不能为空'),
+  kind: z.enum(['anthropic', 'openai-compatible', 'ollama']),
+  model: z.string().trim().min(1, '模型名不能为空'),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  vision: z.boolean().optional(),
+  contextWindow: z.number().int().min(1024).optional(),
+  maxOutputTokens: z.number().int().min(256).optional(),
+}).refine((p) => !(p.contextWindow && p.maxOutputTokens) || p.maxOutputTokens < p.contextWindow, { message: '最大输出要小于上下文窗口', path: ['maxOutputTokens'] });
+
 const modelConfigBody = z.object({
-  providers: z.array(z.object({
-    name: z.string().trim().min(1, 'provider 名称不能为空'),
-    kind: z.enum(['anthropic', 'openai-compatible', 'ollama']),
-    model: z.string().trim().min(1, '模型名不能为空'),
-    baseUrl: z.string().optional(),
-    apiKey: z.string().optional(),
-    vision: z.boolean().optional(),
-  })),
+  providers: z.array(providerBody),
   defaultModel: z.string().optional(),
   chain: z.array(z.string()),
   prices: z.record(z.string(), z.object({ input: z.number().min(0), output: z.number().min(0) })),
@@ -205,6 +213,14 @@ export function createApp(db: DB) {
       await reloadModels();
       return c.json({ ok: true });
     })
+    // 设置页「测试」：用表单里的当前值（可未保存）探测模型，不写配置、不进注册表
+    .post('/settings/models/test', body(providerBody), async (c) => {
+      const p = mergeProviders([c.req.valid('json')], readModelConfig().providers)[0]!;
+      if (p.kind === 'openai-compatible' && !p.baseUrl) return fail(c, { error: '请填地址' });
+      if (p.kind !== 'ollama' && !p.apiKey) return fail(c, { error: '请填 API Key' });
+      const route = await buildRoute(p);
+      return c.json(await probeModel(route));
+    })
     .get('/models', async (c) => {
       await loadModels();
       const models = [...modelRegistry.values()].map((m) => ({ id: m.id, local: m.local ?? false }));
@@ -214,6 +230,7 @@ export function createApp(db: DB) {
     .post('/projects', body(z.object({
       name: z.string().trim().min(1, '项目名不能为空'),
       goal: z.string().optional(),
+      folder: z.string().trim().min(1).optional(),
       template: z.object({ repoPath: z.string().trim().min(1, '仓库路径不能为空'), targetBranch: z.string().optional(), baseBranch: z.string().optional(), commands: z.record(z.string(), z.string()).optional() }).optional(),
     })), async (c) => {
       const r = await createProject(c.get('actor'), c.get('db'), c.req.valid('json'));
@@ -223,9 +240,22 @@ export function createApp(db: DB) {
       const d = await getProjectDetail(c.get('actor'), c.get('db'), c.req.param('id'));
       return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
     })
-    .patch('/projects/:id', body(z.object({ budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional() })), async (c) => {
+    .patch('/projects/:id', body(z.object({ budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(), folder: z.string().trim().min(1).nullable().optional() })), async (c) => {
       const r = await updateProject(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    // 项目文件夹：面板只读浏览；写文件走提案审批
+    .get('/projects/:id/folder/files', pathQuery, async (c) => {
+      const f = await projectFolderRoot(c.get('db'), c.req.param('id'));
+      if (!f.ok) return fail(c, { status: f.error === '项目还没有绑定文件夹' ? 404 : 400, error: f.error });
+      const r = listFolder(f.root, c.req.valid('query').path ?? '');
+      return r.ok ? c.json({ entries: r.entries, truncated: r.truncated }) : fail(c, { error: r.error });
+    })
+    .get('/projects/:id/folder/file', pathQuery, async (c) => {
+      const f = await projectFolderRoot(c.get('db'), c.req.param('id'));
+      if (!f.ok) return fail(c, { status: f.error === '项目还没有绑定文件夹' ? 404 : 400, error: f.error });
+      const r = readFolderFile(f.root, c.req.valid('query').path ?? '');
+      return r.ok ? c.json(r) : fail(c, { error: r.error });
     })
     .get('/projects/:id/ledger', async (c) => {
       const d = await getLedger(c.get('actor'), c.get('db'), c.req.param('id'));
@@ -314,6 +344,10 @@ export function createApp(db: DB) {
       const r = await syncBase(c.get('actor'), c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ status: r.status, sha: r.sha ?? null }) : fail(c, r);
     })
+    .post('/workstations/:id/repo/init', async (c) => {
+      const r = await initRepo(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true, files: r.files }) : fail(c, r);
+    })
     .post('/workstations/:id/repo/ack-drift', async (c) => c.json(ackDrift(c.req.param('id'))))
     .get('/workstations/:id/remote', async (c) => c.json(await remoteStatus(c.get('db'), c.req.param('id'))))
     .post('/workstations/:id/remote/push', async (c) => {
@@ -377,6 +411,11 @@ export function createApp(db: DB) {
       const th = await wsThreadOf(c.get('db'), c.req.param('id'));
       return c.json({ thread: th });
     })
+    .get('/workstations/:id/conversations', async (c) => c.json({ conversations: await listConversations(c.get('db'), c.req.param('id')) }))
+    .post('/workstations/:id/conversations', body(z.object({ agentIds: z.array(z.string()).min(1), title: z.string().trim().max(60).optional() })), async (c) => {
+      const r = await createConversation(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ thread: r.thread }, 201) : fail(c, r);
+    })
 
     // ---- 设计台 ----
     .get('/workstations/:id/designs', async (c) => c.json(await listDesigns(c.get('db'), c.req.param('id'))))
@@ -384,14 +423,9 @@ export function createApp(db: DB) {
       const r = await saveDesign(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), reason: '导入 HTML' });
       return r.kind === 'ok' ? c.json({ id: r.id, warnings: r.warnings }, 201) : fail(c, r);
     })
-    .get('/workstations/:id/design-system', async (c) => c.json(await designSystemOf(c.get('db'), c.req.param('id'))))
-    .put('/workstations/:id/design-system', body(z.object({ name: z.string().trim().min(1).optional(), tokens: z.array(z.object({ name: z.string().regex(/^--[\w-]+$/, '令牌名要以 -- 开头'), value: z.string().trim().min(1, '令牌的值不能为空'), description: z.string().optional() })).optional(), guidelines: z.string().optional(), baseVersion: z.number().int().optional() })), async (c) => {
-      const r = await saveDesignSystem(c.get('actor'), c.get('db'), c.req.param('id'), { ...c.req.valid('json'), reason: '人工修改' });
+    .delete('/designs/:id', async (c) => {
+      const r = await deleteDesign(c.get('actor'), c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
-    })
-    .post('/workstations/:id/design-system/import', body(z.object({ css: z.string().optional(), sourceWorkstationId: z.string().optional(), path: z.string().optional() })), async (c) => {
-      const r = await importDesignTokens(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
-      return r.kind === 'ok' ? c.json({ count: r.count }) : fail(c, r);
     })
     .get('/designs/:id/export', async (c) => {
       const format = c.req.query('format') === 'pdf' ? 'pdf' : 'png';
@@ -409,7 +443,7 @@ export function createApp(db: DB) {
       const name = encodeURIComponent(`${doc.title}-v${doc.version}`);
       return c.body(new Uint8Array(buf), 200, { 'content-type': format === 'pdf' ? 'application/pdf' : 'image/png', 'content-disposition': `attachment; filename*=UTF-8''${name}.${format}` });
     })
-    .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional(), qaCases: z.boolean().optional() })), async (c) => {
+    .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional(), qaCases: z.boolean().optional(), pageUrl: z.string().trim().min(1).optional() })), async (c) => {
       const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
     })
@@ -562,8 +596,7 @@ export function createApp(db: DB) {
       },
     )
 
-    // ---- 测试台 ----
-    .get('/projects/:id/qa-sources', async (c) => c.json(await listQaSources(c.get('actor'), c.get('db'), c.req.param('id'))))
+    // ---- 质量（开发台的测试运行、用例、计划、缺陷） ----
     .get('/workstations/:id/qa/overview', async (c) => c.json(await getQaOverview(c.get('actor'), c.get('db'), c.req.param('id'))))
     .get('/workstations/:id/qa/runs', async (c) => c.json(await listQaRuns(c.get('actor'), c.get('db'), c.req.param('id'))))
     .post('/workstations/:id/qa/runs', body(z.object({ suiteId: z.string().min(1), ref: z.string().optional() })), async (c) => {
@@ -758,6 +791,20 @@ export function createApp(db: DB) {
     .get('/tasks/:id/runs', async (c) => c.json(await listRuns(c.get('actor'), c.get('db'), { taskId: c.req.param('id') })))
     .get('/tasks/:id/proposals', async (c) => c.json(await listTaskProposals(c.get('actor'), c.get('db'), c.req.param('id'))))
     .get('/tasks/:id/testruns', async (c) => c.json(await listTestRuns(c.get('actor'), c.get('db'), { taskId: c.req.param('id') })))
+    .post('/tasks/:id/preview', async (c) => {
+      const r = await startPreview(c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json(r) : fail(c, r);
+    })
+    .get('/tasks/:id/preview', async (c) => c.json(previewStatus(c.req.param('id'))))
+    .delete('/tasks/:id/preview', async (c) => {
+      stopPreview(c.req.param('id'));
+      return c.json({ status: 'stopped' });
+    })
+    .get('/tasks/:id/design-handoff', async (c) => {
+      const t = (await c.get('db').select().from(task).where(eq(task.id, c.req.param('id'))))[0];
+      const h = t ? await readHandoffFor(c.get('db'), t) : null;
+      return h ? c.json({ title: h.title, version: h.version, html: h.html }) : fail(c, { status: 404, error: '这个任务没有交接的设计稿' });
+    })
 
     // ---- 收件箱 ----
     .get('/inbox', async (c) => c.json(await listInbox(c.get('actor'), c.get('db'), c.req.query('status') ?? 'open', c.req.query('projectId'))))
@@ -809,11 +856,32 @@ export function createApp(db: DB) {
       const r = await silenceThread(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').silenced);
       return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
     })
+    .get('/threads/:id/active', async (c) => {
+      const th = (await c.get('db').select().from(thread).where(eq(thread.id, c.req.param('id'))))[0];
+      if (!th) return fail(c, { status: 404, error: '会话不存在' });
+      return c.json(await threadActivity(c.get('db'), th.id));
+    })
+    .post('/threads/:id/stop', async (c) => {
+      const r = await stopThread(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ stopped: r.stopped }) : fail(c, r);
+    })
     .post('/messages/:id/propose-adr', async (c) => {
       const r = await decisionToProposal(c.get('actor'), c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ proposalId: r.proposalId }, 201) : fail(c, r);
     })
-    .post('/threads/:id/messages', body(z.object({ content: z.string().trim().min(1, '消息不能为空'), meta: z.object({ design: z.object({ id: z.string(), title: z.string(), version: z.number().int() }) }).optional() })), async (c) => {
+    .post('/threads/:id/messages', body(z.object({
+      content: z.string().trim().min(1, '消息不能为空'),
+      meta: z.object({
+        design: z.object({ id: z.string(), title: z.string(), version: z.number().int() }),
+        // 画布里选中的元素：客户端给的也要再截一遍，超长的截断不拒绝
+        elements: z.array(z.object({
+          selector: z.string().transform((s) => s.slice(0, 2000)),
+          anchor: z.string().transform((s) => s.slice(0, 60)),
+          tag: z.string().transform((s) => s.slice(0, 40)),
+          html: z.string().transform((s) => s.slice(0, 1500)),
+        })).transform((a) => a.slice(0, 8)).optional(),
+      }).optional(),
+    })), async (c) => {
       const { content, meta } = c.req.valid('json');
       const m = await postThreadMessage(c.get('actor'), c.get('db'), c.req.param('id'), content, meta);
       return m ? c.json(m, 201) : fail(c, { status: 404, error: '会话不存在' });
@@ -902,7 +970,7 @@ export function createApp(db: DB) {
     })
     .get('/artifacts/:id', async (c) => {
       const a = await getArtifact(c.get('actor'), c.get('db'), c.req.param('id'));
-      return a ? c.json({ id: a.id, type: a.type, name: a.name, content: a.ref, createdAt: a.createdAt }) : fail(c, { status: 404, error: '产物不存在' });
+      return a ? c.json({ id: a.id, type: a.type, name: a.name, content: a.ref, meta: a.metaJson ? JSON.parse(a.metaJson) : null, createdAt: a.createdAt }) : fail(c, { status: 404, error: '产物不存在' });
     });
 
   return { app, routes };

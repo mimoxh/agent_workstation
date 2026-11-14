@@ -36,7 +36,7 @@ export function cancelRunsOfTask(taskId: string) {
 
 export interface TraceStep {
   t: string;
-  type: 'model' | 'tool' | 'fallback';
+  type: 'model' | 'tool' | 'fallback' | 'truncated' | 'context_trimmed';
   from?: string;
   to?: string;
   text?: string;
@@ -47,6 +47,9 @@ export interface TraceStep {
   args?: unknown;
   result?: unknown;
   truncated?: boolean;
+  reason?: 'length' | 'markup';
+  outputTokens?: number;
+  count?: number;
   ms?: number;
   error?: string;
 }
@@ -61,6 +64,9 @@ export function readUsage(res: unknown): { inputTokens?: number; outputTokens?: 
 }
 
 const MAX_TURNS = 8;
+// 连续坏轮（输出被截断或把工具调用写成了文本）重试两次，第三次收尾报错
+const MAX_BROKEN_TURNS = 3;
+const LEAKED_TOOL_CALL = /<tool_call>|<function=|<\|tool_call|"tool_calls"\s*:/;
 const TOOL_RESULT_LIMIT = 8 * 1024;
 // 一次工具调用就要写整份设计稿：不少 provider 的默认输出上限放不下，半截 JSON 等于这一轮白跑
 const LARGE_OUTPUT_TOKENS = Number(process.env.AW_LARGE_OUTPUT_TOKENS ?? 16000);
@@ -124,7 +130,8 @@ export async function runAgent(opts: {
   activeRuns.set(runId, active);
 
   const toolDefs = toolSchemasFor(JSON.parse(opts.agentRow.toolsJson ?? '[]') as string[]);
-  const maxOutputTokens = LARGE_OUTPUT_TOKENS > 0 && toolDefs.some((t) => t.largeOutput) ? LARGE_OUTPUT_TOKENS : undefined;
+  // 有整页输出工具的 Agent 才给单次输出上限；provider 配置的 maxOutputTokens 优先于全局默认
+  const largeOut = toolDefs.some((t) => t.largeOutput);
   const aiTools = Object.fromEntries(
     toolDefs.map((t) => [t.name, tool({ description: t.description, inputSchema: jsonSchema(zodToJson(t.parameters)) })]),
   );
@@ -135,6 +142,9 @@ export async function runAgent(opts: {
   let repeatCount = 0;
   let stopReason: StopReason = 'error';
   let scopeBreach = false;
+  let brokenTurns = 0;
+  let lastInput = 0;
+  let cap: number | undefined;
 
   events.emit('run_started', { runId, agentId: opts.agentRow.id, taskId });
 
@@ -152,6 +162,27 @@ export async function runAgent(opts: {
     outer: for (let round = 0; round < MAX_TURNS; round++) {
       if (active.cancelled) { await finish('cancelled'); break outer; }
       if (Date.now() > deadline) { await finish('timeout'); break outer; }
+      const cw = route.contextWindow;
+      if (cw && lastInput > cw * 0.8) {
+        // 只替换内容、不删消息：tool-call / tool-result 的配对不能断
+        const stub = { type: 'json' as const, value: { omitted: true, note: '早前的工具结果已省略以节省上下文，需要时重新调用' } };
+        const toolMsgs = messages.filter((m) => m.role === 'tool');
+        const trimmable = toolMsgs.slice(0, Math.max(0, toolMsgs.length - 2));
+        let est = lastInput;
+        let count = 0;
+        for (const m of trimmable) {
+          if (est <= cw * 0.6) break;
+          const before = JSON.stringify(m.content).length;
+          m.content = (m.content as { toolCallId: string; toolName: string; output: unknown }[]).map((pt) => ({ ...pt, output: stub }));
+          est -= (before - JSON.stringify(m.content).length) / 3;
+          count += 1;
+        }
+        if (count) await appendTrace(db, runId, { t: now(), type: 'context_trimmed', count });
+      }
+      cap = largeOut ? (route.maxOutputTokens ?? (LARGE_OUTPUT_TOKENS > 0 ? LARGE_OUTPUT_TOKENS : undefined)) : undefined;
+      // 第一轮还没有 usage：按字符粗估输入（约 3 字符 / token）
+      const inputEst = lastInput > 0 ? lastInput : Math.ceil(((opts.system ?? '').length + JSON.stringify(messages).length) / 3);
+      if (cap !== undefined && cw) cap = Math.max(Math.min(cap, cw - inputEst - 1024), 1024);
       let res;
       try {
         res = await generateText({
@@ -160,7 +191,7 @@ export async function runAgent(opts: {
           messages: messages as never,
           tools: aiTools as unknown as ToolSet,
           abortSignal: abort.signal,
-          ...(maxOutputTokens ? { maxOutputTokens } : {}),
+          ...(cap ? { maxOutputTokens: cap } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -182,6 +213,7 @@ export async function runAgent(opts: {
       const usage = readUsage(res);
       const tin = usage?.inputTokens ?? Math.ceil(((res.text ?? '').length + JSON.stringify(res.toolCalls ?? []).length) / 3) + 10;
       const tout = usage?.outputTokens ?? 0;
+      lastInput = tin;
       totalTokens += tin + tout;
       await addUsage(db, runId, taskId, route.id, tin, tout);
       await appendTrace(db, runId, {
@@ -205,6 +237,25 @@ export async function runAgent(opts: {
 
       const calls = res.toolCalls ?? [];
       if (calls.length === 0) {
+        // 输出被截断或把工具调用写成文本：原文丢弃，补一句说明重试；不进会话、不算 no_progress
+        if (res.finishReason === 'length' || LEAKED_TOOL_CALL.test(res.text ?? '')) {
+          brokenTurns += 1;
+          await appendTrace(db, runId, { t: now(), type: 'truncated', reason: res.finishReason === 'length' ? 'length' : 'markup', outputTokens: tout });
+          if (brokenTurns >= MAX_BROKEN_TURNS) {
+            const th = ctx.thread ?? (taskId ? await taskThreadOf(db, taskId) : null);
+            if (th) await postMessage(db, th.id, { type: 'agent', id: opts.agentRow.id }, '输出连续被截断，这次没能保存。可以让我把页面拆成几部分分步做。', ctx.run.threadId ? 'chat' : 'status');
+            await finish('error', '模型输出被截断，工具调用未发出');
+            break outer;
+          }
+          messages.push({ role: 'assistant', content: '（上一次输出被截断或格式不对，已丢弃）' });
+          messages.push({
+            role: 'user',
+            content: res.finishReason === 'length'
+              ? `上一次输出超过单次上限（约 ${cap ?? '模型默认'} tokens）被截断，工具调用没有发出。请缩小单次输出：先用 write_design 写一个精简但完整可渲染的版本（HTML 控制在约 8000 字符内），再用 edit_design 分几次补充细节。`
+              : '上一次把工具调用写成了文本，平台没有执行。请用正式的工具调用重新发起，不要在正文里写 <tool_call>。',
+          });
+          continue;
+        }
         // 无工具调用 → completed；会话里的回合是发言，工作 run 的收尾只是进度
         if (res.text) {
           const th = ctx.thread ?? (taskId ? await taskThreadOf(db, taskId) : null);

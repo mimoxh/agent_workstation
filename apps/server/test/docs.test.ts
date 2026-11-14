@@ -129,11 +129,8 @@ describe('仓库只读工具', () => {
     expect(r.error).toContain('不是同项目的开发工作台');
   });
 
-  it('测试台不带 repo 时仍走默认仓库解析（settings.sourceWorkstationId）', async () => {
-    const root = (await db.select().from(workstation).where(eq(workstation.pluginId, 'pm')))[0]!;
-    const m = await mountWorkstation(HUMAN, db, { projectId: 'proj-aw', parentId: root.id, pluginId: 'qa', name: '测试', settings: { sourceWorkstationId: devId } });
-    if (m.kind !== 'ok') throw new Error(m.error);
-    const r = (await call('read_repo_file', { path: 'spec.md' }, 'qa-lead', m.id)) as { content?: string; error?: string };
+  it('开发台的用例设计不带 repo 时读本台仓库', async () => {
+    const r = (await call('read_repo_file', { path: 'spec.md' }, 'case-designer', devId)) as { content?: string; error?: string };
     expect(r.error).toBeUndefined();
     expect(r.content).toContain('gamma 行');
   });

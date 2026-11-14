@@ -15,6 +15,6 @@ const VIEWS: Record<string, (p: QaProps) => React.JSX.Element> = { overview: Ove
 export function QualityPanel({ block, ws, project }: { block: Block; ws: WorkstationDetail; project: ProjectDetail }) {
   const { item, go } = useQaNav(ws, project);
   const View = VIEWS[parseJson<{ view?: string }>(block.configJson, {}).view ?? ''];
-  if (!View) return <Empty title="未知的测试台视图" />;
+  if (!View) return <Empty title="未知的质量视图" />;
   return <View ws={ws} project={project} item={item} go={go} />;
 }

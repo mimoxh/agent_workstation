@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useMemo, useRef, useState } from 'react';
-import { WsThread } from '@/components/chat/Thread';
+import { ChatRail } from '@/components/chat/ChatRail';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
@@ -336,7 +336,7 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
             <RailTabButton on={rail === 'gate'} onClick={() => setRail('gate')} label="交接" testId="doc-tab-gate" />
           </div>
           {rail === 'chat' ? (
-            <WsThread wsId={ws.id} projectId={project.id} names={names} root={false} hint="@docs-writer 起草或修改；@fact-checker 核对引用" placeholder="说需求，比如：给 API 写一份接入指南" />
+            <ChatRail ws={ws} projectId={project.id} names={names} root={false} hint="@docs-writer 起草或修改；@fact-checker 核对引用" placeholder="说需求，比如：给 API 写一份接入指南" />
           ) : null}
           {rail === 'comments' ? <CommentsPane doc={doc} comments={doc.openComments} pending={pending} onClearPending={() => setPending(null)} onSend={(c) => { send.mutate(c); setRail('chat'); }} /> : null}
           {rail === 'citations' ? <CitationsPane doc={doc} repos={repos.data?.repos ?? []} active={activeCit} onDelete={(cid) => dropCitation.mutate(cid)} /> : null}
@@ -403,7 +403,7 @@ export function DocStudio({ ws, project, openId, onOpen }: { ws: WorkstationDeta
           <h2 className="text-sm font-medium">和主笔说需求</h2>
           {running ? <Badge tone="cool">主笔在动</Badge> : null}
         </div>
-        <WsThread wsId={ws.id} projectId={project.id} names={names} root={false} hint="@docs-writer 起草；写好后 @fact-checker 核对" placeholder="比如：给登录模块写一份 README" />
+        <ChatRail ws={ws} projectId={project.id} names={names} root={false} hint="@docs-writer 起草；写好后 @fact-checker 核对" placeholder="比如：给登录模块写一份 README" />
       </section>
       {newOpen ? (
         <NewDocDialog

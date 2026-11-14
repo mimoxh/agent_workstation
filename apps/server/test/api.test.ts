@@ -33,11 +33,11 @@ async function wsIds() {
 }
 
 describe('m0.2 用例', () => {
-  it('mount 后 dev 台有 8 blocks + 6 agents', async () => {
+  it('mount 后 dev 台有 15 blocks（含 7 个质量板块）+ 11 agents', async () => {
     const { dev } = await wsIds();
     const detail = await (await app.request(`/api/workstations/${dev.id}`)).json() as { blocks: unknown[]; agents: { isSteward: number }[]; manifest: { id: string } };
-    expect(detail.blocks).toHaveLength(8);
-    expect(detail.agents).toHaveLength(6);
+    expect(detail.blocks).toHaveLength(15);
+    expect(detail.agents).toHaveLength(11);
     expect(detail.agents.filter((a) => a.isSteward === 1)).toHaveLength(1);
     expect(detail.manifest.id).toBe('dev');
   });

@@ -24,12 +24,14 @@ const devCommands = (build: string, test: string) => ({ ...(build.trim() ? { bui
 export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
-  const [template, setTemplate] = useState<'dev' | 'blank'>('dev');
+  const [template, setTemplate] = useState<'dev' | 'folder' | 'blank'>('dev');
   const [repoPath, setRepoPath] = useState('');
+  const [folderPath, setFolderPath] = useState('');
   const [build, setBuild] = useState('pnpm build');
   const [test, setTest] = useState('pnpm test');
   const navigate = useNavigate();
   const dev = template === 'dev';
+  const folder = template === 'folder';
   const create = useMutation({
     meta: { silent: true },
     mutationFn: async () =>
@@ -38,6 +40,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
           json: {
             name: name.trim(),
             ...(goal.trim() ? { goal: goal.trim() } : {}),
+            ...(folder ? { folder: folderPath.trim() } : {}),
             ...(dev ? { template: { repoPath: repoPath.trim(), commands: devCommands(build, test) } } : {}),
           },
         }),
@@ -46,16 +49,17 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   });
   return (
     <Dialog title="新建项目" onClose={onClose} testId="project-dialog">
-      <DialogForm error={create.error?.message} submitting={create.isPending} submitLabel="创建" canSubmit={!!name.trim() && (!dev || !!repoPath.trim())} onSubmit={() => create.mutate()} onCancel={onClose}>
+      <DialogForm error={create.error?.message} submitting={create.isPending} submitLabel="创建" canSubmit={!!name.trim() && (!dev || !!repoPath.trim()) && (!folder || !!folderPath.trim())} onSubmit={() => create.mutate()} onCancel={onClose}>
         <Field label="项目名" required>
           <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} data-testid="project-name" />
         </Field>
         <Field label="目标">
           <Textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} />
         </Field>
-        <Field label="模板" hint={dev ? '根工作台 + 开发工作台，架构师、前端 ×2、后端、测试、审查都就位' : '只有根工作台，之后按需挂载'}>
-          <Select value={template} onChange={(e) => setTemplate(e.target.value as 'dev' | 'blank')} data-testid="project-template">
+        <Field label="模板" hint={dev ? '根工作台 + 开发工作台，架构师、前端 ×2、后端、测试、审查都就位' : folder ? '只有根工作台，绑定一个本地文件夹；之后可按需挂载开发台、文档台等' : '只有根工作台，之后按需挂载'}>
+          <Select value={template} onChange={(e) => setTemplate(e.target.value as 'dev' | 'folder' | 'blank')} data-testid="project-template">
             <option value="dev">开发项目</option>
+            <option value="folder">文件夹项目</option>
             <option value="blank">空白项目</option>
           </Select>
         </Field>
@@ -66,6 +70,11 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
             </Field>
             <CommandFields build={build} test={test} onBuild={setBuild} onTest={setTest} />
           </>
+        )}
+        {folder && (
+          <Field label="文件夹路径" required hint="本地文件夹的绝对路径，不需要是 git 仓库；Agent 可读，改文件要你审批">
+            <Input className="measured" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} data-testid="project-folder" />
+          </Field>
         )}
       </DialogForm>
     </Dialog>
@@ -84,9 +93,6 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
   const chosen = pluginId || options.find((p) => !(p.singleton && project.workstations.some((w) => w.pluginId === p.id)))?.id || options[0]?.id || '';
   const plugin = options.find((p) => p.id === chosen);
   const mountedSingleton = (id: string) => project.workstations.some((w) => w.pluginId === id);
-  const devStations = project.workstations.filter((w) => w.pluginId === 'dev');
-  const [qaSourcePick, setQaSource] = useState('');
-  const qaSource = qaSourcePick || devStations[0]?.id || '';
 
   const mount = useMutation({
     meta: { silent: true },
@@ -98,7 +104,6 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
             pluginId: chosen,
             name: name.trim(),
             ...(chosen === 'dev' ? { settings: { repoPath: repoPath.trim(), targetBranch: 'develop', baseBranch: 'main', commands: devCommands(build, test) } } : {}),
-            ...(chosen === 'qa' && qaSource ? { settings: { sourceWorkstationId: qaSource } } : {}),
           },
         }),
       ),
@@ -126,13 +131,6 @@ export function MountDialog({ project, onClose }: { project: ProjectDetail; onCl
             </Field>
             <CommandFields build={build} test={test} onBuild={setBuild} onTest={setTest} />
           </>
-        )}
-        {chosen === 'qa' && (
-          <Field label="被测的开发台" hint={devStations.length ? '测试台读它的仓库、目标分支和安装命令，缺陷也派给它' : '这个项目还没有开发工作台，挂载后要先挂一个才能运行测试'}>
-            <Select value={qaSource} onChange={(e) => setQaSource(e.target.value)} data-testid="mount-qa-source">
-              {devStations.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </Select>
-          </Field>
         )}
       </DialogForm>
     </Dialog>

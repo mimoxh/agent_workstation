@@ -30,9 +30,10 @@ const cssVar = (name: string) => getComputedStyle(document.documentElement).getP
 
 const NO_PINS: Pin[] = [];
 const NO_VARS: Record<string, string> = {};
+const NO_SELECTED: string[] = [];
 
 // sandbox 不给 allow-same-origin：稿子拿不到平台的 cookie、接口和页面
-export function DesignFrame({ doc, title, device, mode = 'view', pins = NO_PINS, vars = NO_VARS, onEvent, caption, testId }: { doc: string; title: string; device: Device; mode?: CanvasMode; pins?: Pin[]; vars?: Record<string, string>; onEvent?: (e: FrameEvent) => void; caption?: ReactNode; testId?: string }) {
+export function DesignFrame({ doc, title, device, mode = 'view', pins = NO_PINS, vars = NO_VARS, selected = NO_SELECTED, onEvent, caption, testId }: { doc: string; title: string; device: Device; mode?: CanvasMode; pins?: Pin[]; vars?: Record<string, string>; selected?: string[]; onEvent?: (e: FrameEvent) => void; caption?: ReactNode; testId?: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [stage, size] = useSize<HTMLDivElement>();
   const [loaded, setLoaded] = useState(0);
@@ -54,10 +55,10 @@ export function DesignFrame({ doc, title, device, mode = 'view', pins = NO_PINS,
   useEffect(() => {
     if (loaded === 0) return;
     frame.current?.contentWindow?.postMessage({
-      aw: 'design', type: 'state', mode, pins, vars,
-      colors: { '--aw-hover': cssVar('--color-cool'), '--aw-pin': cssVar('--color-accent'), '--aw-pin-ink': cssVar('--color-accent-ink') },
+      aw: 'design', type: 'state', mode, pins, vars, selected,
+      colors: { '--aw-hover': cssVar('--color-cool'), '--aw-pin': cssVar('--color-accent'), '--aw-pin-ink': cssVar('--color-accent-ink'), '--aw-sel': cssVar('--color-ok') },
     }, '*');
-  }, [loaded, mode, pins, vars]);
+  }, [loaded, mode, pins, vars, selected]);
 
   const width = DEVICES.find((d) => d.id === device)?.width ?? null;
   const availW = Math.max(0, size.width - STAGE_GAP);

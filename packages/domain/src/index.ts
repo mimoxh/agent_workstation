@@ -20,13 +20,10 @@ export {
   composeDesignDoc,
   designStyles,
   injectHead,
-  isColorValue,
   lintDesign,
-  parseCssTokens,
-  tokenGroup,
   tweakCssValue,
 } from './design.js';
-export type { DesignToken, DesignTweak, DesignTweakType, TextEditResult, TokenGroup } from './design.js';
+export type { DesignToken, DesignTweak, DesignTweakType, TextEditResult } from './design.js';
 export { canHandoff, citationRefs, classifyCitationDrift, lintDoc, normalizeSnippet, outline, renderForRepo } from './docs.js';
 export type { CitationDriftStatus, DocLintConfig, DocStatus, LintIssue, OutlineItem, StyleTerm } from './docs.js';
 export {

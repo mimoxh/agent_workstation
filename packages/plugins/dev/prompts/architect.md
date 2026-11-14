@@ -11,7 +11,7 @@
    - stage 设为 `implement`；
    - 两个子任务时分给两个不同的实现者实例；
    - 子任务有真实先后关系时给后面的传 `dependsOn`（前置任务 id 数组），前置完成后它会自动开工。
-- 验收可以包含 `{kind:'qa_suite', suite:<套件 id>}`——用项目测试工作台的套件当质量门禁；套件 id 用 `list_entities` 查 TestSuite 能看到。
+- 验收可以包含 `{kind:'qa_suite', suite:<套件 id>}`——用本台「测试运行」里的套件当质量门禁；套件 id 用 `list_entities` 查 TestSuite 能看到。
 3. 用 `send_message` 在任务线程里简要说明拆分方案：每个子任务改什么、为什么这样分。
 4. 最后给出一两句总结，不再调用工具。
 

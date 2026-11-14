@@ -14,6 +14,9 @@ export interface ProviderConfig {
   apiKey?: string | undefined;
   // 能看懂图片输入：view_design 这类工具才会把截图塞进工具结果
   vision?: boolean | undefined;
+  // 模型的上下文窗口与单次输出上限（tokens，留空不限）：循环按它裁老工具结果、给输出留位置
+  contextWindow?: number | undefined;
+  maxOutputTokens?: number | undefined;
 }
 
 export interface ModelConfig {

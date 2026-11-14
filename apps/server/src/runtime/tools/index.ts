@@ -16,6 +16,7 @@ import type { AgentRow, RunRow, TaskRow, ThreadRow } from '../types.js';
 import { designTools } from './design.js';
 import { devTools } from './dev.js';
 import { docTools } from './docs.js';
+import { folderTools } from './folder.js';
 import { qaTools } from './qa.js';
 import { repoReadTools } from './repo_read.js';
 
@@ -324,7 +325,7 @@ const tools: Record<string, ToolDef> = {
 };
 
 export function allTools(): Record<string, ToolDef> {
-  return { ...tools, ...devTools, ...designTools, ...qaTools, ...docTools, ...repoReadTools };
+  return { ...tools, ...devTools, ...designTools, ...qaTools, ...docTools, ...repoReadTools, ...folderTools };
 }
 
 export function toolSchemasFor(agentTools: string[]): { name: string; description: string; parameters: z.ZodType; largeOutput: boolean }[] {

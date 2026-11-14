@@ -12,7 +12,7 @@ import { buildPermCtx, createTaskUc } from '../src/usecases/index.js';
 const HUMAN = { type: 'human', id: 'local' } as const;
 import { buildContext } from '../src/runtime/context.js';
 import { scheduler } from '../src/runtime/scheduler.js';
-import { agent, entity, inboxItem, run, task, workstation, entityVersion } from '../src/db/schema.js';
+import { agent, entity, inboxItem, message, run, task, workstation, entityVersion } from '../src/db/schema.js';
 import { and, eq } from 'drizzle-orm';
 import { execFileSync } from 'node:child_process';
 
@@ -23,34 +23,40 @@ let ctx: ToolCtx;
 const post = (url: string, body: unknown) =>
   app.request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-function mockModel(seq: { calls?: [string, unknown][]; text?: string }[]) {
+function mockModel(seq: { calls?: [string, unknown][]; text?: string; finish?: string; inTok?: number }[], seen?: { maxOuts: unknown[]; prompts: unknown[] }) {
   let i = 0;
   return new MockLanguageModelV4({
     provider: 'mock',
     modelId: 'test',
-    doGenerate: async () => {
+    doGenerate: async (options) => {
+      seen?.maxOuts.push(options.maxOutputTokens);
+      seen?.prompts.push(options.prompt);
       const step = seq[Math.min(i++, seq.length - 1)]!;
+      const finish = step.finish ?? (step.calls ? 'tool-calls' : 'stop');
+      const usage = { inputTokens: { total: step.inTok ?? 10, noCache: step.inTok ?? 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 7, text: 7, reasoning: 0 } } as never;
       if (step.calls) {
         return {
           content: step.calls.map(([n, a], j) => ({ type: 'tool-call', toolCallId: `c${i}_${j}`, toolName: n, input: JSON.stringify(a) })),
-          finishReason: 'tool-calls' as never,
-          usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 7, text: 7, reasoning: 0 } } as never,
+          finishReason: { unified: finish, raw: finish } as never,
+          usage,
           warnings: [],
         };
       }
       return {
         content: [{ type: 'text', text: step.text ?? 'done' }],
-        finishReason: 'stop' as never,
-        usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 7, text: 7, reasoning: 0 } } as never,
+        finishReason: { unified: finish, raw: finish } as never,
+        usage,
         warnings: [],
       };
     },
   });
 }
 
-async function setupRun(model: MockLanguageModelV4, taskTitle = 'T') {
+async function setupRun(model: MockLanguageModelV4, taskTitle = 'T', templateId?: string) {
   const dev = (await db.select().from(workstation).where(eq(workstation.pluginId, 'dev')))[0]!;
-  const a = (await db.select().from(agent).where(and(eq(agent.workstationId, dev.id), eq(agent.isSteward, 1))))[0]!;
+  const a = templateId
+    ? (await db.select().from(agent).where(and(eq(agent.workstationId, dev.id), eq(agent.templateId, templateId))))[0]!
+    : (await db.select().from(agent).where(and(eq(agent.workstationId, dev.id), eq(agent.isSteward, 1))))[0]!;
   const taskId = crypto.randomUUID();
   await db.insert(task).values({
     id: taskId, projectId: 'proj-aw', workstationId: dev.id, typeId: 'dev.issue',
@@ -142,6 +148,109 @@ describe('loop 熔断', () => {
     process.env.AW_OPENAI_COMPAT_API_KEY = 'token-abc';
     expect(sanitizeError('auth failed token-abc')).toBe('auth failed ***');
     delete process.env.AW_OPENAI_COMPAT_API_KEY;
+  });
+});
+
+describe('截断的工具调用', () => {
+  const messages = async () => (await db.select().from(message)).map((m) => m.content ?? '');
+
+  it('finishReason=length 且输出是泄露的 <tool_call>：不发言、重试后稿子正常写入', async () => {
+    const s = await setupRun(mockModel([
+      { text: '<tool_call><function=write_design><parameter=title>首页</parameter><parameter=html><html>……', finish: 'length' },
+      { calls: [['write_design', { title: '首页', html: '<!doctype html><html><body><h1>hi</h1></body></html>' }]] },
+      { text: '做完了' },
+    ]), 'T', 'designer');
+    const r = await runAgent(runOpts(s));
+    expect(r.stopReason).toBe('completed');
+
+    const designs = await db.select().from(entity).where(eq(entity.entityType, 'Design'));
+    expect(designs.length).toBe(1);
+
+    const trace = JSON.parse((await db.select().from(run).where(eq(run.id, s.runId)))[0]!.traceJson ?? '[]') as { type: string; reason?: string }[];
+    expect(trace.some((t) => t.type === 'truncated' && t.reason === 'length')).toBe(true);
+
+    const contents = await messages();
+    expect(contents.some((c) => c.includes('<tool_call>'))).toBe(false);
+    expect(contents).toContain('做完了');
+  });
+
+  it('连续三轮截断：run 报错收尾，会话里只有一句说明，泄露原文不进会话', async () => {
+    const s = await setupRun(mockModel([
+      { text: '<tool_call><function=write_design>…', finish: 'length' },
+    ]), 'T', 'designer');
+    const r = await runAgent(runOpts(s));
+    expect(r.stopReason).toBe('error');
+
+    const row = (await db.select().from(run).where(eq(run.id, s.runId)))[0]!;
+    expect(row).toMatchObject({ status: 'error', error: '模型输出被截断，工具调用未发出' });
+    const trace = JSON.parse(row.traceJson ?? '[]') as { type: string }[];
+    expect(trace.filter((t) => t.type === 'truncated').length).toBe(3);
+
+    const contents = await messages();
+    expect(contents.filter((c) => c.includes('输出连续被截断，这次没能保存')).length).toBe(1);
+    expect(contents.some((c) => c.includes('<tool_call>'))).toBe(false);
+  });
+});
+
+describe('模型上限', () => {
+  const seen = () => ({ maxOuts: [] as unknown[], prompts: [] as unknown[] });
+
+  it('provider 的最大输出覆盖全局默认 16000；没配的 provider 和非大输出 Agent 行为不变', async () => {
+    const seq: { calls?: [string, unknown][]; text?: string }[] = [{ calls: [['write_design', { title: 'x', html: '<p>a</p>' }]] }, { text: 'done' }];
+    const s1 = seen();
+    const a = await setupRun(mockModel(seq, s1), 'T', 'designer');
+    await runAgent(runOpts(a, { route: { ...a.route, maxOutputTokens: 128000 } }));
+    expect(s1.maxOuts[0]).toBe(128000);
+
+    const s2 = seen();
+    const b = await setupRun(mockModel(seq, s2), 'T', 'designer');
+    await runAgent(runOpts(b));
+    expect(s2.maxOuts[0]).toBe(16000);
+
+    const s3 = seen();
+    const d = await setupRun(mockModel([{ calls: [['send_message', { content: 'x' }]] }, { text: 'done' }], s3));
+    await runAgent(runOpts(d, { route: { ...d.route, maxOutputTokens: 128000 } }));
+    expect(s3.maxOuts.every((v) => v === undefined)).toBe(true);
+  });
+
+  it('配了上下文窗口：首轮按粗估、之后按上轮输入收敛，给输出留 1024 余量', async () => {
+    const s = seen();
+    const a = await setupRun(mockModel([
+      { calls: [['write_design', { title: 'x', html: '<p>a</p>' }]], inTok: 15000 },
+      { text: 'done' },
+    ], s), 'T', 'designer');
+    await runAgent(runOpts(a, { route: { ...a.route, contextWindow: 20000, maxOutputTokens: 128000 } }));
+    expect(s.maxOuts[0]).toBeLessThan(20000 - 1024);
+    expect(s.maxOuts[0]).toBeGreaterThan(1024);
+    expect(s.maxOuts[1]).toBe(3976);
+  });
+
+  it('上下文将满：最老的工具结果裁成 omitted，tool-call 配对不断', async () => {
+    const bigHtml = `<!doctype html><html><body>${'x'.repeat(4000)}</body></html>`;
+    const s = seen();
+    const a = await setupRun(mockModel([
+      { calls: [['write_design', { title: 'x', html: bigHtml }]], inTok: 500 },
+      { calls: [['read_design_system', {}]], inTok: 500 },
+      { calls: [['list_designs', {}]], inTok: 1900 },
+      { text: 'done' },
+    ], s), 'T', 'designer');
+    const r = await runAgent(runOpts(a, { route: { ...a.route, contextWindow: 2000 } }));
+    expect(r.stopReason).toBe('completed');
+
+    const prompt = s.prompts[3]! as { role: string; content: unknown }[];
+    const toolMsgs = prompt.filter((m) => m.role === 'tool');
+    const trimmed = (toolMsgs[0]!.content as { type: string; toolCallId: string; output: { value: { omitted?: boolean; note?: string } } }[])[0]!;
+    expect(trimmed.type).toBe('tool-result');
+    expect(trimmed.output.value).toMatchObject({ omitted: true, note: '早前的工具结果已省略以节省上下文，需要时重新调用' });
+    // 配对不断：tool-result 的 toolCallId 仍能在前面的 assistant tool-call 里找到
+    const paired = prompt.some((m) => m.role === 'assistant' && JSON.stringify(m.content).includes(trimmed.toolCallId));
+    expect(paired).toBe(true);
+    const lastOut = (toolMsgs.at(-1)!.content as { output: { value: unknown } }[])[0]!.output.value;
+    expect(JSON.stringify(lastOut)).not.toContain('omitted');
+
+    const trace = JSON.parse((await db.select().from(run).where(eq(run.id, a.runId)))[0]!.traceJson ?? '[]') as { type: string; count?: number }[];
+    expect(trace.some((t) => t.type === 'context_trimmed' && (t.count ?? 0) >= 1)).toBe(true);
+    expect(s.maxOuts[3]).toBe(1024);
   });
 });
 

@@ -265,8 +265,10 @@ export interface PanelDef {
 | `knowledge` | 知识库导入与检索 | — |
 | `canvas` | 设计画布（对话 + 沙箱预览 + 评论） | `home`：作为工作台默认入口 |
 | `tokens` | 设计令牌与规范 | — |
-| `quality` | 测试台的质量视图 | `view`：`overview` / `runs` / `cases` / `plans` / `bugs` / `flaky` / `coverage`；`home`：作为工作台默认入口 |
+| `quality` | 开发台的质量视图（原测试台） | `view`：`overview` / `runs` / `cases` / `plans` / `bugs` / `flaky` / `coverage`；`home`：作为工作台默认入口 |
 | `gantt` | 按日排布的任务甘特图（含里程碑与依赖） | — |
+
+任何板块的 `config` 都可以带 `group`：侧栏按它把板块归到同名分组（如开发台的「测试」），缺省归「功能」，分组按首次出现的顺序排。插件升级时已有板块的 `config` 会按 manifest 刷新。
 
 ## 6. 阶段定义
 

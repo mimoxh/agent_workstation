@@ -14,6 +14,7 @@ export interface DesignData {
   tweaks?: DesignTweak[];
   status?: DesignStatus;
   handoff?: { taskId: string; artifactId: string; version: number; workstationId: string };
+  legacyTokens?: DesignToken[];
 }
 
 export interface DesignDoc { id: string; version: number; updatedAt: string | null; data: DesignData }
@@ -21,16 +22,19 @@ export interface DesignDoc { id: string; version: number; updatedAt: string | nu
 export interface CommentData { design: string; version?: number; selector?: string; anchor?: string; body: string; status?: 'open' | 'resolved'; note?: string }
 export interface DesignComment extends CommentData { id: string; rowVersion: number; authorType: string | null; authorId: string | null; createdAt: string }
 
-export type CanvasMode = 'view' | 'comment' | 'edit';
+export type CanvasMode = 'view' | 'comment' | 'edit' | 'select';
 
 export interface Pin { n: number; selector: string; active: boolean }
+
+export interface SelectItem { selector: string; anchor: string; tag: string; html: string }
 
 export type FrameEvent =
   | { type: 'pick'; selector: string; anchor: string; tag: string }
   | { type: 'edit'; selector: string; text: string }
   | { type: 'pin'; n: number }
   | { type: 'missing'; pins: number[] }
-  | { type: 'issue'; text: string };
+  | { type: 'issue'; text: string }
+  | { type: 'select'; items: SelectItem[] };
 
 export const toDesign = (e: EntityRow): DesignDoc => ({ id: e.id, version: e.version, updatedAt: e.updatedAt, data: parseJson<DesignData>(e.dataJson, { title: '', html: '' }) });
 
@@ -62,6 +66,15 @@ export function parseFrameEvent(d: unknown): FrameEvent | null {
   if (m.type === 'pin' && typeof m.n === 'number') return { type: 'pin', n: m.n };
   if (m.type === 'missing' && Array.isArray(m.pins)) return { type: 'missing', pins: m.pins.filter((p): p is number => typeof p === 'number') };
   if (m.type === 'issue' && typeof m.text === 'string') return { type: 'issue', text: m.text.slice(0, 300) };
+  if (m.type === 'select' && Array.isArray(m.items)) {
+    const items = m.items.slice(0, 8).flatMap((i): SelectItem[] => {
+      if (typeof i !== 'object' || i === null) return [];
+      const it = i as Record<string, unknown>;
+      if (typeof it.selector !== 'string' || typeof it.anchor !== 'string' || typeof it.tag !== 'string' || typeof it.html !== 'string') return [];
+      return [{ selector: it.selector.slice(0, 2000), anchor: it.anchor.slice(0, 60), tag: it.tag.slice(0, 40), html: it.html.slice(0, 1500) }];
+    });
+    return { type: 'select', items };
+  }
   return null;
 }
 
