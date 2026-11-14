@@ -22,7 +22,7 @@ apps/
 │     │  ├ team/     团队脉搏
 │     │  ├ task/     任务头、右栏
 │     │  ├ inbox/ chat/ run/  收件箱 / 会话 / 实时命令输出（LiveOutput，走 /api/live/:channel）
-│     │  ├ layout/   外壳（顶栏标签 + 上下文侧栏）、页面骨架 Page、命令面板、挂载与新建项目对话框
+│     │  ├ layout/   外壳（顶栏标签 + 上下文侧栏）、页面骨架 Page、命令面板、挂载与新建项目对话框、项目设置页（改名 / 目标 / 文件夹 / 预算 / 导出 / 归档 / 删除）
 │     │  └ ui/       基础组件（button / badge / card / input / dialog / feedback / icons）
 │     ├ lib/api.ts      Hono RPC 类型化客户端 + unwrap
 │     ├ lib/queries.ts  全部读请求的 hook 与派生类型（类型从 RPC 推导，别手写）

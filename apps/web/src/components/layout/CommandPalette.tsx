@@ -22,6 +22,7 @@ export function CommandPalette({ project, onClose }: { project: ProjectDetail; o
       { id: 'inbox', group: '页面', label: '收件箱', go: go(() => void navigate({ to: '/projects/$projectId/inbox', params })) },
       { id: 'runs', group: '页面', label: '账本与运行记录', go: go(() => void navigate({ to: '/projects/$projectId/runs', params })) },
       { id: 'root', group: '页面', label: '根工作台', go: go(() => void navigate({ to: '/projects/$projectId', params })) },
+      { id: 'settings', group: '页面', label: '项目设置', go: go(() => void navigate({ to: '/projects/$projectId/settings', params })) },
       ...project.workstations.map((w) => ({
         id: w.id,
         group: '工作台',

@@ -458,7 +458,10 @@ export async function listInbox(actor: Actor, db: DB, status = 'open', projectId
   const rows = await db.select().from(inboxItem).where(eq(inboxItem.status, status)).orderBy(desc(inboxItem.createdAt));
   const items = await Promise.all(rows.map((r) => describeInbox(db, r)));
   const sorted = items.sort((a, b) => (SEVERITY_RANK[b.severity ?? ''] ?? 0) - (SEVERITY_RANK[a.severity ?? ''] ?? 0));
-  return projectId ? sorted.filter((i) => i.projectId === projectId) : sorted;
+  if (projectId) return sorted.filter((i) => i.projectId === projectId);
+  // 跨项目汇总不打扰已归档的项目
+  const archived = new Set((await db.select({ id: project.id }).from(project).where(eq(project.status, 'archived'))).map((p) => p.id));
+  return sorted.filter((i) => !i.projectId || !archived.has(i.projectId));
 }
 
 async function subtreeOf(db: DB, rootId: string) {

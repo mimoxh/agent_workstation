@@ -19,6 +19,7 @@ import { Route as ProjectsProjectIdRouteImport } from './routes/projects.$projec
 import { Route as ConsolePmProjectIdRouteImport } from './routes/_console.pm.$projectId'
 import { Route as ProjectsProjectIdIndexRouteImport } from './routes/projects.$projectId.index'
 import { Route as ProjectsProjectIdInboxRouteImport } from './routes/projects.$projectId.inbox'
+import { Route as ProjectsProjectIdSettingsRouteImport } from './routes/projects.$projectId.settings'
 import { Route as ProjectsProjectIdRunsIndexRouteImport } from './routes/projects.$projectId.runs.index'
 import { Route as ProjectsProjectIdRunsRunIdRouteImport } from './routes/projects.$projectId.runs.$runId'
 import { Route as ProjectsProjectIdTasksTaskIdRouteImport } from './routes/projects.$projectId.tasks.$taskId'
@@ -74,6 +75,12 @@ const ProjectsProjectIdInboxRoute = ProjectsProjectIdInboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => ProjectsProjectIdRoute,
 } as any)
+const ProjectsProjectIdSettingsRoute =
+  ProjectsProjectIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => ProjectsProjectIdRoute,
+  } as any)
 const ProjectsProjectIdRunsIndexRoute =
   ProjectsProjectIdRunsIndexRouteImport.update({
     id: '/runs/',
@@ -113,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/pm/$projectId': typeof ConsolePmProjectIdRoute
   '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
@@ -128,6 +136,7 @@ export interface FileRoutesByTo {
   '/': typeof ConsoleIndexRoute
   '/pm/$projectId': typeof ConsolePmProjectIdRoute
   '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
@@ -146,6 +155,7 @@ export interface FileRoutesById {
   '/_console/': typeof ConsoleIndexRoute
   '/_console/pm/$projectId': typeof ConsolePmProjectIdRoute
   '/projects/$projectId/inbox': typeof ProjectsProjectIdInboxRoute
+  '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/runs/$runId': typeof ProjectsProjectIdRunsRunIdRoute
   '/projects/$projectId/tasks/$taskId': typeof ProjectsProjectIdTasksTaskIdRoute
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId'
     | '/pm/$projectId'
     | '/projects/$projectId/inbox'
+    | '/projects/$projectId/settings'
     | '/projects/$projectId/'
     | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
@@ -179,6 +190,7 @@ export interface FileRouteTypes {
     | '/'
     | '/pm/$projectId'
     | '/projects/$projectId/inbox'
+    | '/projects/$projectId/settings'
     | '/projects/$projectId'
     | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
@@ -196,6 +208,7 @@ export interface FileRouteTypes {
     | '/_console/'
     | '/_console/pm/$projectId'
     | '/projects/$projectId/inbox'
+    | '/projects/$projectId/settings'
     | '/projects/$projectId/'
     | '/projects/$projectId/runs/$runId'
     | '/projects/$projectId/tasks/$taskId'
@@ -281,6 +294,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdInboxRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
     }
+    '/projects/$projectId/settings': {
+      id: '/projects/$projectId/settings'
+      path: '/settings'
+      fullPath: '/projects/$projectId/settings'
+      preLoaderRoute: typeof ProjectsProjectIdSettingsRouteImport
+      parentRoute: typeof ProjectsProjectIdRoute
+    }
     '/projects/$projectId/runs/': {
       id: '/projects/$projectId/runs/'
       path: '/runs'
@@ -342,6 +362,7 @@ const ConsoleRouteWithChildren =
 
 interface ProjectsProjectIdRouteChildren {
   ProjectsProjectIdInboxRoute: typeof ProjectsProjectIdInboxRoute
+  ProjectsProjectIdSettingsRoute: typeof ProjectsProjectIdSettingsRoute
   ProjectsProjectIdIndexRoute: typeof ProjectsProjectIdIndexRoute
   ProjectsProjectIdRunsRunIdRoute: typeof ProjectsProjectIdRunsRunIdRoute
   ProjectsProjectIdTasksTaskIdRoute: typeof ProjectsProjectIdTasksTaskIdRoute
@@ -352,6 +373,7 @@ interface ProjectsProjectIdRouteChildren {
 
 const ProjectsProjectIdRouteChildren: ProjectsProjectIdRouteChildren = {
   ProjectsProjectIdInboxRoute: ProjectsProjectIdInboxRoute,
+  ProjectsProjectIdSettingsRoute: ProjectsProjectIdSettingsRoute,
   ProjectsProjectIdIndexRoute: ProjectsProjectIdIndexRoute,
   ProjectsProjectIdRunsRunIdRoute: ProjectsProjectIdRunsRunIdRoute,
   ProjectsProjectIdTasksTaskIdRoute: ProjectsProjectIdTasksTaskIdRoute,

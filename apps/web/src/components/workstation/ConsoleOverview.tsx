@@ -112,7 +112,8 @@ function PmPanel({ projects }: { projects: ProjectSummary[] }) {
 export function ConsoleOverview() {
   const projects = useProjects();
   const inbox = useAllInbox();
-  const list = projects.data ?? [];
+  const list = (projects.data ?? []).filter((p) => p.status !== 'archived');
+  const archived = (projects.data ?? []).filter((p) => p.status === 'archived');
   const overviews = useQueries({ queries: list.map((p) => ({ queryKey: ['overview', p.id], queryFn: async () => unwrap(await api.projects[':id'].overview.$get({ param: { id: p.id } })) })) });
   const [creating, setCreating] = useState(false);
   const sum = (f: (o: NonNullable<(typeof overviews)[number]['data']>) => number) => overviews.reduce((n, q) => n + (q.data ? f(q.data) : 0), 0);
@@ -144,6 +145,19 @@ export function ConsoleOverview() {
           <SectionTitle>全部工作台</SectionTitle>
           {list.length === 0 && !projects.isLoading && <Empty title="还没有项目">新建一个项目，自动获得一个根工作台。</Empty>}
           {list.map((p) => <ProjectTable key={p.id} p={p} />)}
+          {archived.length > 0 && (
+            <>
+              <SectionTitle>已归档</SectionTitle>
+              <ul className="divide-y divide-rule border-y border-rule" data-testid="archived-projects">
+                {archived.map((p) => (
+                  <li key={p.id} className="flex h-9 items-center gap-2 px-0.5 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-ink-2">{p.name}</span>
+                    <Link to="/projects/$projectId/settings" params={{ projectId: p.id }} className="rounded-chip px-1.5 text-muted hover:bg-hover hover:text-ink">恢复或删除</Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </Page>
       </div>
       <PmPanel projects={list} />

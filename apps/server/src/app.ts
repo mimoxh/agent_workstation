@@ -58,7 +58,7 @@ import {
 } from './usecases/index.js';
 import { actOnInbox } from './usecases/inbox.js';
 import { deleteSource, getChunk, importSource, listSources, searchKnowledge } from './usecases/knowledge.js';
-import { createProject, mountChildWorkstation, setPluginEnabled, takeScreenshot, updateAgent, updateProject, updateWorkstation } from './usecases/projects.js';
+import { createProject, deleteProject, mountChildWorkstation, setPluginEnabled, setProjectArchived, takeScreenshot, updateAgent, updateProject, updateWorkstation } from './usecases/projects.js';
 import { SANDBOX_IMAGE } from './runtime/sandbox.js';
 import { decideProposal, mergeProposal, reviewProposal } from './usecases/proposals.js';
 import {
@@ -240,8 +240,25 @@ export function createApp(db: DB) {
       const d = await getProjectDetail(c.get('actor'), c.get('db'), c.req.param('id'));
       return d ? c.json(d) : fail(c, { status: 404, error: '项目不存在' });
     })
-    .patch('/projects/:id', body(z.object({ budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(), folder: z.string().trim().min(1).nullable().optional() })), async (c) => {
+    .patch('/projects/:id', body(z.object({
+      name: z.string().trim().min(1, '项目名不能为空').optional(),
+      goal: z.string().nullable().optional(),
+      budget: z.object({ tokens: z.number().int().positive().optional(), costMicros: z.number().int().positive().optional() }).nullable().optional(),
+      folder: z.string().trim().min(1).nullable().optional(),
+    })), async (c) => {
       const r = await updateProject(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/projects/:id/archive', async (c) => {
+      const r = await setProjectArchived(c.get('actor'), c.get('db'), c.req.param('id'), true);
+      return r.kind === 'ok' ? c.json({ ok: true, cancelled: r.cancelled }) : fail(c, r);
+    })
+    .post('/projects/:id/restore', async (c) => {
+      const r = await setProjectArchived(c.get('actor'), c.get('db'), c.req.param('id'), false);
+      return r.kind === 'ok' ? c.json({ ok: true, cancelled: r.cancelled }) : fail(c, r);
+    })
+    .delete('/projects/:id', async (c) => {
+      const r = await deleteProject(c.get('actor'), c.get('db'), c.req.param('id'));
       return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
     })
     // 项目文件夹：面板只读浏览；写文件走提案审批

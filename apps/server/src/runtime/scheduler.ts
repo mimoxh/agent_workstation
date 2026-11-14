@@ -5,7 +5,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { Actor } from '@aw/domain';
 import { descendantIds, transition, type TaskStatus } from '@aw/domain';
 import type { DB } from '../db/client.js';
-import { agent, artifact, entity, message, proposal, reviewComment, run, task, thread, workstation } from '../db/schema.js';
+import { agent, artifact, entity, message, project, proposal, reviewComment, run, task, thread, workstation } from '../db/schema.js';
 import { events } from '../events.js';
 import { buildPermCtx, logEvent, manifestOf } from '../usecases/core.js';
 import { qaContextOf } from '../repositories/qa.js';
@@ -57,18 +57,31 @@ function enqueueRun(key: string, job: () => Promise<void>, onError: (e: unknown)
   });
 }
 
+async function projectArchived(db: DB, workstationId: string) {
+  const row = (await db.select({ status: project.status }).from(workstation).innerJoin(project, eq(project.id, workstation.projectId)).where(eq(workstation.id, workstationId)))[0];
+  return row?.status === 'archived';
+}
+
+// 排队中或执行中的 run（含收尾）；删项目前要等它们全部结束
+export function hasPendingRuns(agentIds: string[]) {
+  const ids = new Set(agentIds);
+  return [...queued, ...inFlight].some((key) => ids.has(key.split(':')[0]!));
+}
+
 // 触发一次 run：装配上下文 → 插入 run 行 → 入队执行 loop；threadId 表示这是一次会话发言
 export async function triggerRun(db: DB, agentId: string, taskId: string, trigger: string, opts: { threadId?: string; resume?: ResumePoint } = {}): Promise<{ ok: boolean; runId?: string; error?: string }> {
   const a = (await db.select().from(agent).where(eq(agent.id, agentId)))[0];
   const t = (await db.select().from(task).where(eq(task.id, taskId)))[0];
   if (!a || !t) return { ok: false, error: 'agent 或 task 不存在' };
   if (a.status === 'paused') return { ok: false, error: `${a.name} 已暂停` };
+  if (await projectArchived(db, a.workstationId)) return { ok: false, error: '项目已归档' };
   const key = `${agentId}:${taskId}`;
   if (queued.has(key) || inFlight.has(key)) return { ok: false, error: '该 (agent, task) 已在队列中' };
   const breach = await budgetBreach(db, { projectId: t.projectId, workstationId: a.workstationId, taskId });
   if (breach) return { ok: false, error: describeBreach(breach) };
   const runId = crypto.randomUUID();
-  enqueueRun(key, () => executeRun(db, runId, a, t, trigger, opts), (e) => abortRun(db, runId, a, t, 'run_failed', e instanceof Error ? e.message : String(e)));
+  // 排队期间项目可能被归档
+  enqueueRun(key, async () => { if (!(await projectArchived(db, a.workstationId))) await executeRun(db, runId, a, t, trigger, opts); }, (e) => abortRun(db, runId, a, t, 'run_failed', e instanceof Error ? e.message : String(e)));
   return { ok: true, runId };
 }
 
@@ -78,10 +91,11 @@ export async function triggerThreadRun(db: DB, agentId: string, threadId: string
   const th = (await db.select().from(thread).where(eq(thread.id, threadId)))[0];
   if (!a || !th) return { ok: false, error: 'agent 或线程不存在' };
   if (a.status === 'paused') return { ok: false, error: `${a.name} 已暂停` };
+  if (await projectArchived(db, a.workstationId)) return { ok: false, error: '项目已归档' };
   const key = `${agentId}:${threadId}`;
   if (queued.has(key) || inFlight.has(key)) return { ok: false, error: '该 (agent, thread) 已在队列中' };
   const runId = crypto.randomUUID();
-  enqueueRun(key, () => executeThreadRun(db, runId, a, th, trigger), (e) => abortRun(db, runId, a, null, 'run_failed', e instanceof Error ? e.message : String(e), th.id));
+  enqueueRun(key, async () => { if (!(await projectArchived(db, a.workstationId))) await executeThreadRun(db, runId, a, th, trigger); }, (e) => abortRun(db, runId, a, null, 'run_failed', e instanceof Error ? e.message : String(e), th.id));
   return { ok: true, runId };
 }
 

@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -124,40 +125,6 @@ function RemoteActions({ wsId }: { wsId: string }) {
       </div>
       {d.github && !d.ghReady && <p className="text-xs text-muted">PR 与 Issue 需要本机 gh 已登录：{d.ghError}</p>}
     </div>
-  );
-}
-
-function ProjectSection({ project }: { project: ProjectDetail }) {
-  const current = parseJson<{ tokens?: number } | null>(project.budgetJson, null);
-  const [tokens, setTokens] = useState(String(current?.tokens ?? ''));
-  const [folder, setFolder] = useState(project.folderPath ?? '');
-  const save = useMutation({
-    mutationFn: async () =>
-      unwrap(
-        await api.projects[':id'].$patch({
-          param: { id: project.id },
-          json: { budget: Number(tokens) > 0 ? { tokens: Number(tokens) } : null, folder: folder.trim() ? folder.trim() : null },
-        }),
-      ),
-    onSuccess: () => toast('项目设置已保存', 'ok'),
-  });
-  return (
-    <section className="space-y-3 border-t border-rule pt-4" aria-label="项目">
-      <h3 className="text-sm text-ink-2">项目</h3>
-      <Field label="项目文件夹" hint="本地文件夹的绝对路径，不需要是 git 仓库；Agent 可读，改文件要你审批。留空则解绑">
-        <Input className="measured" value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="project-folder-setting" />
-      </Field>
-      <div className="flex items-end gap-2">
-        <Field label="项目预算（tokens）" hint="超限后所有 Agent 停止，留空不限" className="w-64">
-          <Input className="measured" type="number" min={1} value={tokens} onChange={(e) => setTokens(e.target.value)} data-testid="project-budget" />
-        </Field>
-        <Button disabled={save.isPending} onClick={() => save.mutate()} data-testid="project-budget-save">保存</Button>
-      </div>
-      <p className="flex gap-3 text-sm">
-        <a href={`/api/projects/${project.id}/export`} className="text-cool hover:underline" download>导出全量 JSON</a>
-        <a href={`/api/projects/${project.id}/export?format=md`} className="text-cool hover:underline" download>导出 Markdown</a>
-      </p>
-    </section>
   );
 }
 
@@ -291,7 +258,11 @@ export function SettingsPanel({ ws, project }: { ws: WorkstationDetail; project:
           </>
         )}
         <Button type="submit" variant="primary" disabled={save.isPending || !name.trim()}>{save.isPending ? '保存中…' : '保存设置'}</Button>
-        {root && <ProjectSection project={project} />}
+        {root && (
+          <p className="border-t border-rule pt-4 text-sm text-muted">
+            项目名、目标、文件夹、预算、导出和归档在<Link to="/projects/$projectId/settings" params={{ projectId: project.id }} className="ml-0.5 text-cool hover:underline" data-testid="project-settings-link">项目设置</Link>里改。
+          </p>
+        )}
       </div>
     </form>
   );

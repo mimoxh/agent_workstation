@@ -15,7 +15,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['entity_', ['entities', 'entity-versions', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status', 'docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],
   ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files', 'remote', 'tasks']],
-  ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins', 'folder']],
+  ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins', 'folder', 'inbox']],
 ];
 
 export const keysFor = (action: string) => RULES.find(([p]) => action.startsWith(p))?.[1] ?? [];

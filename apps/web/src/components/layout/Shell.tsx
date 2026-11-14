@@ -33,7 +33,7 @@ export function useCurrentProjectId() {
   const projects = useProjects();
   const list = projects.data ?? [];
   const saved = readProject();
-  return list.find((p) => p.id === saved)?.id ?? list[0]?.id;
+  return list.find((p) => p.id === saved)?.id ?? (list.find((p) => p.status !== 'archived') ?? list[0])?.id;
 }
 
 // 工作台树按深度优先平铺成标签，子台带上父台名
@@ -109,7 +109,7 @@ function ProjectSwitcher({ current }: { current: ProjectDetail | undefined }) {
         {(close) => (
           <div role="menu" aria-label="切换项目">
             <p className="px-2 pb-1.5 pt-1 text-xs text-muted">切换项目后，顶栏标签换成该项目的工作台</p>
-            {(projects.data ?? []).map((p) => (
+            {(projects.data ?? []).filter((p) => p.status !== 'archived' || p.id === current?.id).map((p) => (
               <Link
                 key={p.id}
                 role="menuitem"
@@ -269,7 +269,7 @@ function ConsoleSidebar() {
   const inbox = useAllInbox();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [creating, setCreating] = useState(false);
-  const list = projects.data ?? [];
+  const list = (projects.data ?? []).filter((p) => p.status !== 'archived');
   return (
     <>
       <SideHead icon="home" title="控制台" sub={`全部 ${list.length} 个项目`} />
@@ -362,6 +362,7 @@ function WorkstationSidebar({ project, wsId }: { project: ProjectDetail; wsId: s
       <Group label="项目" title="项目">
         <Link to="/projects/$projectId/inbox" params={{ projectId: project.id }} className={navClass(loc.path.endsWith('/inbox'))}><Icon name="inbox" className="text-muted" />收件箱<Count n={overview.data?.inboxOpen ?? 0} /></Link>
         <Link to="/projects/$projectId/runs" params={{ projectId: project.id }} className={navClass(loc.path.includes('/runs'))}><Icon name="ledger" className="text-muted" />运行账本</Link>
+        <Link to="/projects/$projectId/settings" params={{ projectId: project.id }} className={navClass(loc.path.endsWith('/settings'))} data-testid="side-project-settings"><Icon name="sliders" className="text-muted" />项目设置</Link>
       </Group>
       <p className="measured mt-auto border-t border-rule px-2 pt-2.5 text-xs text-muted">sqlite 本地</p>
     </>
@@ -374,6 +375,15 @@ function ModelBanner() {
   return (
     <p className="shrink-0 border-b border-rule bg-accent-soft px-4 py-1.5 text-sm text-ink-2" data-testid="model-banner">
       还没有可用的模型，任务暂时无法派发。<Link to="/settings" className="font-medium text-accent underline underline-offset-2">去配置模型</Link>
+    </p>
+  );
+}
+
+function ArchivedBanner({ project }: { project: ProjectDetail }) {
+  if (project.status !== 'archived') return null;
+  return (
+    <p className="shrink-0 border-b border-rule bg-accent-soft px-4 py-1.5 text-sm text-ink-2" data-testid="archived-banner">
+      这个项目已归档，Agent 不会开始新的运行。<Link to="/projects/$projectId/settings" params={{ projectId: project.id }} className="font-medium text-accent underline underline-offset-2">去恢复</Link>
     </p>
   );
 }
@@ -402,6 +412,7 @@ function Frame({ project, activeWs, onConsole, sidebar, children }: { project: P
     <div className="flex h-dvh flex-col">
       <TopBar project={project} activeWs={activeWs} onConsole={onConsole} onMenu={() => setSideOpen((v) => !v)} onMount={() => setMounting(true)} onPalette={() => setPalette(true)} />
       <ModelBanner />
+      {project && !onConsole && <ArchivedBanner project={project} />}
       <div className="relative flex min-h-0 flex-1">
         {sideOpen && <button type="button" aria-label="关闭侧栏" className="fixed inset-x-0 bottom-0 top-11 z-30 animate-fade bg-scrim md:hidden" onClick={() => setSideOpen(false)} />}
         <aside

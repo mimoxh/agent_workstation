@@ -213,10 +213,10 @@ test('知识库、账本与全局页', async ({ page }) => {
   await expect(page.getByTestId('ledger-总 tokens')).toBeVisible();
   await expect(page.getByLabel('按成员')).toContainText('架构师');
 
-  // 指挥台：预算写入后顶栏显示余量
-  await page.goto('/projects/proj-aw?panel=_settings');
+  // 项目设置：预算写入后顶栏显示余量
+  await page.goto('/projects/proj-aw/settings');
   await page.getByTestId('project-budget').fill('100000000');
-  await page.getByTestId('project-budget-save').click();
+  await page.getByTestId('project-settings-save').click();
   await expect(page.getByTestId('budget-left')).toBeVisible();
 
   await page.getByTestId('settings-link').click();

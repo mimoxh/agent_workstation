@@ -1,11 +1,38 @@
 import type { Actor } from '@aw/domain';
 import fs from 'node:fs';
 import path from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, or, type SQL } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { agent, artifact, pluginInstall, project, workstation } from '../db/schema.js';
-import { captureScreenshot, diffRatio } from '../runtime/visual.js';
+import {
+  accessGrant,
+  agent,
+  artifact,
+  block,
+  entity,
+  entityVersion,
+  inboxItem,
+  knowledgeChunk,
+  knowledgeSource,
+  message,
+  pluginInstall,
+  project,
+  proposal,
+  qaCaseResult,
+  qaRun,
+  reviewComment,
+  run,
+  task,
+  taskDependency,
+  thread,
+  threadMember,
+  workstation,
+} from '../db/schema.js';
 import { checkFolder } from '../runtime/folder.js';
+import { devSettings, removeTaskWorktree } from '../runtime/git.js';
+import { cancelRun } from '../runtime/loop.js';
+import { stopPreview } from '../runtime/preview.js';
+import { hasPendingRuns } from '../runtime/scheduler.js';
+import { captureScreenshot, diffRatio } from '../runtime/visual.js';
 import { readRepoBlob } from './repo.js';
 import { logEvent, manifestOf } from './core.js';
 import { addAgentInstance, mountWorkstation } from './workstations.js';
@@ -115,10 +142,22 @@ export async function updateAgent(
   return { kind: 'ok' as const, agent: (await db.select().from(agent).where(eq(agent.id, agentId)))[0]! };
 }
 
-export async function updateProject(actor: Actor, db: DB, projectId: string, input: { budget?: { tokens?: number | undefined; costMicros?: number | undefined } | null | undefined; folder?: string | null | undefined }) {
+export async function updateProject(
+  actor: Actor,
+  db: DB,
+  projectId: string,
+  input: {
+    name?: string | undefined;
+    goal?: string | null | undefined;
+    budget?: { tokens?: number | undefined; costMicros?: number | undefined } | null | undefined;
+    folder?: string | null | undefined;
+  },
+) {
   const p = (await db.select().from(project).where(eq(project.id, projectId)))[0];
   if (!p) return { kind: 'not_found' as const, status: 404 as const, error: '项目不存在' };
   const patch: Partial<typeof project.$inferInsert> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.goal !== undefined) patch.goal = input.goal?.trim() ? input.goal.trim() : null;
   if (input.budget !== undefined) patch.budgetJson = input.budget ? JSON.stringify(input.budget) : null;
   if (input.folder !== undefined) {
     if (input.folder === null) patch.folderPath = null;
@@ -129,7 +168,107 @@ export async function updateProject(actor: Actor, db: DB, projectId: string, inp
     }
   }
   if (Object.keys(patch).length > 0) await db.update(project).set(patch).where(eq(project.id, projectId));
-  await logEvent(db, actor, 'project_updated', 'project', projectId, {});
+  await logEvent(db, actor, 'project_updated', 'project', projectId, { fields: Object.keys(patch) });
+  return { kind: 'ok' as const };
+}
+
+async function projectScope(db: DB, projectId: string) {
+  const wsIds = (await db.select({ id: workstation.id }).from(workstation).where(eq(workstation.projectId, projectId))).map((w) => w.id);
+  const agentIds = wsIds.length ? (await db.select({ id: agent.id }).from(agent).where(inArray(agent.workstationId, wsIds))).map((a) => a.id) : [];
+  return { wsIds, agentIds };
+}
+
+// 归档：从控制台列表和跨项目收件箱里隐去，Agent 不再起新的 run，正在跑的取消；数据原样保留，可恢复
+export async function setProjectArchived(actor: Actor, db: DB, projectId: string, archived: boolean) {
+  const p = (await db.select().from(project).where(eq(project.id, projectId)))[0];
+  if (!p) return { kind: 'not_found' as const, status: 404 as const, error: '项目不存在' };
+  await db.update(project).set({ status: archived ? 'archived' : 'active' }).where(eq(project.id, projectId));
+  let cancelled = 0;
+  if (archived) {
+    const { agentIds } = await projectScope(db, projectId);
+    const running = agentIds.length ? await db.select({ id: run.id }).from(run).where(and(inArray(run.agentId, agentIds), eq(run.status, 'running'))) : [];
+    for (const r of running) if (cancelRun(r.id)) cancelled += 1;
+  }
+  await logEvent(db, actor, archived ? 'project_archived' : 'project_restored', 'project', projectId, archived ? { cancelledRuns: cancelled } : {});
+  return { kind: 'ok' as const, cancelled };
+}
+
+// 永久删除：只允许已归档且没有 run / 质量运行在收尾的项目；任务 worktree 尽量回收，未合并的分支留在仓库里
+export async function deleteProject(actor: Actor, db: DB, projectId: string) {
+  const p = (await db.select().from(project).where(eq(project.id, projectId)))[0];
+  if (!p) return { kind: 'not_found' as const, status: 404 as const, error: '项目不存在' };
+  if (p.status !== 'archived') return { kind: 'error' as const, status: 409 as const, error: '先归档项目，再删除' };
+  const { wsIds, agentIds } = await projectScope(db, projectId);
+  if (hasPendingRuns(agentIds)) return { kind: 'error' as const, status: 409 as const, error: '还有 Agent 运行在收尾，稍后再删' };
+  const busyQa = wsIds.length ? await db.select({ id: qaRun.id }).from(qaRun).where(and(inArray(qaRun.workstationId, wsIds), inArray(qaRun.status, ['queued', 'running']))).limit(1) : [];
+  if (busyQa.length > 0) return { kind: 'error' as const, status: 409 as const, error: '还有质量运行没结束，稍后再删' };
+
+  const stations = await db.select().from(workstation).where(eq(workstation.projectId, projectId));
+  const tasks = await db.select({ id: task.id, workstationId: task.workstationId, codeRefJson: task.codeRefJson }).from(task).where(eq(task.projectId, projectId));
+  for (const t of tasks.filter((x) => x.codeRefJson)) {
+    stopPreview(t.id);
+    const ws = stations.find((w) => w.id === t.workstationId);
+    if (ws?.pluginId === 'dev' && ws.settingsJson) await removeTaskWorktree(devSettings(ws.settingsJson), ws.id, t.id).catch(() => undefined);
+  }
+
+  const taskIds = tasks.map((t) => t.id);
+  const any = (ids: string[], cond: () => SQL | undefined) => (ids.length > 0 ? cond() : undefined);
+  db.transaction((tx) => {
+    const sources = tx
+      .select({ id: knowledgeSource.id })
+      .from(knowledgeSource)
+      .where(or(and(eq(knowledgeSource.scopeType, 'project'), eq(knowledgeSource.scopeId, projectId)), any(wsIds, () => and(eq(knowledgeSource.scopeType, 'workstation'), inArray(knowledgeSource.scopeId, wsIds)))))
+      .all()
+      .map((s) => s.id);
+    if (sources.length) {
+      const chunks = tx.select({ id: knowledgeChunk.id }).from(knowledgeChunk).where(inArray(knowledgeChunk.sourceId, sources)).all();
+      const fts = db.$client.prepare('DELETE FROM knowledge_fts WHERE chunk_id = ?');
+      for (const c of chunks) fts.run(c.id);
+      tx.delete(knowledgeChunk).where(inArray(knowledgeChunk.sourceId, sources)).run();
+      tx.delete(knowledgeSource).where(inArray(knowledgeSource.id, sources)).run();
+    }
+
+    const byTaskOrWs = or(any(taskIds, () => inArray(proposal.taskId, taskIds)), any(wsIds, () => inArray(proposal.workstationId, wsIds)));
+    const proposals = byTaskOrWs ? tx.select({ id: proposal.id }).from(proposal).where(byTaskOrWs).all().map((x) => x.id) : [];
+    if (proposals.length) {
+      tx.delete(reviewComment).where(inArray(reviewComment.proposalId, proposals)).run();
+      tx.delete(proposal).where(inArray(proposal.id, proposals)).run();
+    }
+
+    const scopes = [...wsIds, ...taskIds, ...agentIds];
+    const threads = scopes.length ? tx.select({ id: thread.id }).from(thread).where(inArray(thread.scopeId, scopes)).all().map((x) => x.id) : [];
+    if (threads.length) {
+      tx.delete(message).where(inArray(message.threadId, threads)).run();
+      tx.delete(threadMember).where(inArray(threadMember.threadId, threads)).run();
+      tx.delete(thread).where(inArray(thread.id, threads)).run();
+    }
+
+    const runs = or(any(agentIds, () => inArray(run.agentId, agentIds)), any(taskIds, () => inArray(run.taskId, taskIds)));
+    if (runs) tx.delete(run).where(runs).run();
+
+    if (wsIds.length) {
+      tx.delete(qaCaseResult).where(inArray(qaCaseResult.workstationId, wsIds)).run();
+      tx.delete(qaRun).where(inArray(qaRun.workstationId, wsIds)).run();
+    }
+    const artifacts = or(any(wsIds, () => inArray(artifact.workstationId, wsIds)), any(taskIds, () => inArray(artifact.taskId, taskIds)));
+    if (artifacts) tx.delete(artifact).where(artifacts).run();
+
+    if (wsIds.length) {
+      const entities = tx.select({ id: entity.id }).from(entity).where(inArray(entity.workstationId, wsIds)).all().map((x) => x.id);
+      if (entities.length) tx.delete(entityVersion).where(inArray(entityVersion.entityId, entities)).run();
+      tx.delete(entity).where(inArray(entity.workstationId, wsIds)).run();
+      tx.delete(block).where(inArray(block.workstationId, wsIds)).run();
+      tx.delete(agent).where(inArray(agent.workstationId, wsIds)).run();
+    }
+
+    if (taskIds.length) tx.delete(taskDependency).where(or(inArray(taskDependency.taskId, taskIds), inArray(taskDependency.dependsOnId, taskIds))).run();
+    tx.delete(task).where(eq(task.projectId, projectId)).run();
+    tx.delete(inboxItem).where(eq(inboxItem.projectId, projectId)).run();
+    tx.delete(accessGrant).where(inArray(accessGrant.scopeId, [projectId, ...wsIds])).run();
+    tx.delete(workstation).where(eq(workstation.projectId, projectId)).run();
+    tx.delete(project).where(eq(project.id, projectId)).run();
+  });
+  await logEvent(db, actor, 'project_deleted', 'project', projectId, { name: p.name });
   return { kind: 'ok' as const };
 }
 
