@@ -126,6 +126,8 @@ export const agent = sqliteTable('agent', {
   prompt: text('prompt'),
   toolsJson: text('tools_json'),
   budgetJson: text('budget_json'),
+  // 运行引擎：null / builtin 走平台自带循环，其余是外部 harness（claude-code / codex …）
+  engine: text('engine'),
   isSteward: integer('is_steward').notNull().default(0),
   status: text('status'),
   createdAt: text('created_at').notNull(),
@@ -264,6 +266,8 @@ export const run = sqliteTable(
     cost: integer('cost'),
     traceJson: text('trace_json'),
     error: text('error'),
+    engine: text('engine'),
+    sessionId: text('session_id'),
   },
   (t) => [index('idx_run_agent').on(t.agentId, t.startedAt)],
 );

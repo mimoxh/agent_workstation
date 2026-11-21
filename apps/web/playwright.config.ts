@@ -9,21 +9,23 @@ const e2eDbPath = path.join(os.tmpdir(), `aw-e2e-${process.pid}.db`);
 // e2e 专属 fixture 仓库（绝不用本仓库）+ 独立 worktree 根
 const e2eDir = path.join(os.tmpdir(), `aw-e2e-repo-${process.pid}`);
 const e2eRepo = path.join(e2eDir, 'repo');
-{
-  const { mkdirSync, writeFileSync } = await import('node:fs');
-  const { execFileSync } = await import('node:child_process');
-  mkdirSync(path.join(e2eRepo, 'src', 'board'), { recursive: true });
-  writeFileSync(path.join(e2eRepo, 'package.json'), JSON.stringify({ name: 'fixture', private: true, scripts: { build: 'node check.js' } }));
-  writeFileSync(path.join(e2eRepo, 'check.js'), 'process.exit(0);\n');
-  writeFileSync(path.join(e2eRepo, 'src', 'board', 'index.txt'), 'board\n');
-  writeFileSync(path.join(e2eRepo, 'qa-run.js'), `require('fs').writeFileSync('junit.xml', '<testsuites><testsuite name="login"><testcase classname="login" name="accepts valid password" time="0.1"/><testcase classname="login" name="rejects empty password" time="0.2"><failure message="expected 200 to be 400">at login.test.js:12</failure></testcase></testsuite></testsuites>'); process.exit(1);\n`);
-  writeFileSync(path.join(e2eRepo, '.gitignore'), 'data/\n');
-  const g = (args: string[]) => execFileSync('git', args, { cwd: e2eRepo, stdio: 'pipe' });
-  g(['init', '-b', 'main']);
-  g(['add', '-A']);
-  g(['-c', 'user.name=f', '-c', 'user.email=f@f.local', 'commit', '-m', 'init']);
-  // seed 的开发台绑 targetBranch=develop；临时目录被复用时分支可能已在
-  try { g(['checkout', '-b', 'develop']); } catch { g(['checkout', 'develop']); }
+if (!process.env.TEST_WORKER_INDEX) {
+  const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
+  if (!existsSync(path.join(e2eRepo, '.git'))) {
+    const { execFileSync } = await import('node:child_process');
+    mkdirSync(path.join(e2eRepo, 'src', 'board'), { recursive: true });
+    writeFileSync(path.join(e2eRepo, 'package.json'), JSON.stringify({ name: 'fixture', private: true, scripts: { build: 'node check.js' } }));
+    writeFileSync(path.join(e2eRepo, 'check.js'), 'process.exit(0);\n');
+    writeFileSync(path.join(e2eRepo, 'src', 'board', 'index.txt'), 'board\n');
+    writeFileSync(path.join(e2eRepo, 'qa-run.js'), `require('fs').writeFileSync('junit.xml', '<testsuites><testsuite name="login"><testcase classname="login" name="accepts valid password" time="0.1"/><testcase classname="login" name="rejects empty password" time="0.2"><failure message="expected 200 to be 400">at login.test.js:12</failure></testcase></testsuite></testsuites>'); process.exit(1);\n`);
+    writeFileSync(path.join(e2eRepo, '.gitignore'), 'data/\n');
+    const g = (args: string[]) => execFileSync('git', args, { cwd: e2eRepo, stdio: 'pipe' });
+    g(['init', '-b', 'main']);
+    g(['add', '-A']);
+    g(['-c', 'user.name=f', '-c', 'user.email=f@f.local', 'commit', '-m', 'init']);
+    // seed 的开发台绑 targetBranch=develop；主工作区留在 main，不能检出 targetBranch
+    g(['branch', '-f', 'develop', 'main']);
+  }
 }
 
 export default defineConfig({

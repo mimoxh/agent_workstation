@@ -26,6 +26,15 @@ export function cancelRun(runId: string): boolean {
   return true;
 }
 
+// 外部 harness 的 run 也登记在这里：人工取消、任务中断走同一条路
+export function trackRun(runId: string, taskId: string | null) {
+  const entry = { taskId, abort: new AbortController(), cancelled: false };
+  activeRuns.set(runId, entry);
+  return { entry, release: () => { activeRuns.delete(runId); } };
+}
+
+export const isRunActive = (runId: string) => activeRuns.has(runId);
+
 export function cancelRunsOfTask(taskId: string) {
   let stopped = 0;
   for (const [id, r] of activeRuns) {
@@ -73,7 +82,7 @@ const LARGE_OUTPUT_TOKENS = Number(process.env.AW_LARGE_OUTPUT_TOKENS ?? 16000);
 
 const now = () => new Date().toISOString();
 
-async function appendTrace(db: DB, runId: string, step: TraceStep) {
+export async function appendTrace(db: DB, runId: string, step: TraceStep) {
   const rows = await db.select().from(run).where(eq(run.id, runId));
   const trace = JSON.parse(rows[0]?.traceJson ?? '[]') as TraceStep[];
   trace.push(step);
@@ -81,7 +90,7 @@ async function appendTrace(db: DB, runId: string, step: TraceStep) {
   events.emit('run_step', { runId, step });
 }
 
-async function addUsage(db: DB, runId: string, taskId: string | null, routeId: string, tin: number, tout: number) {
+export async function addUsage(db: DB, runId: string, taskId: string | null, routeId: string, tin: number, tout: number) {
   const rows = await db.select().from(run).where(eq(run.id, runId));
   const r = rows[0];
   await db.update(run).set({ tokensIn: (r?.tokensIn ?? 0) + tin, tokensOut: (r?.tokensOut ?? 0) + tout, cost: (r?.cost ?? 0) + runCost(routeId, tin, tout) }).where(eq(run.id, runId));
@@ -91,11 +100,11 @@ async function addUsage(db: DB, runId: string, taskId: string | null, routeId: s
   await db.update(task).set({ usageJson: JSON.stringify({ tokensIn: (usage.tokensIn ?? 0) + tin, tokensOut: (usage.tokensOut ?? 0) + tout }) }).where(eq(task.id, taskId));
 }
 
-function budgetOf(agentRow: AgentRow, taskRow: TaskRow | null, pluginDefault?: number): number {
+export function budgetOf(agentRow: AgentRow, taskRow: TaskRow | null, pluginDefault?: number): number {
   const parse = (j: string | null) => { try { return (JSON.parse(j ?? '{}') as { tokens?: number }).tokens; } catch { return undefined; } };
   return parse(agentRow.budgetJson) ?? parse(taskRow?.budgetJson ?? null) ?? pluginDefault ?? 200000;
 }
-function minutesOf(agentRow: AgentRow, taskRow: TaskRow | null, pluginDefault?: number): number {
+export function minutesOf(agentRow: AgentRow, taskRow: TaskRow | null, pluginDefault?: number): number {
   const parse = (j: string | null) => { try { return (JSON.parse(j ?? '{}') as { minutes?: number }).minutes; } catch { return undefined; } };
   return parse(agentRow.budgetJson) ?? parse(taskRow?.budgetJson ?? null) ?? pluginDefault ?? 10;
 }

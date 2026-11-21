@@ -11,6 +11,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['message_', ['timeline', 'thread-messages', 'conversations']],
   ['thread_', ['thread', 'thread-messages', 'conversations']],
   ['run_step', ['pulse', 'timeline']],
+  ['terminal_', ['terminals', 'run']],
   ['run_', ['runs', 'run', 'agent-status', 'overview', 'task', 'testruns', 'pulse', 'timeline', 'ledger', 'thread-active']],
   ['entity_', ['entities', 'entity-versions', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status', 'docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],

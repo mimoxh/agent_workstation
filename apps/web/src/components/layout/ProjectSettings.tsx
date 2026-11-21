@@ -2,16 +2,22 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass, Spinner } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Field, Input, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson } from '@/lib/format';
 import type { ProjectDetail } from '@/lib/queries';
-import { Page, PageHeader, SectionTitle } from './Page';
+import { Page, PageHeader } from './Page';
 
 type Budget = { tokens?: number; costMicros?: number } | null;
+
+const CARD = 'grid gap-4 p-5 max-md:p-4';
+const HEAD = 'text-sm font-bold text-ink';
+const ROW = 'flex flex-wrap items-center gap-3 border-b border-rule py-3 first:pt-0 last:border-b-0 last:pb-0';
 
 function DeleteDialog({ project, onClose }: { project: ProjectDetail; onClose: () => void }) {
   const [typed, setTyped] = useState('');
@@ -48,30 +54,31 @@ function Lifecycle({ project }: { project: ProjectDetail }) {
     onSuccess: (r) => toast(archived ? '项目已恢复' : r.cancelled ? `项目已归档，取消了 ${r.cancelled} 个进行中的运行` : '项目已归档', 'ok'),
   });
   return (
-    <section aria-label="归档与删除" className="space-y-4 border-t border-rule pt-3">
-      <div className="flex flex-wrap items-start gap-3">
+    <section aria-label="归档与删除" className="grid">
+      <div className={ROW}>
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-sm font-medium text-ink">{archived ? '恢复项目' : '归档项目'}{archived && <Badge tone="amber">已归档</Badge>}</p>
-          <p className="mt-0.5 text-sm text-muted">
+          <p className="flex items-center gap-2 text-sm font-semibold text-ink">{archived ? '恢复项目' : '归档项目'}{archived && <Badge tone="amber">已归档</Badge>}</p>
+          <p className="mt-0.5 text-xs text-muted">
             {archived ? '恢复后项目回到控制台列表，Agent 可以继续接任务。' : '归档后项目从控制台列表和跨项目收件箱里隐去，Agent 不再开始新的运行，正在跑的会被取消。数据都保留，随时可以恢复。'}
           </p>
         </div>
         <Button
           disabled={toggle.isPending}
+          aria-busy={toggle.isPending || undefined}
           data-testid="project-archive"
           onClick={() => {
             if (archived || window.confirm(`确认归档「${project.name}」？进行中的 Agent 运行会被取消。`)) toggle.mutate();
           }}
         >
-          {archived ? '恢复项目' : '归档项目'}
+          <Icon name={archived ? 'undo' : 'archive'} />{archived ? '恢复项目' : '归档项目'}
         </Button>
       </div>
-      <div className="flex flex-wrap items-start gap-3">
+      <div className={ROW}>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-ink">删除项目</p>
-          <p className="mt-0.5 text-sm text-muted">{archived ? '永久删除项目和它的全部数据，无法恢复。' : '只能删除已归档的项目：先归档，确认没有 Agent 在跑，再删除。'}</p>
+          <p className="text-sm font-semibold text-bad">删除项目</p>
+          <p className="mt-0.5 text-xs text-muted">{archived ? '永久删除项目和它的全部数据，无法恢复。' : '只能删除已归档的项目：先归档，确认没有 Agent 在跑，再删除。'}</p>
         </div>
-        <Button variant="danger" disabled={!archived} onClick={() => setDeleting(true)} data-testid="project-delete">删除项目</Button>
+        <Button variant="danger" disabled={!archived} onClick={() => setDeleting(true)} data-testid="project-delete"><Icon name="trash" />删除项目</Button>
       </div>
       {deleting && <DeleteDialog project={project} onClose={() => setDeleting(false)} />}
     </section>
@@ -113,32 +120,47 @@ export function ProjectSettings({ project }: { project: ProjectDetail }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="project-settings">
-      <Page>
+      <Page narrow>
         <PageHeader icon="gear" title="项目设置" desc={project.name} />
-        <form onSubmit={submit} className="mt-6 max-w-xl space-y-4">
-          <Field label="项目名" required>
-            <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="project-name-setting" />
-          </Field>
-          <Field label="目标" hint="项目经理和各台 Agent 会看到它">
-            <Textarea rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} data-testid="project-goal-setting" />
-          </Field>
-          <Field label="项目文件夹" hint="本地文件夹的绝对路径，不需要是 git 仓库；Agent 可读，改文件要你审批。留空则解绑">
-            <Input className="measured" value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="project-folder-setting" />
-          </Field>
-          <Field label="项目预算（tokens）" hint="超限后所有 Agent 停止，留空不限" className="w-64">
-            <Input className="measured" type="number" min={1} value={tokens} onChange={(e) => setTokens(e.target.value)} data-testid="project-budget" />
-          </Field>
-          <Button type="submit" variant="primary" disabled={save.isPending || !name.trim()} data-testid="project-settings-save">{save.isPending ? '保存中…' : '保存设置'}</Button>
-        </form>
+        <div className="grid gap-4">
+          <form onSubmit={submit} className="grid gap-4">
+            <Card className={CARD}>
+              <h2 className={HEAD}>基本信息</h2>
+              <Field label="项目名" required>
+                <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="project-name-setting" />
+              </Field>
+              <Field label="目标" hint="项目经理和各台 Agent 会看到它">
+                <Textarea rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} data-testid="project-goal-setting" />
+              </Field>
+              <Field label="项目文件夹" hint="本地文件夹的绝对路径，不需要是 git 仓库；Agent 可读，改文件要你审批。留空则解绑">
+                <Input className="measured" value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="project-folder-setting" />
+              </Field>
+            </Card>
+            <Card className={CARD}>
+              <h2 className={HEAD}>预算</h2>
+              <Field label="项目预算（tokens）" hint="超限后所有 Agent 停止，留空不限" className="max-w-sm">
+                <Input className="tabular-nums" type="number" min={1} value={tokens} placeholder="不限" onChange={(e) => setTokens(e.target.value)} data-testid="project-budget" />
+              </Field>
+            </Card>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" variant="primary" disabled={save.isPending || !name.trim()} aria-busy={save.isPending || undefined} data-testid="project-settings-save">{save.isPending && <Spinner />}{save.isPending ? '保存中…' : '保存设置'}</Button>
+            </div>
+          </form>
 
-        <SectionTitle>导出</SectionTitle>
-        <p className="flex gap-3 border-t border-rule pt-3 text-sm">
-          <a href={`/api/projects/${project.id}/export`} className="text-cool hover:underline" download>导出全量 JSON</a>
-          <a href={`/api/projects/${project.id}/export?format=md`} className="text-cool hover:underline" download>导出 Markdown</a>
-        </p>
+          <Card className={CARD}>
+            <h2 className={HEAD}>导出</h2>
+            <p className="text-sm text-muted">全量导出项目的任务、会话、运行记录和知识库，删除前可以先备份。</p>
+            <div className="flex flex-wrap gap-2">
+              <a href={`/api/projects/${project.id}/export`} className={buttonClass('default', 'sm')} download><Icon name="download" />导出全量 JSON</a>
+              <a href={`/api/projects/${project.id}/export?format=md`} className={buttonClass('default', 'sm')} download><Icon name="download" />导出 Markdown</a>
+            </div>
+          </Card>
 
-        <SectionTitle>归档与删除</SectionTitle>
-        <Lifecycle project={project} />
+          <Card className={CARD}>
+            <h2 className={HEAD}>归档与删除</h2>
+            <Lifecycle project={project} />
+          </Card>
+        </div>
       </Page>
     </div>
   );

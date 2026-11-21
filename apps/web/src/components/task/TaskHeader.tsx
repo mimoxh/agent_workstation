@@ -9,6 +9,7 @@ import { PageIcon, Prop } from '@/components/layout/Page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { clock, num, parseJson, seconds, shortId, when } from '@/lib/format';
@@ -23,7 +24,7 @@ function Checks({ task, testRuns }: { task: BoardTask; testRuns: TestRun[] }) {
   const suiteName = (id: string) => gates.find((s) => s.id === id)?.name ?? id;
   if (checks.length === 0) return <p className="text-sm text-muted">没有声明可执行验收</p>;
   return (
-    <ul className="space-y-1" data-testid="acceptance-checks">
+    <ul className="grid w-full" data-testid="acceptance-checks">
       {checks.map((c) => {
         const suite = c.kind === 'qa_suite' && c.suite;
         const match = c.kind === 'design_match';
@@ -31,10 +32,10 @@ function Checks({ task, testRuns }: { task: BoardTask; testRuns: TestRun[] }) {
         const last = testRuns.find((r) => r.command === (suite ? `qa:${suiteName(c.suite!)}` : match ? `design_match ${c.url}` : c.run));
         const passed = last?.status === 'passed';
         return (
-          <li key={c.run ?? c.suite ?? c.url} className="flex items-baseline gap-2 text-sm">
-            <span aria-hidden className={cn('measured w-3', !last ? 'text-muted' : passed ? 'text-ok' : 'text-bad')}>{!last ? '·' : passed ? '✓' : '✗'}</span>
+          <li key={c.run ?? c.suite ?? c.url} className="flex min-w-0 items-center gap-2.5 border-b border-rule py-2 text-sm last:border-b-0">
+            <span aria-hidden className={cn('w-[18px] shrink-0 text-center font-bold', !last ? 'text-faint' : passed ? 'text-ok' : 'text-bad')}>{!last ? '·' : passed ? '✓' : '✗'}</span>
             <code className="min-w-0 flex-1 truncate text-ink-2">{label}</code>
-            <span className="measured shrink-0 text-xs text-muted">{last ? `${passed ? '通过' : '失败'} ${seconds(last.duration)}` : '未运行'}</span>
+            <span className={cn('shrink-0 text-xs tabular-nums', !last ? 'text-muted' : passed ? 'text-ok' : 'font-medium text-bad')}>{last ? `${passed ? '通过' : '失败'} ${seconds(last.duration)}` : '未运行'}</span>
           </li>
         );
       })}
@@ -49,16 +50,25 @@ function StageRail({ detail }: { detail: TaskDetail }) {
   const enteredAt = (id: string) =>
     events.filter((e) => e.action === 'task_stage_changed' && parseJson<{ stage?: string }>(e.payloadJson, {}).stage === id).at(-1)?.createdAt;
   return (
-    <ol className="flex flex-wrap items-center gap-x-3 gap-y-1" aria-label="任务阶段" data-testid="stage-rail">
+    <ol className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5" aria-label="任务阶段" data-testid="stage-rail">
       {flow.stages.map((s, i) => {
         const done = finished || i < cur;
         const here = !finished && i === cur;
         const at = enteredAt(s.id);
         return (
-          <li key={s.id} aria-current={here ? 'step' : undefined} className={cn('flex items-baseline gap-1 rounded-chip text-sm', here ? 'bg-cool-tag px-1.5 font-medium text-cool-tag-ink' : done ? 'text-muted' : 'text-faint')}>
-            {done && <span aria-hidden className="measured text-xs text-ok">✓</span>}
+          <li
+            key={s.id}
+            aria-current={here ? 'step' : undefined}
+            className={cn(
+              'flex items-center gap-[7px] text-xs after:ml-[3px] after:h-px after:w-[22px] after:bg-rule-2 last:after:hidden',
+              here ? 'font-semibold text-ink' : done ? 'text-muted' : 'text-faint',
+            )}
+          >
+            <span aria-hidden className={cn('grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold tabular-nums', here ? 'bg-primary text-primary-ink' : done ? 'bg-cool-tag text-cool-tag-ink' : 'bg-paper-3 text-muted')}>
+              {done ? <Icon name="check" className="size-[11px]" /> : i + 1}
+            </span>
             {s.name}
-            {at && <span className={cn('measured text-xs', here ? 'text-cool-tag-ink/70' : 'text-faint')}>{clock(at).slice(0, 5)}</span>}
+            {at && <span className="font-normal tabular-nums text-muted">{clock(at).slice(0, 5)}</span>}
           </li>
         );
       })}
@@ -86,7 +96,7 @@ function StageSelect({ detail }: { detail: TaskDetail }) {
   if (flow.stages.length === 0 || !['in_progress', 'reviewing'].includes(task.status)) return null;
   return (
     <Select
-      className="h-7 w-28 text-xs"
+      className="h-7 w-28 rounded-btn text-xs"
       aria-label="推进阶段"
       data-testid="stage-select"
       value={task.stage ?? ''}
@@ -106,13 +116,13 @@ function Gates({ detail }: { detail: TaskDetail }) {
   });
   if (flow.gates.length === 0 || !['in_progress', 'reviewing'].includes(task.status)) return null;
   return (
-    <ul className="space-y-1" data-testid="stage-gates">
+    <ul className="grid w-full" data-testid="stage-gates">
       {flow.gates.map((g) => (
-        <li key={`${g.stage}-${g.index}`} className="flex items-baseline gap-2 text-sm">
-          <span aria-hidden className={cn('measured w-3', g.met ? 'text-ok' : 'text-accent')}>{g.met ? '✓' : '·'}</span>
+        <li key={`${g.stage}-${g.index}`} className="flex min-h-9 items-center gap-2.5 border-b border-rule py-1 text-sm last:border-b-0">
+          <span aria-hidden className={cn('w-[18px] shrink-0 text-center font-bold', g.met ? 'text-ok' : 'text-accent')}>{g.met ? '✓' : '·'}</span>
           <span className={cn('min-w-0 flex-1', g.met ? 'text-muted' : 'text-ink-2')}>{g.text}</span>
           {!g.met && g.confirmable && (
-            <Button size="sm" variant="quiet" disabled={confirm.isPending} onClick={() => confirm.mutate(g)} data-testid="gate-confirm">确认</Button>
+            <Button size="sm" disabled={confirm.isPending} onClick={() => confirm.mutate(g)} data-testid="gate-confirm">确认</Button>
           )}
           {!g.met && !g.confirmable && <span className="shrink-0 text-xs text-muted">平台判定</span>}
         </li>
@@ -157,7 +167,7 @@ function BranchState({ task }: { task: TaskDetail['task'] }) {
           {b.merging && <span className="text-bad">合并中{b.conflicts.length > 0 ? `，冲突：${b.conflicts.join('、')}` : '，冲突已解决待提交'}</span>}
           {b.movedAfterSubmit && <span className="text-bad">提交提案后分支又被改过，合并时会退回</span>}
           {b.behind > 0 && !b.merging && (
-            <Button size="sm" variant="quiet" disabled={sync.isPending} onClick={() => sync.mutate()} data-testid="task-sync">{sync.isPending ? '同步中…' : '同步'}</Button>
+            <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate()} data-testid="task-sync">{sync.isPending ? '同步中…' : '同步'}</Button>
           )}
         </>
       ) : null}
@@ -169,12 +179,12 @@ function CounterNote({ task }: { task: BoardTask }) {
   const result = parseJson<{ reason?: string; counter?: { input?: Record<string, unknown>; acceptance?: { run?: string }[] } }>(task.resultJson, {});
   if (!result.reason) return null;
   return (
-    <section className="rounded-chip bg-accent-soft px-4 py-3 text-sm text-ink-2" aria-label="目标台的回复">
-      <p className="text-xs text-muted">{task.status === 'countered' ? '反提案' : '目标台回复'}</p>
-      <p className="whitespace-pre-wrap">{result.reason}</p>
-      {result.counter?.input && <p className="mt-1 text-muted">建议输入 <code>{JSON.stringify(result.counter.input)}</code></p>}
-      {result.counter?.acceptance && <p className="mt-1 text-muted">建议验收 {result.counter.acceptance.map((c) => <code key={c.run} className="mr-2">{c.run}</code>)}</p>}
-      {task.status === 'countered' && <p className="mt-1 text-xs text-muted">点「重新派发」会采纳以上改动。</p>}
+    <section className="grid gap-2 rounded-card bg-accent-soft px-[18px] py-4 text-sm text-ink-2" aria-label="目标台的回复">
+      <p className="flex items-center gap-2 text-sm font-bold text-accent"><Icon name="undo" className="size-[15px]" />{task.status === 'countered' ? '反提案' : '目标台回复'}</p>
+      <p className="max-w-[72ch] whitespace-pre-wrap">{result.reason}</p>
+      {result.counter?.input && <p className="text-muted">建议输入 <code>{JSON.stringify(result.counter.input)}</code></p>}
+      {result.counter?.acceptance && <p className="text-muted">建议验收 {result.counter.acceptance.map((c) => <code key={c.run} className="mr-2">{c.run}</code>)}</p>}
+      {task.status === 'countered' && <p className="text-xs text-muted">点「重新派发」会采纳以上改动。</p>}
     </section>
   );
 }
@@ -219,12 +229,14 @@ export function TaskHeader({
     : '未指派';
 
   return (
-    <header className="pt-8" data-testid="task-header">
-      <PageIcon icon="doc" />
-      <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
-        <h1 className="min-w-0 flex-1 break-words text-page font-bold tracking-tight text-ink">{task.title}</h1>
+    <header className="pt-7" data-testid="task-header">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+        <div className="flex min-w-0 flex-[1_1_320px] items-center gap-3">
+          <PageIcon icon="doc" />
+          <h1 className="min-w-0 break-words text-h2 font-bold tracking-[-0.01em] text-ink">{task.title}</h1>
+        </div>
         {actions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pb-1.5" data-testid="task-actions">
+          <div className="flex flex-wrap items-center gap-2" data-testid="task-actions">
             {actions.map((a, i) => {
               const cancel = a.kind === 'event' && a.event === 'cancel';
               return (
@@ -236,8 +248,8 @@ export function TaskHeader({
           </div>
         )}
       </div>
-      {task.intent && <p className="mt-1.5 text-[0.95rem] text-ink-2">{task.intent}</p>}
-      <div className="mt-4 space-y-px border-b border-rule pb-3">
+      {task.intent && <p className="mt-2.5 max-w-[72ch] text-sm text-ink-2">{task.intent}</p>}
+      <div className="mt-5 grid gap-px border-b border-rule pb-4">
         <Prop icon="status" label="状态"><Badge tone={STATUS_TONE[status] ?? 'neutral'} data-testid="task-status">{STATUS_LABEL[status] ?? task.status}</Badge></Prop>
         {flow.stages.length > 0 && (
           <Prop icon="stage" label="阶段">
@@ -251,7 +263,7 @@ export function TaskHeader({
         {task.codeRefJson && <Prop icon="branch" label="分支"><BranchState task={task} /></Prop>}
         <Prop icon="person" label="负责">{assignee}</Prop>
         <Prop icon="coin" label="用量">
-          <span className="measured text-ink-2" data-testid="task-usage">{num(used)}{flow.budget?.tokens ? ` / ${num(flow.budget.tokens)}` : ''} tok</span>
+          <span className="measured text-ink" data-testid="task-usage">{num(used)}{flow.budget?.tokens ? ` / ${num(flow.budget.tokens)}` : ''} tok</span>
           <span className="text-muted">退回 <span className="measured">{task.feedbackCount} / {MAX_SEND_BACKS}</span></span>
         </Prop>
         {module && <Prop icon="files" label="范围"><code className="text-ink-2">{module}</code></Prop>}
@@ -268,13 +280,16 @@ export function TaskHeader({
           <span className="text-xs text-muted">{when(task.createdAt)}</span>
         </Prop>
       </div>
-      <div className="mt-3 space-y-2 empty:hidden">
+      <div className="mt-4 grid gap-3 empty:hidden">
         <CounterNote task={task} />
         {task.blockedReason && (
-          <p className="whitespace-pre-wrap rounded-chip bg-accent-soft px-4 py-3 text-sm text-ink-2" data-testid="blocked-reason">{task.blockedReason}</p>
+          <div className="flex gap-2.5 rounded-ctl bg-accent-soft px-3.5 py-2.5 text-sm text-ink-2">
+            <Icon name="alert" className="mt-0.5 text-accent" />
+            <p className="min-w-0 whitespace-pre-wrap" data-testid="blocked-reason">{task.blockedReason}</p>
+          </div>
         )}
         {inbox.length > 0 && (
-          <div className="divide-y divide-rule rounded-chip border border-rule-2" aria-label="待你确认">
+          <div className="grid gap-3" aria-label="待你确认">
             {inbox.map((i) => <InboxEntry key={i.id} item={i} projectId={projectId} />)}
           </div>
         )}

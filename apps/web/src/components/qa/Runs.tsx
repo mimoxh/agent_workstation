@@ -4,7 +4,8 @@ import { Fragment, useMemo, useState } from 'react';
 import { Segmented } from '@/components/design/panes';
 import { LiveOutput } from '@/components/run/LiveOutput';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
 import { Icon } from '@/components/ui/icons';
@@ -15,7 +16,7 @@ import { useArtifact, useQaHistory, useQaOverview, useQaRun, useQaRuns, type QaC
 import { cn } from '@/lib/utils';
 import { PassBar, StatusStrip } from './charts';
 import { CASE_LABEL, CASE_TONE, CONFIDENCE_LABEL, RUN_LABEL, RUN_TONE, SCHEDULE_LABEL, TRIAGE_LABEL, TRIGGER_LABEL, isActive, useDocs, type Doc, type SuiteData } from './model';
-import { NewBugDialog, ROW, Scroll, TABLE, TD, TH, Toolbar, type BugDraft, type QaProps } from './shared';
+import { NewBugDialog, ROW, Scroll, SectionHead, TABLE, TABLE_WRAP, TD, TH, Toolbar, type BugDraft, type QaProps } from './shared';
 
 const CASE_LIMIT = 500;
 
@@ -75,7 +76,7 @@ function SuiteDialog({ wsId, suite, onClose }: { wsId: string; suite: Doc<SuiteD
         </Field>
         <Field label="超时（秒）"><Input className="measured" inputMode="numeric" value={timeout} onChange={(e) => setTimeoutSec(e.target.value)} /></Field>
         <label className="flex items-center gap-2 text-sm text-ink-2">
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="qa-suite-auto" />目标分支有新提交时自动运行
+          <input type="checkbox" className="size-4 shrink-0 accent-[var(--color-primary)]" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="qa-suite-auto" />目标分支有新提交时自动运行
         </label>
         <Field label="定时运行" hint="在目标分支上按节奏跑，结果计入回归">
           <Select value={schedule} onChange={(e) => setSchedule(e.target.value as NonNullable<SuiteData['schedule']>)} data-testid="qa-suite-schedule">
@@ -115,16 +116,16 @@ function Suites({ wsId, autoOpen }: { wsId: string; autoOpen: boolean }) {
   if (isLoading) return <Loading />;
   return (
     <>
-      <Toolbar><span className="flex-1 text-xs text-muted">命令由人审定，Agent 只能按名字运行，不能改写</span><Button variant="primary" onClick={() => setEditing('new')} data-testid="qa-suite-new"><Icon name="plus" className="size-3.5" />新建套件</Button></Toolbar>
-      {docs.length === 0 ? <Empty title="还没有套件">建一个会生成 JUnit 报告的测试命令。</Empty> : (
-        <div className="overflow-x-auto">
+      <Toolbar><span className="flex flex-1 items-center gap-1.5 text-xs text-muted"><Icon name="lock" className="size-3.5" />命令由人审定，Agent 只能按名字运行，不能改写</span><Button variant="primary" onClick={() => setEditing('new')} data-testid="qa-suite-new"><Icon name="plus" />新建套件</Button></Toolbar>
+      {docs.length === 0 ? <Empty title="还没有套件" icon="flask">建一个会生成 JUnit 报告的测试命令。</Empty> : (
+        <div className={TABLE_WRAP}>
           <table className={TABLE}>
-            <thead><tr className="border-b border-rule"><th className={TH}>名称</th><th className={TH}>命令</th><th className={TH}>报告</th><th className={TH}>自动运行</th><th className={TH}>定时</th></tr></thead>
+            <thead><tr><th className={TH}>名称</th><th className={TH}>命令</th><th className={TH}>报告</th><th className={TH}>自动运行</th><th className={TH}>定时</th></tr></thead>
             <tbody>
               {docs.map((s) => (
                 <tr key={s.id} className={ROW} onClick={() => setEditing(s)} data-testid="qa-suite-row">
-                  <td className={cn(TD, 'text-ink')}>{s.data.name}</td>
-                  <td className={TD}><code className="measured text-xs">{s.data.command}</code></td>
+                  <td className={cn(TD, 'font-semibold text-ink')}>{s.data.name}</td>
+                  <td className={cn(TD, 'max-w-96 truncate')}><code className="measured text-xs">{s.data.command}</code></td>
                   <td className={TD}><code className="measured text-xs">{s.data.report_path}</code></td>
                   <td className={TD}>{s.data.auto_run ? <Badge tone="cool">开</Badge> : <span className="text-faint">关</span>}</td>
                   <td className={cn(TD, 'text-xs')}>{scheduleLine(s.data, meta.get(s.id)?.lastScheduledAt) ?? <span className="text-faint">关</span>}</td>
@@ -150,20 +151,20 @@ function RunList({ wsId, go }: { wsId: string; go: QaProps['go'] }) {
     <>
       <Toolbar>
         <span className="flex-1" />
-        <Button variant="primary" disabled={suites.docs.length === 0} onClick={() => setStarting(true)} data-testid="qa-run-new"><Icon name="play" className="size-3.5" />运行套件</Button>
+        <Button variant="primary" disabled={suites.docs.length === 0} onClick={() => setStarting(true)} data-testid="qa-run-new"><Icon name="play" />运行套件</Button>
       </Toolbar>
-      {rows.length === 0 ? <Empty title="还没有运行记录">{suites.docs.length === 0 ? '先到「套件」里配置一条测试命令。' : '点「运行套件」开始第一次运行。'}</Empty> : (
-        <div className="overflow-x-auto">
+      {rows.length === 0 ? <Empty title="还没有运行记录" icon="play">{suites.docs.length === 0 ? '先到「套件」里配置一条测试命令。' : '点「运行套件」开始第一次运行。'}</Empty> : (
+        <div className={TABLE_WRAP}>
           <table className={TABLE} data-testid="qa-run-table">
-            <thead><tr className="border-b border-rule"><th className={TH}>状态</th><th className={TH}>套件</th><th className={TH}>版本</th><th className={TH}>结果</th><th className={cn(TH, 'text-right')}>耗时</th><th className={TH}>来源</th><th className={cn(TH, 'text-right')}>时间</th></tr></thead>
+            <thead><tr><th className={TH}>状态</th><th className={TH}>套件</th><th className={TH}>版本</th><th className={TH}>结果</th><th className={cn(TH, 'text-right')}>耗时</th><th className={TH}>来源</th><th className={cn(TH, 'text-right')}>时间</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className={ROW} onClick={() => go('runs', r.id)} data-testid="qa-run-row">
                   <td className={TD}><Badge tone={RUN_TONE[r.status] ?? 'neutral'} className={isActive(r.status) ? 'animate-pulse-soft' : undefined}>{RUN_LABEL[r.status] ?? r.status}</Badge></td>
-                  <td className={cn(TD, 'max-w-56 truncate text-ink')}>{r.suiteName}</td>
+                  <td className={cn(TD, 'max-w-56 truncate font-semibold text-ink')}>{r.suiteName}</td>
                   <td className={TD}><code className="measured text-xs">{r.ref} @ {r.commitSha.slice(0, 7)}</code></td>
                   <td className={TD}>
-                    {r.total > 0 ? <span className="flex items-center gap-2"><PassBar passed={r.passed} failed={r.failed + r.errored} skipped={r.skipped} /><span className="measured text-xs">{r.passed}/{r.total}</span></span> : <span className="text-xs text-faint">{r.error ? '无结果' : '—'}</span>}
+                    {r.total > 0 ? <span className="flex items-center gap-2"><PassBar passed={r.passed} failed={r.failed + r.errored} skipped={r.skipped} /><span className="measured text-xs">{r.passed}/{r.total}</span></span> : <span className="text-xs text-muted">{r.error ? '无结果' : '—'}</span>}
                   </td>
                   <td className={cn(TD, 'measured text-right text-xs')}>{r.durationMs === null ? '—' : seconds(r.durationMs / 1000)}</td>
                   <td className={cn(TD, 'text-xs')}>{TRIGGER_LABEL[r.trigger] ?? r.trigger}</td>
@@ -182,7 +183,7 @@ function RunList({ wsId, go }: { wsId: string; go: QaProps['go'] }) {
 function Output({ id }: { id: string }) {
   const q = useArtifact(id);
   if (q.isLoading) return <Loading label="读取输出…" className="p-3" />;
-  return <pre className="measured max-h-96 overflow-auto whitespace-pre-wrap rounded-pill bg-paper-3 p-3 text-xs text-ink-2" data-testid="qa-output">{q.data?.content || '（无输出）'}</pre>;
+  return <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-ctl bg-code px-3.5 py-3 font-mono text-xs leading-[1.65] text-code-ink" data-testid="qa-output">{q.data?.content || '（无输出）'}</pre>;
 }
 
 const bugDraft = (c: { name: string; caseKey: string; failureMessage?: string | null; failureDetail?: string | null }, runId: string, suite: string): BugDraft => ({
@@ -207,10 +208,10 @@ function CaseDialog({ wsId, c, runId, suite, onClose, onBug, go }: { wsId: strin
         {c.quarantined && <Badge tone="amber">已隔离</Badge>}
         {h.data?.flakiness.flaky && <Badge tone="amber">不稳定</Badge>}
       </div>
-      <p className="mb-1 mt-4 text-xs text-muted">最近 {items.length} 次（旧 → 新）</p>
+      <p className="mb-1.5 mt-4 text-xs font-medium text-muted">最近 {items.length} 次（旧 → 新）</p>
       {h.isLoading ? <Loading className="p-0" /> : <StatusStrip items={items} onPick={(id) => { onClose(); go('runs', id); }} />}
-      {c.failureMessage && <p className="measured mt-4 whitespace-pre-wrap break-words rounded-pill bg-bad-soft p-2.5 text-xs text-bad">{c.failureMessage}</p>}
-      {c.failureDetail && <pre className="measured mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-pill bg-paper-3 p-2.5 text-xs text-ink-2">{c.failureDetail}</pre>}
+      {c.failureMessage && <p className="measured mt-4 whitespace-pre-wrap break-words rounded-ctl bg-bad-soft px-3.5 py-2.5 text-xs text-bad">{c.failureMessage}</p>}
+      {c.failureDetail && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-ctl bg-code px-3.5 py-3 font-mono text-xs leading-[1.65] text-code-ink">{c.failureDetail}</pre>}
       <div className="mt-4 flex justify-end gap-2">
         {failing && !c.quarantined && <Button onClick={() => quarantine.mutate()} disabled={quarantine.isPending} data-testid="qa-quarantine">隔离</Button>}
         {failing && <Button variant="primary" onClick={() => { onClose(); onBug(bugDraft(c, runId, suite)); }} data-testid="qa-case-bug">建缺陷</Button>}
@@ -223,25 +224,25 @@ function CaseDialog({ wsId, c, runId, suite, onClose, onBug, go }: { wsId: strin
 function Cluster({ g, results, onBug, onCase }: { g: QaCluster; results: QaCaseRow[]; onBug: (c: QaCaseRow) => void; onCase: (c: QaCaseRow) => void }) {
   const first = results.find((r) => r.caseKey === g.cases[0]?.caseKey);
   return (
-    <li className="border-b border-rule py-3 last:border-0" data-testid="qa-cluster">
-      <div className="flex flex-wrap items-start gap-2">
-        <span className="measured shrink-0 pt-0.5 text-sm font-semibold text-bad">{g.cases.length}</span>
-        <p className="measured min-w-0 flex-1 basis-64 whitespace-pre-wrap break-words text-xs text-ink">{g.message || '（没有错误信息）'}</p>
+    <li className="grid gap-2.5 border-b border-rule px-4 py-3.5 last:border-b-0" data-testid="qa-cluster">
+      <div className="flex flex-wrap items-start gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-ctl bg-bad-soft text-sm font-bold tabular-nums text-bad">{g.cases.length}</span>
+        <p className="measured min-w-0 flex-1 basis-64 self-center whitespace-pre-wrap break-words text-xs text-ink">{g.message || '（没有错误信息）'}</p>
         {g.triage && <Badge tone={g.triage.category === 'product_bug' ? 'bad' : g.triage.category === 'flaky' ? 'amber' : 'neutral'} data-testid="qa-triage-badge">{TRIAGE_LABEL[g.triage.category] ?? g.triage.category} · 置信度{CONFIDENCE_LABEL[g.triage.confidence] ?? ''}</Badge>}
         {first && <Button size="sm" onClick={() => onBug(first)} data-testid="qa-cluster-bug">建缺陷</Button>}
       </div>
       {g.triage && (
-        <div className="ml-6 mt-1.5 text-sm text-ink-2">
+        <div className="ml-11 grid gap-2 rounded-ctl bg-paper-2 px-3.5 py-3 text-sm text-ink-2">
           <p>{g.triage.summary}</p>
-          <p className="measured mt-0.5 whitespace-pre-wrap break-words text-xs text-muted">{g.triage.evidence}</p>
+          <p className="measured whitespace-pre-wrap break-words rounded-chip bg-paper-3 px-2.5 py-2 text-xs leading-relaxed text-ink-2">{g.triage.evidence}</p>
         </div>
       )}
-      <ul className="ml-6 mt-1.5 space-y-0.5">
+      <ul className="ml-11 grid gap-1">
         {g.cases.slice(0, 12).map((c) => {
           const row = results.find((r) => r.caseKey === c.caseKey);
           return (
             <li key={c.caseKey} className="flex items-center gap-2 text-sm">
-              <button type="button" className="min-w-0 truncate text-left text-ink-2 hover:underline" onClick={() => row && onCase(row)}>{c.name}</button>
+              <button type="button" className="min-w-0 truncate text-left text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={() => row && onCase(row)}>{c.name}</button>
               {row?.isNew && <Badge tone="bad">新增</Badge>}
               {row?.quarantined && <Badge tone="amber">已隔离</Badge>}
             </li>
@@ -269,26 +270,26 @@ function CaseTree({ results, onCase }: { results: QaCaseRow[]; onCase: (c: QaCas
     return [...m];
   }, [shown]);
   return (
-    <section className="mt-6">
+    <section className="mt-8">
       <Toolbar>
-        <h2 className="text-sm font-medium text-ink">用例</h2>
+        <h2 className="text-title font-bold text-ink">用例</h2>
         <Segmented label="用例筛选" value={filter} onChange={setFilter} options={[{ id: 'failing', label: '失败' }, { id: 'all', label: `全部 ${results.length}` }, { id: 'skipped', label: '跳过' }]} />
         <Input className="ml-auto w-56" placeholder="搜索用例" aria-label="搜索用例" value={q} onChange={(e) => setQ(e.target.value)} data-testid="qa-case-search" />
       </Toolbar>
       {groups.length === 0 && <p className="py-2 text-sm text-muted">没有符合条件的用例。</p>}
-      <div data-testid="qa-case-tree">
+      <div className={cn('overflow-hidden rounded-card bg-paper', groups.length > 0 && 'shadow-[var(--shadow-card)]')} data-testid="qa-case-tree">
         {groups.map(([classname, rows]) => (
-          <details key={classname} open={groups.length <= 12} className="border-b border-rule">
-            <summary className="measured cursor-pointer truncate py-1.5 text-xs text-muted">{classname || '（未分组）'} <span className="text-faint">{rows.length}</span></summary>
-            <ul className="pb-1.5">
+          <details key={classname} open={groups.length <= 12} className="border-b border-rule last:border-b-0">
+            <summary className="measured cursor-pointer truncate bg-paper-2 px-4 py-2 text-xs font-medium text-muted transition-colors duration-150 hover:text-ink">{classname || '（未分组）'} <span className="font-normal opacity-70">{rows.length}</span></summary>
+            <ul className="py-1">
               {rows.map((c) => (
                 <li key={c.id}>
-                  <button type="button" onClick={() => onCase(c)} className="flex w-full items-center gap-2 rounded-chip px-1 py-1 text-left text-sm transition-colors duration-150 hover:bg-hover" data-testid="qa-case-row">
+                  <button type="button" onClick={() => onCase(c)} className="flex w-full items-center gap-2.5 px-4 py-1.5 text-left text-sm transition-colors duration-150 hover:bg-hover focus-visible:-outline-offset-2" data-testid="qa-case-row">
                     <Badge tone={CASE_TONE[c.status] ?? 'neutral'}>{CASE_LABEL[c.status] ?? c.status}</Badge>
                     <span className="min-w-0 flex-1 truncate text-ink-2">{c.name}</span>
                     {c.isNew && <Badge tone="bad">新增</Badge>}
                     {c.quarantined && <Badge tone="amber">已隔离</Badge>}
-                    <span className="measured shrink-0 text-xs text-faint">{seconds(c.durationMs / 1000)}</span>
+                    <span className="measured shrink-0 text-xs text-muted">{seconds(c.durationMs / 1000)}</span>
                   </button>
                 </li>
               ))}
@@ -303,10 +304,10 @@ function CaseTree({ results, onCase }: { results: QaCaseRow[]; onCase: (c: QaCas
 
 function Compare({ c }: { c: NonNullable<QaRunDetail['comparison']> }) {
   const cell = (label: string, n: number, cls: string) => (
-    <div className="min-w-24 flex-1 px-3 py-2"><span className="block text-xs text-muted">{label}</span><span className={cn('measured text-title font-semibold', n > 0 ? cls : 'text-ink-2')}>{n}</span></div>
+    <div className="grid min-w-24 flex-1 gap-0.5 border-l border-rule px-4 first:border-l-0 first:pl-0"><span className="text-xs text-muted">{label}</span><span className={cn('text-h2 font-bold tabular-nums', n > 0 ? cls : 'text-ink-2')}>{n}</span></div>
   );
   return (
-    <div className="mt-3 flex flex-wrap divide-x divide-rule border-y border-rule" data-testid="qa-compare">
+    <div className="mt-4 flex flex-wrap gap-y-3 rounded-card bg-paper-2 p-4" data-testid="qa-compare">
       {cell('新增失败', c.newFailures, 'text-bad')}
       {cell('持续失败', c.stillFailing, 'text-accent')}
       {cell('已修复', c.fixed, 'text-ok')}
@@ -335,40 +336,46 @@ function RunDetail({ id, wsId, go }: { id: string; wsId: string; go: QaProps['go
       <Button variant="quiet" size="sm" className="-ml-2 mb-2" onClick={() => go('runs')}><Icon name="chev" className="size-3.5 rotate-90" />全部运行</Button>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={RUN_TONE[r.status] ?? 'neutral'} className={active ? 'animate-pulse-soft' : undefined} data-testid="qa-run-status">{RUN_LABEL[r.status] ?? r.status}</Badge>
-        <h2 className="text-title font-semibold text-ink">{r.suiteName}</h2>
+        <h2 className="text-title font-bold text-ink">{r.suiteName}</h2>
         <code className="measured text-xs text-muted">{r.ref} @ {r.commitSha.slice(0, 7)}</code>
         <span className="flex-1" />
-        {active && <Button onClick={() => cancel.mutate()} disabled={cancel.isPending} data-testid="qa-run-cancel">取消</Button>}
+        {active && <Button onClick={() => cancel.mutate()} disabled={cancel.isPending} data-testid="qa-run-cancel"><Icon name="stop" />取消</Button>}
         {!active && failing > 0 && (
-          <Button onClick={() => triage.mutate()} disabled={triage.isPending || d.triageStatus === 'requested'} data-testid="qa-run-triage">
+          <Button onClick={() => triage.mutate()} disabled={triage.isPending || d.triageStatus === 'requested'} aria-busy={d.triageStatus === 'requested' || undefined} data-testid="qa-run-triage">
+            {d.triageStatus === 'requested' ? <Spinner /> : <Icon name="robot" />}
             {d.triageStatus === 'requested' ? '分析中…' : d.triageStatus === 'done' ? '重新分析' : 'AI 分析失败'}
           </Button>
         )}
-        {!active && <Button onClick={() => retry.mutate()} disabled={retry.isPending} data-testid="qa-run-retry">重跑同一提交</Button>}
+        {!active && <Button onClick={() => retry.mutate()} disabled={retry.isPending} data-testid="qa-run-retry"><Icon name="refresh" />重跑同一提交</Button>}
       </div>
-      <p className="mt-1 text-xs text-muted">
-        <code className="measured">{d.config.command}</code> · {TRIGGER_LABEL[r.trigger] ?? r.trigger} · {when(r.createdAt)}{r.durationMs !== null ? ` · ${seconds(r.durationMs / 1000)}` : ''}
+      <p className="mt-1.5 text-xs text-muted">
+        <code className="measured rounded-chip bg-paper-3 px-1.5 text-ink-2">{d.config.command}</code> · {TRIGGER_LABEL[r.trigger] ?? r.trigger} · {when(r.createdAt)}{r.durationMs !== null ? ` · ${seconds(r.durationMs / 1000)}` : ''}
       </p>
       {active && (
         <section className="mt-4" data-testid="qa-live">
           <LiveOutput channel={`qa:${r.id}`} />
         </section>
       )}
-      {r.total > 0 && <p className="measured mt-3 text-sm text-ink-2" data-testid="qa-run-counts">{r.passed} 通过 · {failing} 失败 · {r.skipped} 跳过 · 共 {r.total}</p>}
-      {r.error && <p className="mt-3 rounded-pill bg-bad-soft p-2.5 text-sm text-bad" data-testid="qa-run-error">{r.envError ? '环境问题：' : ''}{r.error}</p>}
+      {r.total > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <PassBar passed={r.passed} failed={failing} skipped={r.skipped} className="w-full max-w-72" />
+          <p className="text-sm tabular-nums text-ink-2" data-testid="qa-run-counts">{r.passed} 通过 · {failing} 失败 · {r.skipped} 跳过 · 共 {r.total}</p>
+        </div>
+      )}
+      {r.error && <p className="mt-4 flex gap-2.5 rounded-ctl bg-bad-soft px-3.5 py-2.5 text-sm text-ink-2" data-testid="qa-run-error"><Icon name="alert" className="mt-0.5 text-bad" /><span className="min-w-0 break-words">{r.envError ? '环境问题：' : ''}{r.error}</span></p>}
       {d.comparison && <Compare c={d.comparison} />}
       {d.baseline === null && r.total > 0 && !active && <p className="mt-2 text-xs text-muted">这是第一次运行，下次开始和它对比。</p>}
 
       {d.clusters.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-sm font-medium text-ink">失败（{d.clusters.length} 类错误）</h2>
-          <ul>{d.clusters.map((g) => <Cluster key={g.fingerprint} g={g} results={d.results} onCase={setOpenCase} onBug={(c) => setDraft(bugDraft(c, r.id, r.suiteName))} />)}</ul>
+        <section className="mt-8">
+          <SectionHead title={`失败（${d.clusters.length} 类错误）`} />
+          <Card className="overflow-hidden"><ul>{d.clusters.map((g) => <Cluster key={g.fingerprint} g={g} results={d.results} onCase={setOpenCase} onBug={(c) => setDraft(bugDraft(c, r.id, r.suiteName))} />)}</ul></Card>
         </section>
       )}
       {d.results.length > 0 && <CaseTree results={d.results} onCase={setOpenCase} />}
 
       {r.outputArtifactId && (
-        <section className="mt-6">
+        <section className="mt-8">
           <Button variant="quiet" size="sm" className="-ml-2" aria-expanded={output} onClick={() => setOutput(!output)} data-testid="qa-output-toggle">{output ? '收起原始输出' : '查看原始输出'}</Button>
           {output && <Output id={r.outputArtifactId} />}
         </section>
@@ -384,7 +391,7 @@ export function Runs({ ws, item, go }: QaProps) {
   if (item && item !== 'suites') return <RunDetail key={item} id={item} wsId={ws.id} go={go} />;
   return (
     <Scroll testId="qa-runs">
-      <Toolbar><Segmented label="运行页" value={tab} onChange={setTab} options={[{ id: 'runs', label: '运行记录' }, { id: 'suites', label: '套件' }]} /></Toolbar>
+      <Toolbar><Segmented size="default" label="运行页" value={tab} onChange={setTab} options={[{ id: 'runs', label: '运行记录' }, { id: 'suites', label: '套件' }]} /></Toolbar>
       <Fragment key={tab}>{tab === 'runs' ? <RunList wsId={ws.id} go={go} /> : <Suites wsId={ws.id} autoOpen={item === 'suites'} />}</Fragment>
     </Scroll>
   );

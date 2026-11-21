@@ -194,7 +194,8 @@ export async function dispatchTask(
   if (!t) return { kind: 'not_found' as const, status: 404 as const, error: '任务不存在' };
   const unmet = await unmetDependencies(db, taskId);
   if (unmet.length > 0) return { kind: 'invalid' as const, status: 409 as const, error: unmetDepText(unmet) };
-  const noModel = await modelGate();
+  const steward = (await db.select({ engine: agent.engine }).from(agent).where(and(eq(agent.workstationId, body.targetWorkstationId), eq(agent.isSteward, 1))))[0];
+  const noModel = await modelGate(steward?.engine);
   if (noModel) return { kind: 'error' as const, status: 409 as const, error: noModel };
   const ctx = await buildPermCtx(actor, db);
   const descendants = descendantIds(ctx, t.workstationId);
@@ -418,7 +419,7 @@ export async function assignTask(actor: Actor, db: DB, taskId: string, body: { a
   if (unmet.length > 0) return { kind: 'invalid' as const, status: 409 as const, error: unmetDepText(unmet) };
   const a = (await db.select().from(agent).where(eq(agent.id, body.agentId)))[0];
   if (!a || a.workstationId !== t.workstationId) return { kind: 'error' as const, status: 400 as const, error: 'Agent 不属于任务所在工作台' };
-  const noModel = await modelGate();
+  const noModel = await modelGate(a.engine);
   if (noModel) return { kind: 'error' as const, status: 409 as const, error: noModel };
   const r = transition(t.status as TaskStatus, 'dispatch');
   if (!r.ok) return { kind: 'invalid' as const, status: 409 as const, error: r.error };

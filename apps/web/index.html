@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Workstation</title>
+    <script>
+      // 首帧前定深浅，避免闪白；之后由 src/lib/theme.ts 接管
+      (function () {
+        var p = null;
+        try { p = localStorage.getItem('aw.theme'); } catch (e) {}
+        var dark = p === 'dark' || (p !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.mode = dark ? 'dark' : 'light';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

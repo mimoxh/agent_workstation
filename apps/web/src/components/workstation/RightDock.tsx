@@ -28,25 +28,25 @@ export function RightDock({ project, wsId }: { project: ProjectDetail; wsId: str
           aria-label={block.name ?? '右侧栏'}
           data-testid="dock"
           style={{ '--dock-w': `${width}px` } as CSSProperties}
-          className="relative flex min-w-0 shrink-0 flex-col border-l border-rule bg-paper max-md:fixed max-md:bottom-0 max-md:right-11 max-md:top-11 max-md:z-40 max-md:w-[calc(100vw-2.75rem)] max-md:shadow-[var(--shadow-pop)] md:w-[var(--dock-w)]"
+          className="relative flex min-w-0 shrink-0 flex-col border-l border-rule bg-paper animate-slide-l max-md:fixed max-md:bottom-0 max-md:right-12 max-md:top-[52px] max-md:z-40 max-md:w-[calc(100vw-3rem)] max-md:shadow-[var(--shadow-pop)] md:w-[var(--dock-w)]"
         >
           <span className="max-md:hidden"><ResizeHandle {...resize} testId="dock-resize" /></span>
-          <header className="flex h-10 shrink-0 items-center gap-2 border-b border-rule px-3">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-rule pl-3.5 pr-2">
             <Icon name={panelIcon(block.panelType, block.entityType, block.panelId)} className="text-muted" />
-            <h2 className="truncate text-sm font-medium text-ink">{block.name}</h2>
+            <h2 className="truncate text-sm font-bold text-ink">{block.name}</h2>
             <span className="truncate text-xs text-muted">{ws.data.name}</span>
             <Link
               to="/projects/$projectId/ws/$wsId/$panelId"
               params={{ projectId: project.id, wsId, panelId: block.panelId ?? '' }}
               onClick={() => setDock(null)}
-              className="ml-auto grid size-7 shrink-0 place-items-center rounded-pill text-muted hover:bg-hover hover:text-ink"
+              className="ml-auto grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-hover hover:text-ink"
               aria-label="全屏打开"
               title="全屏打开"
               data-testid="dock-fullscreen"
             >
               <Icon name="expand" className="size-3.5" />
             </Link>
-            <button type="button" onClick={() => setDock(null)} className="grid size-7 shrink-0 place-items-center rounded-pill text-muted hover:bg-hover hover:text-ink" aria-label="收起右侧栏" title="收起" data-testid="dock-close">
+            <button type="button" onClick={() => setDock(null)} className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-hover hover:text-ink" aria-label="收起右侧栏" title="收起" data-testid="dock-close">
               <Icon name="close" className="size-3.5" />
             </button>
           </header>
@@ -55,7 +55,7 @@ export function RightDock({ project, wsId }: { project: ProjectDetail; wsId: str
           </div>
         </aside>
       )}
-      <nav aria-label="右侧栏" className="flex w-11 shrink-0 flex-col items-center gap-1.5 border-l border-rule bg-paper-2 py-2" data-testid="dock-rail">
+      <nav aria-label="右侧栏" className="flex w-12 shrink-0 flex-col items-center gap-1.5 border-l border-rule bg-paper-2 py-2.5 max-md:w-10" data-testid="dock-rail">
         {blocks.map((b) => {
           const on = b.panelId === open;
           return (
@@ -67,10 +67,8 @@ export function RightDock({ project, wsId }: { project: ProjectDetail; wsId: str
               onClick={() => setDock(on ? null : b.panelId)}
               data-testid={`dock-tab-${b.name}`}
               className={cn(
-                'group/dock relative grid size-9 place-items-center rounded-pill transition-colors duration-150',
-                // 选中项在靠主区一侧有一道竖条，和顶栏标签的下划线同一语言
-                'before:absolute before:-left-[5px] before:inset-y-2 before:w-0.5 before:rounded-full before:bg-ink before:transition-opacity',
-                on ? 'bg-paper-3 text-ink before:opacity-100' : 'text-muted before:opacity-0 hover:bg-hover hover:text-ink',
+                'group/dock relative grid size-9 place-items-center rounded-full transition-colors duration-150 max-md:size-8',
+                on ? 'bg-primary text-primary-ink' : 'text-muted hover:bg-hover hover:text-ink',
               )}
             >
               <Icon name={panelIcon(b.panelType, b.entityType, b.panelId)} className="size-[18px]" />
@@ -78,7 +76,7 @@ export function RightDock({ project, wsId }: { project: ProjectDetail; wsId: str
                 {on ? `收起${b.name}` : b.name}
               </span>
               {b.panelType === 'diff' && pending > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-cool-tag px-1 text-[10px] font-semibold text-cool-tag-ink ring-2 ring-paper-2" aria-label={`${pending} 个待审`}>{pending}</span>
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-cool-tag px-1 text-[10px] font-semibold tabular-nums text-cool-tag-ink shadow-[0_0_0_2px_var(--color-paper-2)]" aria-label={`${pending} 个待审`}>{pending}</span>
               )}
             </button>
           );

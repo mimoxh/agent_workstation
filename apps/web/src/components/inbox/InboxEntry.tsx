@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { INBOX_LABEL } from '@/components/board/labels';
 import { DiffView } from '@/components/panels/DiffView';
 import { Badge, type BadgeTone } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson, when } from '@/lib/format';
 import type { InboxRow } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 
 const TONE: Record<string, BadgeTone> = {
   command_confirm: 'amber',
@@ -56,7 +58,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
   }
   if (item.kind === 'human_request') {
     return (
-      <div className="w-full space-y-1.5">
+      <div className="grid w-full gap-2">
         <Textarea rows={2} className="min-h-0" placeholder="回复后 Agent 继续运行" aria-label="回复" value={answer} onChange={(e) => setAnswer(e.target.value)} data-testid="inbox-answer" />
         <div className="flex gap-2">
           <Button size="sm" variant="primary" disabled={busy || !answer.trim()} onClick={() => resolve.mutate({ answer: answer.trim() })}>回复</Button>
@@ -69,7 +71,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
     const live = item.taskStatus === 'blocked' || item.taskStatus === 'escalated';
     if (!live) return dismiss;
     return (
-      <div className="w-full space-y-1.5">
+      <div className="grid w-full gap-2">
         <Textarea rows={2} className="min-h-0" placeholder="你的决定，Agent 恢复后按这个继续（可选）" aria-label="决定" value={answer} onChange={(e) => setAnswer(e.target.value)} data-testid="inbox-decision" />
         <div className="flex gap-2">
           <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve.mutate({ action: 'unblock', ...(answer.trim() ? { answer: answer.trim() } : {}) })}>解除阻塞</Button>
@@ -83,7 +85,7 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
       <>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve.mutate({ action: 'retry' })}>重试</Button>
         {item.runId && (
-          <Link to="/projects/$projectId/runs/$runId" params={{ projectId, runId: item.runId }} className="inline-flex min-h-7 items-center px-2 text-xs text-cool hover:underline">查看运行</Link>
+          <Link to="/projects/$projectId/runs/$runId" params={{ projectId, runId: item.runId }} className={buttonClass('quiet', 'sm')}>查看运行</Link>
         )}
         {dismiss}
       </>
@@ -109,38 +111,94 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
   return dismiss;
 }
 
+const KIND_ICON: Record<string, IconName> = {
+  human_request: 'hand',
+  proposal_review: 'diff',
+  blocked: 'alert',
+  task_countered: 'undo',
+  command_confirm: 'terminal',
+  docs_drift: 'link',
+  run_failed: 'x',
+  budget: 'coin',
+  gate_confirm: 'stage',
+  qa_regression: 'bug',
+  task_rejected: 'x',
+};
+
+const ICON_TONE: Record<BadgeTone, string> = {
+  amber: 'bg-accent text-accent-ink',
+  cool: 'bg-cool-soft text-cool',
+  ok: 'bg-ok-soft text-ok',
+  bad: 'bg-bad-soft text-bad',
+  neutral: 'bg-paper-2 text-ink-2',
+  line: 'bg-paper-2 text-ink-2',
+};
+
 export function InboxEntry({ item, projectId, compact }: { item: InboxRow; projectId: string; compact?: boolean }) {
   const open = item.status === 'open';
   const suspects = item.kind === 'qa_regression' ? (JSON.parse(item.payloadJson ?? '{}') as { suspects?: { taskId: string; title: string }[] }).suspects ?? [] : [];
   const docDrift = item.kind === 'docs_drift' ? (JSON.parse(item.payloadJson ?? '{}') as { wsId?: string; docTitle?: string }) : null;
   const filePatch = item.proposalTarget === 'file' ? parseJson<{ path?: string; diff?: string }>(item.proposalPatch, {}) : null;
+  const tone = TONE[item.kind] ?? 'neutral';
+  const titleClass = compact ? 'min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline' : 'min-w-0 break-words text-sm font-bold text-ink hover:underline';
+  const title = item.taskId ? (
+    <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: item.taskId }} className={titleClass}>
+      {item.taskTitle}
+    </Link>
+  ) : docDrift?.wsId ? (
+    <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: docDrift.wsId }} search={{ panel: 'health' }} className={titleClass} data-testid="inbox-doc-drift">
+      {docDrift.docTitle ?? '文档健康'}
+    </Link>
+  ) : (
+    <span className={cn(titleClass, 'font-normal text-muted hover:no-underline')}>无关联任务</span>
+  );
+  const marks = (
+    <>
+      {item.count > 1 && <span className="shrink-0 text-xs font-semibold tabular-nums text-bad" data-testid="inbox-count">×{item.count}</span>}
+      {item.severity === 'critical' && <Badge tone="bad">紧急</Badge>}
+    </>
+  );
   return (
-    <article className="space-y-1.5 rounded-chip px-2 py-2.5 hover:bg-hover" data-testid="inbox-item" data-kind={item.kind}>
-      <div className="flex items-center gap-2">
-        <Badge tone={TONE[item.kind] ?? 'neutral'}>{INBOX_LABEL[item.kind] ?? item.kind}</Badge>
-        {item.taskId ? (
-          <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: item.taskId }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline">
-            {item.taskTitle}
-          </Link>
-        ) : docDrift?.wsId ? (
-          <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: docDrift.wsId }} search={{ panel: 'health' }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline" data-testid="inbox-doc-drift">
-            {docDrift.docTitle ?? '文档健康'}
-          </Link>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-sm text-muted">无关联任务</span>
-        )}
-        {item.count > 1 && <span className="measured shrink-0 text-xs text-bad" data-testid="inbox-count">×{item.count}</span>}
-        {item.severity === 'critical' && <Badge tone="bad">紧急</Badge>}
-        <span className="measured shrink-0 text-xs text-muted">{when(item.createdAt)}</span>
-      </div>
-      {item.command && (
-        <p className="text-sm text-ink-2"><code>{item.command}</code>{!compact && item.cwd && <span className="measured ml-2 text-xs text-muted">{item.cwd}</span>}</p>
+    <article
+      className={cn('grid gap-2.5', compact ? 'gap-1.5 rounded-ctl px-2.5 py-2.5 hover:bg-hover' : 'rounded-card bg-paper p-4 shadow-[var(--shadow-card)]')}
+      data-testid="inbox-item"
+      data-kind={item.kind}
+    >
+      {compact ? (
+        <div className="flex items-center gap-2">
+          <Badge tone={tone}>{INBOX_LABEL[item.kind] ?? item.kind}</Badge>
+          {title}
+          {marks}
+          <span className="shrink-0 text-xs tabular-nums text-muted">{when(item.createdAt)}</span>
+        </div>
+      ) : (
+        <header className="flex min-w-0 items-start gap-3">
+          <span aria-hidden className={cn('mt-px grid size-8 shrink-0 place-items-center rounded-ctl', ICON_TONE[tone])}>
+            <Icon name={KIND_ICON[item.kind] ?? 'bell'} />
+          </span>
+          <div className="grid min-w-0 flex-1 gap-1">
+            {title}
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              <Badge tone={tone}>{INBOX_LABEL[item.kind] ?? item.kind}</Badge>
+              {marks}
+              <span className="tabular-nums">{when(item.createdAt)}</span>
+            </p>
+          </div>
+        </header>
       )}
-      {item.detail && <p className={compact ? 'line-clamp-2 text-xs text-muted' : 'whitespace-pre-wrap text-sm text-muted'}>{item.detail}</p>}
+      {item.command && (compact ? (
+        <p className="truncate text-sm text-ink-2"><code className="rounded-chip bg-paper-3 px-1.5 font-mono text-xs">{item.command}</code></p>
+      ) : (
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-ctl bg-code px-3.5 py-3 font-mono text-xs leading-[1.65] text-code-ink">
+          <span className="text-code-dim">$ </span>{item.command}
+          {item.cwd && <>{'\n'}<span className="text-code-dim">cwd </span>{item.cwd}</>}
+        </pre>
+      ))}
+      {item.detail && <p className={compact ? 'line-clamp-2 text-xs text-muted' : 'whitespace-pre-wrap text-sm text-ink-2'}>{item.detail}</p>}
       {filePatch?.diff && (
         <details className="text-xs" data-testid="inbox-file-diff">
-          <summary className="cursor-pointer text-cool hover:underline">查看改动{filePatch.path ? ` · ${filePatch.path}` : ''}</summary>
-          <div className="mt-1.5 max-h-72 overflow-y-auto">
+          <summary className="cursor-pointer font-medium text-cool hover:underline">查看改动{filePatch.path ? ` · ${filePatch.path}` : ''}</summary>
+          <div className="mt-2 max-h-72 overflow-y-auto">
             <DiffView patch={filePatch.diff} comments={[]} />
           </div>
         </details>
@@ -151,12 +209,12 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
           {suspects.map((s, i) => (
             <span key={s.taskId}>
               {i > 0 && '、'}
-              <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: s.taskId }} className="text-ink-2 hover:underline">{s.title}</Link>
+              <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: s.taskId }} className="font-medium text-ink-2 hover:underline">{s.title}</Link>
             </span>
           ))}
         </p>
       )}
-      {open && <div className="flex flex-wrap items-center gap-1.5"><Actions item={item} projectId={projectId} /></div>}
+      {open && <div className="flex flex-wrap items-center gap-2"><Actions item={item} projectId={projectId} /></div>}
     </article>
   );
 }

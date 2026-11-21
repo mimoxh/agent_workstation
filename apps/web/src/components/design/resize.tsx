@@ -103,8 +103,8 @@ export function ResizeHandle({ width, min, max, dragging, edge, onPointerDown, o
           'absolute top-0 z-30 h-full w-2 cursor-col-resize touch-none',
           edge === 'left' ? '-left-1' : '-right-1',
           'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors',
-          'hover:after:bg-[var(--color-rule-2)] focus-visible:after:bg-[var(--color-cool)]',
-          dragging && 'after:bg-[var(--color-cool)]',
+          'hover:after:bg-rule-2 focus-visible:after:bg-cool',
+          dragging && 'after:bg-cool',
         )}
       />
       {dragging && <div className="fixed inset-0 z-40 cursor-col-resize" aria-hidden />}

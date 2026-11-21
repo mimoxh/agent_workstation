@@ -1,5 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { buttonClass } from '@/components/ui/button';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Icon, panelIcon } from '@/components/ui/icons';
 import { parseWsSearch, renderPanel } from '@/components/workstation/WorkstationScreen';
 import { useProject, useWorkstation } from '@/lib/queries';
 
@@ -19,12 +21,13 @@ function PanelPage() {
   if (ws.isLoading || project.isLoading) return <Loading />;
   if (!ws.data || !project.data) return <ErrorState error={ws.error ?? new Error('工作台不存在')} />;
   const block = ws.data.blocks.find((b) => b.panelId === panelId);
-  if (!block) return <Empty title="板块不存在" />;
+  if (!block) return <Empty title="板块不存在" icon="alert" />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="panel-page">
-      <header className="flex items-baseline gap-3 border-b border-rule bg-paper-2 px-4 py-2.5">
-        <h1 className="text-title text-ink">{block.name}</h1>
-        <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId }} search={{ panel: panelId }} className="text-sm text-cool hover:underline">退出全屏</Link>
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-rule px-5 py-2.5">
+        <Icon name={panelIcon(block.panelType, block.entityType, block.panelId)} className="size-[18px] shrink-0 text-muted" />
+        <h1 className="min-w-0 flex-1 truncate text-title font-bold text-ink">{block.name}</h1>
+        <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId }} search={{ panel: panelId }} className={buttonClass('quiet', 'sm')}>退出全屏</Link>
       </header>
       <div className="min-h-0 flex-1">
         {renderPanel(block, ws.data, project.data, { q: search.q, status: search.status }, (f) =>

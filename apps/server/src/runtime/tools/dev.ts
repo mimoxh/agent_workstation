@@ -53,6 +53,20 @@ function writeDenied(ctx: ToolCtx): string | null {
 const scopeOf = (ctx: ToolCtx): TaskScope => parseScope(ctx.task.inputJson);
 const outOfScope = (s: TaskScope, p: string) => `越出 Module 范围（${scopeLabel(s)}）：${p}`;
 
+// 外部 harness 能用自己的 shell 直接提交，绕过 git_commit 的范围检查：送审前对整条分支再查一次
+// 从目标分支的分叉点算起，sync_branch 合进来的上游改动不算在任务头上
+async function outOfScopeOnBranch(ctx: ToolCtx): Promise<string | null> {
+  const ref = requireWt(ctx);
+  if (!ref) return null;
+  const ws = (await ctx.db.select().from(workstation).where(eq(workstation.id, ctx.task.workstationId)))[0];
+  const target = devSettings(ws?.settingsJson ?? null).targetBranch;
+  let r = await git(ref.worktree, ['diff', '--name-only', `${target}...HEAD`]);
+  if (r.code !== 0) r = await git(ref.worktree, ['diff', '--name-only', `${ref.base_sha}..HEAD`]);
+  const scope = scopeOf(ctx);
+  const out = r.stdout.split('\n').filter(Boolean).filter((p) => !inScope(p, scope));
+  return out.length > 0 ? `分支上有越出 Module 范围（${scopeLabel(scope)}）的改动：${out.slice(0, 20).join(', ')}` : null;
+}
+
 const CONFIRM_TIMEOUT_MS = 300_000;
 // 人处理收件箱时事件立即唤醒；轮询只兜底绕过事件的关闭路径（closeInboxFor 等）
 const CONFIRM_POLL_MS = 5_000;
@@ -268,7 +282,9 @@ export const devTools: Record<string, ToolDef> = {
     parameters: z.object({ summary: z.string() }),
     execute: async (ctx, a) => {
       const denied = writeDenied(ctx);
-      return denied ? { error: denied } : submitChange(ctx, String(a.summary));
+      if (denied) return { error: denied };
+      const outside = await outOfScopeOnBranch(ctx);
+      return outside ? { error: outside } : submitChange(ctx, String(a.summary));
     },
   },
   review_change: {

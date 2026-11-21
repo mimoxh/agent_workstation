@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { useThreadMembers } from '@/lib/queries';
@@ -68,36 +69,47 @@ export function Composer({ threadId, hint, placeholder, actions, wide, meta, onS
   };
 
   return (
-    <div className={cn('shrink-0', wide ? 'px-5 pb-4 pt-2 md:px-10 lg:px-14' : 'border-t border-rule p-2.5')}>
-      <div className={cn('relative rounded-card bg-paper shadow-[var(--shadow-card)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--color-focus),var(--shadow-card)]', wide && 'mx-auto max-w-[54rem]')}>
-      {candidates.length > 0 && (
-        <ul className="absolute bottom-full left-0 right-0 mb-1 rounded-card bg-paper p-1 shadow-[var(--shadow-pop)]" role="listbox" aria-label="提及成员">
-          {candidates.map((c, i) => (
-            <li key={c.id} role="option" aria-selected={i === active}>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(c.name); }} className={cn('w-full rounded-chip px-2 py-1 text-left text-sm', i === active ? 'bg-hover text-ink' : 'text-ink-2')}>
-                {c.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <Textarea
-        ref={inputRef}
-        rows={2}
-        className="min-h-0 resize-none border-0 bg-transparent px-3 pt-2.5 text-[0.95rem] hover:border-0 focus-visible:shadow-none"
-        value={input}
-        placeholder={placeholder ?? '消息，@ 提及成员，Shift+Enter 换行'}
-        aria-label="发消息"
-        data-testid="thread-input"
-        onChange={(e) => { setInput(e.target.value); setCursor(e.target.selectionStart); setActive(0); }}
-        onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
-        onKeyDown={onKey}
-      />
-      <div className="flex items-center gap-2 px-2.5 pb-2">
-        <p className="min-w-0 flex-1 truncate text-xs text-faint">{hint}</p>
-        {actions}
-        <Button size="sm" variant="primary" disabled={sending || !input.trim()} onClick={() => void send()} data-testid="thread-send">发送</Button>
-      </div>
+    <div className={cn('shrink-0', wide ? 'px-5 pb-4 pt-2.5 md:px-10 lg:px-14' : 'border-t border-rule px-3 pb-3 pt-2.5')}>
+      <div className={cn('relative grid gap-1.5', wide && 'mx-auto max-w-[54rem]')}>
+        {candidates.length > 0 && (
+          <ul className="absolute bottom-[calc(100%-4px)] left-3 z-10 grid min-w-60 animate-rise rounded-pop bg-paper p-1.5 shadow-[var(--shadow-pop)]" role="listbox" aria-label="提及成员">
+            {candidates.map((c, i) => (
+              <li key={c.id} role="option" aria-selected={i === active}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); pick(c.name); }}
+                  className={cn('flex min-h-[34px] w-full items-center gap-2.5 rounded-ctl px-2.5 text-left text-sm', i === active ? 'bg-hover text-ink' : 'text-ink-2 hover:bg-hover')}
+                >
+                  <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-tag text-[10px] font-semibold text-tag-ink">{c.name.slice(0, 1)}</span>
+                  {c.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex items-end gap-1.5 rounded-[22px] border border-field-line bg-paper-2 py-1.5 pl-4 pr-1.5 transition-[border-color,background-color,box-shadow] duration-150 hover:border-muted focus-within:border-focus focus-within:bg-paper focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-focus)_22%,transparent)]">
+          <Textarea
+            ref={inputRef}
+            rows={1}
+            className="my-1.5 max-h-40 min-h-6 flex-1 resize-none self-center border-0 bg-transparent p-0 leading-normal [field-sizing:content] hover:border-0 focus-visible:bg-transparent focus-visible:shadow-none"
+            value={input}
+            placeholder={placeholder ?? '消息，@ 提及成员，Shift+Enter 换行'}
+            aria-label="发消息"
+            data-testid="thread-input"
+            onChange={(e) => { setInput(e.target.value); setCursor(e.target.selectionStart); setActive(0); }}
+            onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
+            onKeyDown={onKey}
+          />
+          <Button variant="primary" disabled={sending || !input.trim()} aria-busy={sending || undefined} onClick={() => void send()} data-testid="thread-send">
+            {sending ? <Spinner /> : <Icon name="send" />}发送
+          </Button>
+        </div>
+        {(hint || actions) && (
+          <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 pl-4">
+            <p className="min-w-0 flex-1 truncate text-xs text-muted">{hint}</p>
+            {actions}
+          </div>
+        )}
       </div>
     </div>
   );

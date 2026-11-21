@@ -7,6 +7,7 @@ import { TaskProposalsPanel } from '@/components/panels/ProposalReview';
 import { TaskTestRunsPanel } from '@/components/panels/TestRuns';
 import { RunTable } from '@/components/run/RunTable';
 import { StreamBlocks, useLiveOutput } from '@/components/run/LiveOutput';
+import { TerminalView } from '@/components/run/Terminal';
 import { TaskHeader } from '@/components/task/TaskHeader';
 import { TaskPreview } from '@/components/task/TaskPreview';
 import { TaskSide } from '@/components/task/TaskSide';
@@ -14,13 +15,14 @@ import { Timeline } from '@/components/timeline/Timeline';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
-import { Field, Input, Select } from '@/components/ui/input';
+import { Icon } from '@/components/ui/icons';
+import { chipClass, Field, Input, Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
-import { parseJson } from '@/lib/format';
-import { nameMaps, useInbox, useProject, useTask, useTaskProposals, useTaskRuns, useTaskTestRuns, useWorkstation, type RunRow, type TaskDetail, type WsAgent } from '@/lib/queries';
+import { clock, parseJson } from '@/lib/format';
+import { nameMaps, useInbox, useProject, useTask, useTaskProposals, useTaskRuns, useTaskTestRuns, useTerminals, useWorkstation, type RunRow, type TaskDetail, type WsAgent } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-const VIEWS = ['timeline', 'changes', 'tests', 'runs', 'output', 'preview'] as const;
+const VIEWS = ['timeline', 'changes', 'tests', 'runs', 'terminal', 'output', 'preview'] as const;
 type ViewId = (typeof VIEWS)[number];
 
 export const Route = createFileRoute('/projects/$projectId/tasks/$taskId')({
@@ -35,16 +37,43 @@ function RunsView({ taskId, projectId, runs, agents }: { taskId: string; project
   });
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-rule px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-rule px-5 py-2.5">
         <Select className="h-8 w-44" aria-label="选择 Agent" data-testid="run-agent-select" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">选择 Agent…</option>
           {agents.filter((a) => a.status !== 'paused').map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </Select>
-        <Button disabled={!agentId || run.isPending} onClick={() => run.mutate()} data-testid="run-agent">手动运行</Button>
+        <Button size="sm" disabled={!agentId || run.isPending} onClick={() => run.mutate()} data-testid="run-agent"><Icon name="play" />手动运行</Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {runs.length === 0 ? <Empty title="还没有运行记录" /> : <RunTable runs={runs} projectId={projectId} showTask={false} />}
+      <div className="min-h-0 flex-1 overflow-auto pt-3">
+        {runs.length === 0 ? <Empty title="还没有运行记录" icon="play">派发后 Agent 的每次执行都会记在这里。</Empty> : <RunTable runs={runs} projectId={projectId} showTask={false} />}
       </div>
+    </div>
+  );
+}
+
+const isHarnessRun = (r: RunRow) => !!r.engine && r.engine !== 'builtin';
+
+// 外部 harness 的每次运行一个终端：默认看还活着的那个，没有就看最近一次
+function TerminalsView({ taskId, runs }: { taskId: string; runs: RunRow[] }) {
+  const live = useTerminals(taskId);
+  const alive = new Set((live.data ?? []).filter((t) => t.alive).map((t) => t.runId));
+  const rows = runs.filter(isHarnessRun);
+  const [picked, setPicked] = useState<string | null>(null);
+  const current = rows.find((r) => r.id === picked) ?? rows.find((r) => alive.has(r.id)) ?? rows[0];
+  if (!current) return <Empty title="还没有终端" icon="terminal">外部引擎（Claude Code / Codex）的 Agent 运行时，终端会出现在这里。</Empty>;
+  return (
+    <div className="flex flex-col gap-2.5 px-4 py-3 md:px-10 lg:px-14">
+      {rows.length > 1 && (
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="终端会话">
+          {rows.map((r) => (
+            <button key={r.id} type="button" role="tab" aria-selected={r.id === current.id} onClick={() => setPicked(r.id)} data-testid="terminal-pick" className={chipClass(r.id === current.id)}>
+              {alive.has(r.id) && <span aria-hidden className="size-1.5 animate-pulse-soft rounded-full bg-cool" />}
+              {r.agentName ?? r.engine} <span className="measured opacity-70">{clock(r.startedAt)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <TerminalView key={current.id} id={current.id} className="h-[34rem]" />
     </div>
   );
 }
@@ -130,14 +159,15 @@ function TaskPage() {
   const stageNames = Object.fromEntries(d.flow.stages.map((s) => [s.id, s.name]));
   const labels: Record<ViewId, ReactNode> = {
     timeline: '时间线',
-    changes: <>改动 <span className="measured text-xs">{proposalRows.length}</span></>,
-    tests: <>验收 <span className="measured text-xs">{testRows.length}</span></>,
-    runs: <>运行 <span className="measured text-xs">{runRows.length}</span></>,
+    changes: <>改动 <span className="font-normal tabular-nums opacity-70">{proposalRows.length}</span></>,
+    tests: <>验收 <span className="font-normal tabular-nums opacity-70">{testRows.length}</span></>,
+    runs: <>运行 <span className="font-normal tabular-nums opacity-70">{runRows.length}</span></>,
+    terminal: '终端',
     output: '实时输出',
     preview: '预览',
   };
   // 预览只在开发台任务上有意义（要 worktree + serve 命令）
-  const views = VIEWS.filter((v) => v !== 'preview' || owner.data?.pluginId === 'dev');
+  const views = VIEWS.filter((v) => (v !== 'preview' || owner.data?.pluginId === 'dev') && (v !== 'terminal' || runRows.some(isHarnessRun)));
   const hasDesignHandoff = !!((parseJson<{ design_artifact?: string }>(d.task.inputJson, {})).design_artifact);
   const liveRunning = liveStreams.some((s) => !s.done);
 
@@ -160,7 +190,7 @@ function TaskPage() {
                 canAssign={actions.canAssign}
                 onAction={(a) => actions.run(a, d.task)}
               />
-              <nav className="mt-5 flex gap-0.5 border-b border-rule" role="tablist" aria-label="任务视图">
+              <nav className="mt-6 flex items-center overflow-x-auto border-b border-rule [scrollbar-width:none]" role="tablist" aria-label="任务视图">
                 {views.map((v) => (
                   <button
                     key={v}
@@ -169,13 +199,14 @@ function TaskPage() {
                     aria-selected={view === v}
                     data-testid={`task-view-${v}`}
                     onClick={() => void navigate({ search: v === 'timeline' ? {} : { view: v } })}
-                    className={cn('relative h-9 px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-1.5 after:-bottom-px after:h-0.5 after:bg-ink', view === v ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}
+                    className={cn('relative inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap px-3.5 text-sm transition-colors duration-150 after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink after:transition-opacity', view === v ? 'font-semibold text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}
                   >
                     {labels[v]}
                   </button>
                 ))}
                 {liveRunning && view !== 'output' && (
-                  <button type="button" onClick={() => void navigate({ search: { view: 'output' } })} className="ml-auto h-9 px-2.5 text-xs font-medium text-cool hover:underline" data-testid="task-live-link">
+                  <button type="button" onClick={() => void navigate({ search: { view: 'output' } })} className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-btn bg-cool-soft px-3 text-xs font-semibold text-cool transition-colors duration-150 hover:bg-cool-tag hover:text-cool-tag-ink" data-testid="task-live-link">
+                    <span aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />
                     命令运行中 · 查看输出
                   </button>
                 )}
@@ -187,7 +218,8 @@ function TaskPage() {
             {view === 'changes' && <TaskProposalsPanel taskId={taskId} projectId={projectId} />}
             {view === 'tests' && <TaskTestRunsPanel taskId={taskId} projectId={projectId} />}
             {view === 'runs' && <RunsView taskId={taskId} projectId={projectId} runs={runRows} agents={[...(owner.data?.agents ?? []), ...(exec.data && exec.data.id !== owner.data?.id ? exec.data.agents : [])]} />}
-            {view === 'output' && <div className="px-4 md:px-10 lg:px-14"><div className="mx-auto max-w-[54rem]"><StreamBlocks streams={liveStreams} /></div></div>}
+            {view === 'terminal' && <TerminalsView taskId={taskId} runs={runRows} />}
+            {view === 'output' && <div className="px-4 py-3 md:px-10 lg:px-14"><div className="mx-auto max-w-[54rem]"><StreamBlocks streams={liveStreams} /></div></div>}
             {view === 'preview' && <TaskPreview taskId={taskId} hasHandoff={hasDesignHandoff} />}
           </div>
         </div>

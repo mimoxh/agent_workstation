@@ -199,6 +199,11 @@
 - **影响**：启动迁移 `migrateQaWorkstations`：未归档的测试台把质量实体、`qa_run` / `qa_case_result`、`qa_handoff` / `qa_report` 产物并进它绑定的开发台（失效时取同项目最早的开发台），源台归档、成员暂停、旧 `_qa` worktree 删除；项目没有开发台时就地转换（去掉来源设置、清旧板块由 sync 重建、补齐开发台成员）。`/projects/:id/qa-sources` 路由和挂载对话框里选来源开发台的 UI 删掉；`qa-gate-suites` 只返回本台套件 `{ id, name }`。设计交接的「请用例设计起草验收用例」改为 @ 目标开发台自己的用例设计。
 - **复核点**：一台成员变成十个左右，若大群里的路由或 @ 补全开始拥挤，再考虑按分组折叠成员列表。
 
+### D33 · 外部 Agent 引擎：在应用内终端里驱动 Claude Code / Codex
+- **决策**：Agent 实例新增 `engine`（`builtin` 默认 = 平台自己的循环；`claude-code` / `codex` = 外部 harness），在「成员 → 编辑」里按实例切换，未安装的引擎不可选。外部引擎的每次 run 在 node-pty 里起一个真实终端（cwd = 任务 worktree），人在任务页「终端」或 run 页用 xterm.js 看输出、随时打字接管；平台工具（`send_message` / `submit_change` / `report_blocked` 等，去掉 harness 自带的读写文件、跑命令那一类）经本机 `/api/mcp` 以 MCP 提供，按 run 发一次性 token。回合结束由 Claude 的 Stop hook / Codex 的 `notify` 回报 `/api/harness/turn`，平台据此记用量、收口 run；再次唤醒按 `run.session_id` 续接同一会话（`--resume` / `codex resume`）。权限是「worktree 内自动」：Claude `--permission-mode dontAsk` + 允许 / 禁止工具清单，Codex `-s workspace-write -a never`；可写目录只有 worktree、run 目录和仓库的 git 公共目录，`git push` / `commit` / `reset --hard` / `clean` / `rebase` 一律禁止，提交仍走 `submit_change`，送审前平台按分支 diff 复查 Module 范围。
+- **理由**：成熟的 coding harness（上下文管理、编辑、自测）比平台自研循环强得多，平台的价值在协作、审查、合并与预算；让 harness 干活、平台只通过 MCP 提供协作工具，两边各取所长。终端是 harness 的原生界面，嵌进应用而不是另开窗口，人插手不用切换上下文。
+- **影响**：迁移 `0013_agent-engine`（`agent.engine`、`run.engine`、`run.session_id`）；外部引擎 run 的 `provider` 记引擎 id、`model` 记 `harness`，模型门禁跳过；用量取 harness 自己的会话记录（Claude transcript / Codex rollout），读不到就按回复长度估算并标「估」。取消、时间预算、提前退出都按进程树杀终端（Windows 用 `taskkill /T`，ConPTY 的 kill 只结束根进程）；会话结束后终端内容存为 `terminal_log` 产物，服务重启后仍可回放；闲置 30 分钟的已收口会话自动回收。终端 WebSocket 只接受本机页面的 Origin。测试与 `AW_ENABLE_MOCK=1` 下另有 `fake` 引擎，走真实的 PTY / MCP / 回合上报路径。
+- **复核点**：Phase 2 用 Electron 打包桌面应用后，终端与服务同进程，WebSocket 的 Origin 校验改为应用自身来源；接入更多 harness 时只加 `runtime/harness/` 下的适配器（`HarnessAdapter`）。node-pty 1.1 在 Windows 上 kill 时会打印 `AttachConsole failed`（上游 microsoft/node-pty#952 / #1007，未修），无害。
 ## 二、待定（按重要性排序）
 
 ### Q1 · 群聊的发言调度机制 【✅ 已收敛】

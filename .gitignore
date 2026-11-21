@@ -10,3 +10,5 @@ routeTree.gen.ts.bak
 test-results/
 playwright-report/
 .DS_Store
+
+designs/

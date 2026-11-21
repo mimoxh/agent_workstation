@@ -1,7 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { EntityPanel, type EntityDef } from '@/components/panels/EntityPanel';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { api, unwrap } from '@/lib/api';
 import type { ProjectDetail, WorkstationDetail } from '@/lib/queries';
 
@@ -17,10 +18,10 @@ export function ReportsPanel({ ws, project, def, editable }: { ws: WorkstationDe
   });
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="reports-panel">
-      <div className="flex items-center justify-between gap-3 px-6 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-2 md:px-8">
         <p className="text-sm text-muted">项目经理按项目现状起草的报告存档在这里</p>
-        <Button size="sm" variant="primary" disabled={!root || ask.isPending} onClick={() => ask.mutate()} data-testid="report-ask">
-          请项目经理生成
+        <Button variant="primary" disabled={!root || ask.isPending} aria-busy={ask.isPending || undefined} onClick={() => ask.mutate()} data-testid="report-ask">
+          {ask.isPending ? <Spinner /> : <Icon name="chart" />}请项目经理生成
         </Button>
       </div>
       <div className="min-h-0 flex-1">

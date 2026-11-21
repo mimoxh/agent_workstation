@@ -69,9 +69,9 @@ export function DesignFrame({ doc, title, device, mode = 'view', pins = NO_PINS,
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {caption && <p className="shrink-0 border-b border-rule px-3 py-1 text-xs text-muted">{caption}</p>}
+      {caption && <p className="shrink-0 truncate border-b border-rule bg-paper px-3 py-1.5 text-xs text-muted">{caption}</p>}
       <div ref={stage} className="min-h-0 flex-1 overflow-hidden bg-paper-3">
-        <div className="mx-auto mt-4 overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)]" style={{ width: frameW * scale, height: frameH * scale }}>
+        <div className="mx-auto mt-4 overflow-hidden rounded-card bg-paper shadow-[var(--shadow-pop)]" style={{ width: frameW * scale, height: frameH * scale }}>
           <iframe
             ref={frame}
             title={title}

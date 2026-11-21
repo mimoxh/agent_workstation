@@ -3,6 +3,7 @@ import { WsThread } from '@/components/chat/Thread';
 import { PageHeader } from '@/components/layout/Page';
 import { buttonClass } from '@/components/ui/button';
 import { ErrorState, Loading } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { nameMaps, useProject } from '@/lib/queries';
 
 export const Route = createFileRoute('/_console/pm/$projectId')({
@@ -25,7 +26,7 @@ function PmPage() {
             icon="chat"
             title="项目经理"
             desc={`${project.data.name} 的根工作台：派发、分诊阻塞、汇报进度`}
-            actions={<Link to="/projects/$projectId" params={{ projectId }} className={buttonClass()}>打开项目</Link>}
+            actions={<Link to="/projects/$projectId" params={{ projectId }} className={buttonClass()}><Icon name="external" />打开项目</Link>}
           />
         </div>
       </div>

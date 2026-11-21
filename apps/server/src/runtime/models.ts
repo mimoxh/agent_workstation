@@ -100,8 +100,10 @@ export async function hasModels() {
 }
 
 // 派发前拦下：否则任务要等到 run 启动才阻塞，人看到的只是一条失败记录
-export async function modelGate(): Promise<string | null> {
+// 用外部 harness 的 Agent 走 CLI 自己的登录，不需要平台配置模型
+export async function modelGate(engine?: string | null): Promise<string | null> {
   if (process.env.AW_AUTORUN === '0') return null;
+  if (engine && engine !== 'builtin') return null;
   return (await hasModels()) ? null : '还没有可用的模型：先配置模型 provider，再派发任务';
 }
 

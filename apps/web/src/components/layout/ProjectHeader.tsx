@@ -8,7 +8,7 @@ export function GlobalPage({ title, icon, desc, testId, children }: { title: str
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid={testId}>
       <Page>
         <PageHeader icon={icon} title={title} {...(desc ? { desc } : {})} />
-        <div className="mt-6 space-y-6">{children}</div>
+        <div className="space-y-6">{children}</div>
       </Page>
     </div>
   );

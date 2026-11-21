@@ -4,6 +4,7 @@ import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson, when } from '@/lib/format';
@@ -67,15 +68,15 @@ function History({ id, current, editable }: { id: string; current: number; edita
     mutationFn: async (version: number) => unwrap(await api.entities[':id'].rollback.$post({ param: { id }, json: { version } })),
   });
   return (
-    <ol className="space-y-1">
+    <ol className="grid gap-1.5 rounded-ctl bg-paper-2 px-3.5 py-2.5">
       {(q.data ?? []).map((v) => (
-        <li key={v.id} className="measured flex gap-3 text-xs text-muted">
-          <span className="text-cool">v{v.version}</span>
+        <li key={v.id} className="measured flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <span className="font-semibold text-ink-2">v{v.version}</span>
           <span>{v.authorType === 'human' ? '本地用户' : 'Agent'}</span>
           <span>{when(v.createdAt)}</span>
           {v.reason && <span className="font-sans text-ink-2">{v.reason}</span>}
           {editable && v.version !== current && (
-            <button type="button" className="font-sans text-cool hover:underline" disabled={rollback.isPending} onClick={() => rollback.mutate(v.version)} data-testid="entity-rollback">回滚到此版本</button>
+            <button type="button" className="font-sans font-medium text-cool hover:underline disabled:opacity-50" disabled={rollback.isPending} onClick={() => rollback.mutate(v.version)} data-testid="entity-rollback">回滚到此版本</button>
           )}
         </li>
       ))}
@@ -92,27 +93,32 @@ function Row({ row, def, editable, onEdit, extra }: { row: EntityRow; def: Entit
   const state = stateKey ? String(data[stateKey] ?? '') : '';
   const rest = Object.entries(def.fields).filter(([k]) => k !== titleKey && k !== stateKey && k !== dateKey && data[k]);
   return (
-    <li className="relative border-b border-l border-rule border-l-rule-2 py-3 pl-5 before:absolute before:-left-1 before:top-5 before:size-[7px] before:rounded-full before:bg-cool">
-      <div className="flex items-center gap-3">
-        <span className="measured w-10 shrink-0 text-xs text-cool">v{row.version}</span>
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="min-w-0 flex-1 truncate text-left text-md text-ink hover:underline">
+    <li className="border-b border-rule last:border-b-0">
+      <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 transition-colors duration-100 hover:bg-hover', open && 'bg-paper-2 hover:bg-paper-2')}>
+        <Icon name="chev" className={cn('size-3.5 shrink-0 text-muted transition-transform duration-150', !open && '-rotate-90')} />
+        <span className="measured shrink-0 rounded-chip bg-cool-soft px-1.5 py-0.5 text-xs font-semibold text-cool">v{row.version}</span>
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="min-w-0 flex-[1_1_12rem] truncate text-left text-sm font-semibold text-ink hover:underline">
           {String(data[titleKey] ?? '未命名')}
         </button>
         {dateKey && !!data[dateKey] && <span className="measured text-xs text-muted">{String(data[dateKey])}</span>}
-        <span className="measured text-xs text-muted">{when(row.updatedAt ?? row.createdAt)}</span>
+        <span className="measured text-xs text-muted max-sm:hidden">{when(row.updatedAt ?? row.createdAt)}</span>
         {state && <Badge tone={STATE_TONE[state] ?? 'neutral'}>{STATE_LABEL[state] ?? state}</Badge>}
         {extra}
       </div>
       {open && (
-        <div className="mt-3 space-y-3 pl-[3.25rem]">
-          {rest.map(([k, f]) => (
-            <div key={k}>
-              <p className="text-xs text-muted">{f.label ?? k}</p>
-              <p className="whitespace-pre-wrap text-sm text-ink-2">{String(data[k])}</p>
-            </div>
-          ))}
+        <div className="grid gap-3 bg-paper-2 px-4 pb-4 pl-[2.6rem] max-sm:pl-4">
+          {rest.length > 0 && (
+            <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm max-sm:grid-cols-1 max-sm:gap-y-1">
+              {rest.map(([k, f]) => (
+                <div key={k} className="contents">
+                  <dt className="text-muted">{f.label ?? k}</dt>
+                  <dd className="whitespace-pre-wrap text-ink-2 max-sm:mb-1.5">{String(data[k])}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           <History id={row.id} current={row.version} editable={editable} />
-          {editable && <Button size="sm" onClick={onEdit}>修改</Button>}
+          {editable && <Button size="sm" className="w-fit" onClick={onEdit}><Icon name="edit" />修改</Button>}
         </div>
       )}
     </li>
@@ -132,19 +138,19 @@ export function EntityPanel({ wsId, entityType, def, editable, sortByDate, rowEx
     rows.sort((a, b) => String(parseJson<Data>(a.dataJson, {})[dateKey] ?? '9').localeCompare(String(parseJson<Data>(b.dataJson, {})[dateKey] ?? '9')));
   }
   return (
-    <div className="h-full overflow-y-auto" data-testid={`entity-panel-${entityType}`}>
-      <div className={cn('flex items-center justify-between px-6 pt-4', rows.length === 0 && 'hidden')}>
-        <p className="text-sm text-muted">{label} <span className="measured">{rows.length}</span></p>
-        {editable && <Button variant="primary" onClick={() => setDialog({})}>新建{label}</Button>}
+    <div className="h-full overflow-y-auto px-5 py-4" data-testid={`entity-panel-${entityType}`}>
+      <div className={cn('mb-3 flex flex-wrap items-center justify-between gap-2', rows.length === 0 && 'hidden')}>
+        <p className="text-sm text-muted">{label} <span className="font-semibold tabular-nums text-ink">{rows.length}</span></p>
+        {editable && <Button variant="primary" onClick={() => setDialog({})}><Icon name="plus" />新建{label}</Button>}
       </div>
       {rows.length === 0 ? (
-        <Empty title={`还没有${label}`}>
+        <Empty title={`还没有${label}`} icon="table">
           <p>{def.description}</p>
           {emptyExtra}
-          {editable && <Button variant="primary" className="mt-3" onClick={() => setDialog({})}>新建{label}</Button>}
+          {editable && <Button variant="primary" className="mt-3" onClick={() => setDialog({})}><Icon name="plus" />新建{label}</Button>}
         </Empty>
       ) : (
-        <ol className="px-6 py-3">
+        <ol className="overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)]">
           {rows.map((r) => <Row key={r.id} row={r} def={def} editable={editable} onEdit={() => setDialog({ row: r })} extra={rowExtra?.(r)} />)}
         </ol>
       )}

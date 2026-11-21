@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { InboxEntry } from '@/components/inbox/InboxEntry';
 import { notifyPermission, notifySupported, requestNotify } from '@/components/inbox/notify';
 import { Page, PageHeader, SectionTitle } from '@/components/layout/Page';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
 import { useAllInbox, useProjects } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -33,7 +33,7 @@ function AllInboxPage() {
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="inbox-page">
       <Page>
         <PageHeader icon="inbox" title="需要我" desc="阻塞、命令确认、运行失败和待决定的提案，跨项目汇总在这里" actions={<NotifyToggle />} />
-        <div className="mt-6 flex gap-0.5 border-b border-rule" role="tablist">
+        <div className="flex gap-1" role="tablist">
           {tabs.map((t) => (
             <button
               key={t.label}
@@ -41,7 +41,7 @@ function AllInboxPage() {
               role="tab"
               aria-selected={status === t.id}
               onClick={() => void navigate({ search: t.id ? { status: t.id } : {} })}
-              className={cn('relative h-9 px-2.5 text-sm after:absolute after:inset-x-1.5 after:-bottom-px after:h-0.5 after:bg-ink', status === t.id ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}
+              className={cn('h-8 rounded-btn px-3.5 text-sm transition-colors', status === t.id ? 'bg-primary font-semibold text-primary-ink' : 'text-muted hover:bg-hover hover:text-ink')}
             >
               {t.label}
             </button>
@@ -49,14 +49,14 @@ function AllInboxPage() {
         </div>
         {inbox.isLoading && <Loading />}
         {inbox.isError && <ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />}
-        {inbox.data?.length === 0 && <Empty title={status ? '还没有处理过的条目' : '没有待处理项'}>Agent 正常推进时不会打扰你。</Empty>}
+        {inbox.data?.length === 0 && <Empty icon="inbox" title={status ? '还没有处理过的条目' : '没有待处理项'}>Agent 正常推进时不会打扰你。</Empty>}
         {(projects.data ?? []).map((p) => {
           const mine = items.filter((i) => i.projectId === p.id);
           if (mine.length === 0) return null;
           return (
             <section key={p.id} aria-label={p.name} data-testid="inbox-group">
-              <SectionTitle aside={<Link to="/projects/$projectId" params={{ projectId: p.id }} className="rounded-chip px-1.5 text-sm text-muted hover:bg-hover hover:text-ink">打开项目</Link>}>{p.name}</SectionTitle>
-              <div className="divide-y divide-rule border-y border-rule">
+              <SectionTitle aside={<Link to="/projects/$projectId" params={{ projectId: p.id }} className={buttonClass('quiet', 'sm')}>打开项目</Link>}>{p.name}</SectionTitle>
+              <div className="grid gap-3">
                 {mine.map((i) => <InboxEntry key={i.id} item={i} projectId={p.id} />)}
               </div>
             </section>

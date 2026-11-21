@@ -1,16 +1,22 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { STATUS_LABEL } from '@/components/board/labels';
-import { Dialog } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { useProjectTasks, type ProjectDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+
+const ICON: Record<string, IconName> = { 页面: 'doc', 工作台: 'terminal', 任务: 'check' };
 
 interface Item { id: string; group: string; label: string; meta?: string; go: () => void }
 
 export function CommandPalette({ project, onClose }: { project: ProjectDetail; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !el.open) el.showModal();
+  }, []);
   const navigate = useNavigate();
   const tasks = useProjectTasks(project.id);
   const params = { projectId: project.id };
@@ -59,25 +65,56 @@ export function CommandPalette({ project, onClose }: { project: ProjectDetail; o
   };
 
   return (
-    <Dialog title="跳转" onClose={onClose} className="mt-[12vh] mb-auto w-[34rem]" testId="command-palette">
-      <Input autoFocus placeholder="工作台、任务、页面…" aria-label="搜索" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} data-testid="command-input" />
-      <ul className="mt-2 max-h-[50vh] overflow-y-auto" role="listbox" aria-label="结果">
+    <dialog
+      ref={ref}
+      aria-label="跳转"
+      data-testid="command-palette"
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onMouseDown={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
+      className="mx-auto mb-auto mt-[12dvh] w-[38.75rem] max-w-[calc(100vw-2rem)] animate-pop overflow-hidden rounded-pop border-0 bg-paper p-0 text-ink shadow-[var(--shadow-pop)]"
+    >
+      <div className="flex items-center gap-2.5 border-b border-rule px-4">
+        <Icon name="search" className="text-muted" />
+        <input
+          autoFocus
+          placeholder="工作台、任务、页面…"
+          aria-label="搜索"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={onKey}
+          data-testid="command-input"
+          className="h-14 min-w-0 flex-1 border-0 bg-transparent text-md text-ink outline-none placeholder:text-faint focus-visible:outline-none"
+        />
+        <kbd>Esc</kbd>
+      </div>
+      <ul className="max-h-[52dvh] overflow-y-auto p-1.5" role="listbox" aria-label="结果">
         {shown.map((item, i) => (
           <li key={item.id} role="option" aria-selected={i === active}>
+            {(i === 0 || shown[i - 1]?.group !== item.group) && <p className="px-2.5 pb-1 pt-2 text-xs font-semibold text-muted">{item.group}</p>}
             <button
               type="button"
               onMouseEnter={() => setActive(i)}
               onClick={item.go}
-              className={cn('flex w-full items-center gap-3 rounded-chip px-2.5 py-1.5 text-left', i === active && 'bg-hover')}
+              className={cn('flex min-h-[38px] w-full items-center gap-2.5 rounded-ctl px-2.5 text-left text-sm text-ink-2', i === active && 'bg-hover text-ink')}
             >
-              <span className="w-12 shrink-0 text-xs text-muted">{item.group}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-ink-2">{item.label}</span>
-              {item.meta && <span className="measured shrink-0 text-xs text-muted">{item.meta}</span>}
+              <Icon name={ICON[item.group] ?? 'doc'} className="size-[15px] text-muted" />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.meta && <span className="measured shrink-0 text-xs text-faint">{item.meta}</span>}
             </button>
           </li>
         ))}
-        {shown.length === 0 && <li className="p-3 text-sm text-muted">没有匹配项</li>}
+        {shown.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted">没有匹配项</li>}
       </ul>
-    </Dialog>
+      <div className="flex flex-wrap gap-3.5 border-t border-rule px-4 py-2.5 text-xs text-muted">
+        <span className="inline-flex items-center gap-1.5"><kbd>↑</kbd><kbd>↓</kbd>选择</span>
+        <span className="inline-flex items-center gap-1.5"><kbd>Enter</kbd>打开</span>
+        <span className="inline-flex items-center gap-1.5"><kbd>Esc</kbd>关闭</span>
+      </div>
+    </dialog>
   );
 }

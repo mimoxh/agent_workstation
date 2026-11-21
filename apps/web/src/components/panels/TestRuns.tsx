@@ -22,7 +22,7 @@ function DesignMatchOutput({ meta, output }: { meta: DesignMatchMeta; output: st
     { id: meta.diffShot, label: '差异' },
   ].filter((s): s is { id: string; label: string } => !!s.id);
   return (
-    <div className="space-y-2 bg-paper-3 p-3">
+    <div className="grid gap-2.5 bg-paper-2 p-3.5">
       <div className="flex flex-wrap items-center gap-2">
         {typeof meta.ratio === 'number' && <Badge tone={meta.ratio <= limit ? 'ok' : 'bad'}>差异 {(meta.ratio * 100).toFixed(2)}% · 上限 {(limit * 100).toFixed(0)}%</Badge>}
         <span className="text-xs text-muted">{output}</span>
@@ -35,15 +35,15 @@ function DesignMatchOutput({ meta, output }: { meta: DesignMatchMeta; output: st
       </div>
       {overlay && meta.designShot && meta.actualShot ? (
         <div className="relative inline-block max-w-full" data-testid="design-match-stack">
-          <img src={shotUrl(meta.designShot)} alt="设计稿" className="block max-w-full rounded-card border border-rule" />
-          <img src={shotUrl(meta.actualShot)} alt="实现" className="absolute inset-0 size-full rounded-card" style={{ opacity }} />
+          <img src={shotUrl(meta.designShot)} alt="设计稿" className="block max-w-full rounded-ctl shadow-[var(--shadow-card)]" />
+          <img src={shotUrl(meta.actualShot)} alt="实现" className="absolute inset-0 size-full rounded-ctl" style={{ opacity }} />
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-3">
           {shots.map((s) => (
             <figure key={s.id} className="min-w-0">
-              <img src={shotUrl(s.id)} alt={s.label} className="w-full rounded-card border border-rule" data-testid={`design-match-${s.label}`} />
-              <figcaption className="mt-1 text-center text-xs text-muted">{s.label}</figcaption>
+              <img src={shotUrl(s.id)} alt={s.label} className="w-full rounded-ctl bg-paper shadow-[var(--shadow-card)]" data-testid={`design-match-${s.label}`} />
+              <figcaption className="mt-1.5 text-center text-xs font-medium text-muted">{s.label}</figcaption>
             </figure>
           ))}
         </div>
@@ -54,22 +54,22 @@ function DesignMatchOutput({ meta, output }: { meta: DesignMatchMeta; output: st
 
 function Output({ artifactId }: { artifactId: string }) {
   const q = useArtifact(artifactId);
-  if (q.isLoading) return <Loading label="读取输出…" className="p-3" />;
+  if (q.isLoading) return <Loading label="读取输出…" className="p-3.5" />;
   const meta = q.data?.meta as DesignMatchMeta | null;
   if (meta?.kind === 'design_match') return <DesignMatchOutput meta={meta} output={q.data?.content ?? ''} />;
-  return <pre className="measured max-h-72 overflow-auto whitespace-pre-wrap bg-paper-3 p-3 text-xs text-ink-2">{q.data?.content || '（无输出）'}</pre>;
+  return <pre className="m-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-ctl bg-code px-3.5 py-3 font-mono text-xs leading-[1.65] text-code-ink">{q.data?.content || '（无输出）'}</pre>;
 }
 
-const TH = 'px-4 py-2.5 text-left text-sm font-normal text-muted';
-const TD = 'px-4 py-2.5 text-sm text-ink-2';
+const TH = 'whitespace-nowrap border-b border-rule bg-paper-2 px-3.5 py-2.5 text-left text-xs font-semibold text-muted';
+const TD = 'border-b border-rule px-3.5 py-3 text-sm text-ink-2';
 
 function TestRunTable({ rows, projectId, showTask }: { rows: TestRun[]; projectId: string; showTask: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <div className="h-full overflow-auto" data-testid="testrun-table">
-      <table className="w-full border-collapse">
-        <thead className="sticky top-0 bg-paper">
-          <tr className="border-b border-rule">
+    <div className="h-full overflow-auto p-0.5" data-testid="testrun-table">
+      <table className="w-full border-separate border-spacing-0 overflow-clip rounded-card bg-paper shadow-[var(--shadow-card)] [&>tbody>tr:last-child>td]:border-b-0">
+        <thead className="sticky top-0 z-[1]">
+          <tr>
             <th className={TH}>状态</th>
             <th className={TH}>命令</th>
             {showTask && <th className={TH}>任务</th>}
@@ -82,9 +82,9 @@ function TestRunTable({ rows, projectId, showTask }: { rows: TestRun[]; projectI
         <tbody>
           {rows.map((r) => (
             <Fragment key={r.id}>
-              <tr className="border-b border-rule">
+              <tr className="transition-colors duration-100 hover:bg-hover">
                 <td className={TD}><Badge tone={TEST_TONE[r.status ?? ''] ?? 'neutral'}>{TEST_LABEL[r.status ?? ''] ?? r.status}</Badge></td>
-                <td className={TD}><code>{r.command}</code></td>
+                <td className={TD}><code className="measured text-xs text-ink">{r.command}</code></td>
                 {showTask && (
                   <td className={`${TD} max-w-56 truncate`}>
                     {r.taskId ? <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: r.taskId }} className="hover:underline">{r.taskTitle}</Link> : '—'}
@@ -95,15 +95,15 @@ function TestRunTable({ rows, projectId, showTask }: { rows: TestRun[]; projectI
                 <td className={`${TD} measured text-right text-xs`}>{when(r.createdAt)}</td>
                 <td className={`${TD} text-right`}>
                   {r.output_ref && (
-                    <button type="button" className="text-xs text-cool hover:underline" aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}>
+                    <Button size="sm" variant="quiet" aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}>
                       {open === r.id ? '收起' : '输出'}
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
               {open === r.id && r.output_ref && (
-                <tr className="border-b border-rule">
-                  <td colSpan={showTask ? 7 : 6}><Output artifactId={r.output_ref} /></td>
+                <tr>
+                  <td colSpan={showTask ? 7 : 6} className="border-b border-rule"><Output artifactId={r.output_ref} /></td>
                 </tr>
               )}
             </Fragment>
@@ -118,6 +118,6 @@ export function TaskTestRunsPanel({ taskId, projectId }: { taskId: string; proje
   const q = useTaskTestRuns(taskId);
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorState error={q.error} />;
-  if (!q.data?.length) return <Empty title="验收还没有运行" />;
+  if (!q.data?.length) return <Empty title="验收还没有运行" icon="flask" />;
   return <TestRunTable rows={q.data} projectId={projectId} showTask={false} />;
 }

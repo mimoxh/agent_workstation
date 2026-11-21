@@ -104,10 +104,10 @@ export function TaskDialog({ ws, task, onClose }: { ws: WorkstationDetail; task?
         </Field>
         {gates.length > 0 && (
           <Field label="质量套件" hint="验收时在任务分支上运行本台的测试套件">
-            <div className="space-y-1">
+            <div className="grid gap-1.5 rounded-ctl bg-paper-2 px-3 py-2.5">
               {gates.map((s) => (
                 <label key={s.id} className="flex items-center gap-2 text-sm text-ink-2">
-                  <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="task-gate-suite" />
+                  <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="task-gate-suite" className="size-4 shrink-0 accent-ink" />
                   <span className="truncate">{s.name}</span>
                 </label>
               ))}

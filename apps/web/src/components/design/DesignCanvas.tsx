@@ -27,8 +27,8 @@ const MODES: { id: CanvasMode; label: string }[] = [
 
 function RailTabButton({ on, onClick, label, count, testId }: { on: boolean; onClick: () => void; label: string; count?: number; testId: string }) {
   return (
-    <button type="button" aria-pressed={on} onClick={onClick} data-testid={testId} className={cn('relative h-9 px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:bg-ink', on ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}>
-      {label}{count ? <span className="ml-1 text-xs text-faint">{count}</span> : null}
+    <button type="button" aria-pressed={on} onClick={onClick} data-testid={testId} className={cn('inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-btn px-3.5 text-sm transition-colors duration-150', on ? 'bg-primary font-semibold text-primary-ink' : 'text-muted hover:bg-hover hover:text-ink')}>
+      {label}{count ? <span className="tabular-nums opacity-70">{count}</span> : null}
     </button>
   );
 }
@@ -48,7 +48,7 @@ function CompareSide({ sel, designs, device, onSel, testId }: { sel: CompareSel;
   }, [vers.data, d]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid={testId}>
-      <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-3 py-2">
         <Select className="h-7 min-w-0 flex-1 text-xs" value={sel.id} onChange={(e) => onSel({ id: e.target.value, version: designs.find((x) => x.id === e.target.value)?.version ?? sel.version })} data-testid={`${testId}-design`}>
           {designs.map((x) => <option key={x.id} value={x.id}>{x.data.title}</option>)}
         </Select>
@@ -217,11 +217,11 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
       {railOpen && (
         <aside className="relative flex w-[22rem] shrink-0 flex-col border-r border-rule bg-paper max-md:absolute max-md:inset-0 max-md:z-20 max-md:w-full" style={{ width: railWidth }} aria-label="设计侧栏">
           <ResizeHandle {...railResize} />
-          <div className="flex shrink-0 items-center border-b border-rule px-1">
+          <div className="flex shrink-0 items-center gap-1 border-b border-rule px-2.5 py-2">
             <RailTabButton on={rail === 'chat'} onClick={() => setRail('chat')} label="对话" testId="rail-chat" />
             <RailTabButton on={rail === 'comments'} onClick={() => setRail('comments')} label="评论" count={open.length} testId="rail-comments" />
             <RailTabButton on={rail === 'tweaks'} onClick={() => setRail('tweaks')} label="旋钮" count={tweaks.length} testId="rail-tweaks" />
-            <button type="button" className="ml-auto grid size-7 place-items-center rounded-pill text-muted hover:bg-hover hover:text-ink md:hidden" aria-label="收起侧栏" onClick={() => setRailOpen(false)}><Icon name="chev" className="rotate-90" /></button>
+            <Button variant="quiet" size="icon-sm" className="ml-auto md:hidden" aria-label="收起侧栏" onClick={() => setRailOpen(false)}><Icon name="chev" className="rotate-90" /></Button>
           </div>
           <div className={cn('flex min-h-0 flex-1 flex-col', rail !== 'chat' && 'hidden')}>
             {designer ? (
@@ -232,7 +232,7 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
                 selection={{ items: sel, onRemove: (s) => setSel((cur) => cur.filter((x) => x.selector !== s)), onClear: () => setSel([]) }}
                 onSent={() => setSel([])}
               />
-            ) : <p className="p-3 text-sm text-muted">本台没有设计师，到「成员」里添加</p>}
+            ) : <p className="m-3 rounded-ctl bg-paper-2 px-3.5 py-3 text-sm text-muted">本台没有设计师，到「成员」里添加</p>}
           </div>
           {rail === 'comments' && (
             <CommentsPane open={open} resolved={resolved} active={activePin} missing={missing} pending={pending} names={names} canSend={!old && !!designer} sending={send.isPending}
@@ -249,23 +249,23 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
       )}
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-rule px-2 py-1.5">
-          <Button variant="quiet" onClick={onBack} data-testid="canvas-back" aria-label="返回设计稿列表"><Icon name="chev" className="size-3.5 rotate-90" />全部</Button>
-          <Button variant="quiet" aria-pressed={railOpen} onClick={() => setRailOpen((v) => !v)} className="aria-pressed:bg-paper-3 aria-pressed:text-ink">侧栏</Button>
-          <h2 className="max-w-[16rem] truncate text-sm font-semibold text-ink" title={design.data.title}>{design.data.title}</h2>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule bg-paper px-4 py-2.5">
+          <Button variant="quiet" size="sm" onClick={onBack} data-testid="canvas-back" aria-label="返回设计稿列表"><Icon name="chev" className="rotate-90" />全部</Button>
+          <Button variant="quiet" size="sm" aria-pressed={railOpen} onClick={() => setRailOpen((v) => !v)} className="aria-pressed:bg-paper-3 aria-pressed:text-ink">侧栏</Button>
+          <h2 className="max-w-[16rem] truncate text-title font-bold text-ink" title={design.data.title}>{design.data.title}</h2>
           <Badge tone={status === 'draft' ? 'neutral' : 'ok'}>{STATUS_LABEL[status]}</Badge>
-          {running && <span className="animate-pulse-soft text-xs text-cool" data-testid="canvas-running">设计师工作中…</span>}
+          {running && <span className="flex items-center gap-1.5 text-xs text-cool" data-testid="canvas-running"><i aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />设计师工作中…</span>}
           <span className="flex-1" />
           <Segmented label="模式" testId="canvas-mode" value={old ? 'view' : mode} options={MODES} onChange={changeMode} disabled={old || !!cmp} />
           <Segmented label="设备" value={device} options={DEVICES.map(({ id, label }) => ({ id, label }))} onChange={setDevice} />
-          <Button variant="quiet" aria-pressed={!!cmp} onClick={() => (cmp ? setCmp(null) : enterCompare())} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="canvas-compare">{cmp ? '退出对比' : '对比'}</Button>
+          <Button variant="quiet" size="sm" aria-pressed={!!cmp} onClick={() => (cmp ? setCmp(null) : enterCompare())} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="canvas-compare">{cmp ? '退出对比' : '对比'}</Button>
           <Popover
             className="max-h-[60vh] w-80 overflow-y-auto"
-            trigger={(on, toggle) => <Button aria-expanded={on} onClick={toggle} data-testid="version-button"><Icon name="clock" className="size-3.5" />v{pinned ?? design.version}</Button>}
+            trigger={(on, toggle) => <Button size="sm" aria-expanded={on} onClick={toggle} data-testid="version-button"><Icon name="clock" />v{pinned ?? design.version}</Button>}
           >
             {(close) => (versions.data ?? []).map((v) => (
               <MenuItem key={v.version} className={cn('whitespace-normal', (pinned ?? design.version) === v.version && 'bg-hover')} onClick={() => { setPinned(v.version === design.version ? null : v.version); close(); }} data-testid="version-item">
-                <span className="measured text-ink">v{v.version}</span>
+                <span className="font-semibold tabular-nums text-ink">v{v.version}</span>
                 <span className="ml-2 text-xs text-muted">{v.authorType === 'human' ? '你' : (names[v.authorId ?? ''] ?? 'Agent')} · {when(v.createdAt)}</span>
                 {v.reason && <span className="block text-xs text-muted">{v.reason}</span>}
               </MenuItem>
@@ -274,11 +274,11 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
           {issues.length > 0 && (
             <Popover
               className="w-80"
-              trigger={(on, toggle) => <Button aria-expanded={on} onClick={toggle} className="text-bad" data-testid="issues-button">{issues.length} 个问题</Button>}
+              trigger={(on, toggle) => <Button variant="danger" size="sm" aria-expanded={on} onClick={toggle} data-testid="issues-button"><Icon name="alert" />{issues.length} 个问题</Button>}
             >
               {(close) => (
-                <div className="p-1">
-                  <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-ink-2">{issues.map((t) => <li key={t} className="break-words">{t}</li>)}</ul>
+                <div className="p-1.5">
+                  <ul className="grid max-h-48 gap-1.5 overflow-y-auto text-xs text-ink-2">{issues.map((t) => <li key={t} className="break-words rounded-chip bg-bad-soft px-2.5 py-1.5">{t}</li>)}</ul>
                   <Button className="mt-2 w-full" onClick={() => { send.mutate(issuesPrompt(issues)); close(); }}>让设计师修</Button>
                 </div>
               )}
@@ -286,7 +286,7 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
           )}
           <Popover
             className="w-44"
-            trigger={(on, toggle) => <Button variant="quiet" aria-expanded={on} aria-label="更多操作" onClick={toggle} data-testid="canvas-more"><Icon name="menu" className="size-3.5" /></Button>}
+            trigger={(on, toggle) => <Button variant="quiet" size="icon-sm" aria-expanded={on} aria-label="更多操作" onClick={toggle} data-testid="canvas-more"><Icon name="more" /></Button>}
           >
             {(close) => (
               <>
@@ -301,15 +301,16 @@ export function DesignCanvas({ design, designs, comments, ws, project, running, 
               </>
             )}
           </Popover>
-          <Button variant="primary" onClick={() => setHandoff(true)} data-testid="canvas-handoff">生成实现任务</Button>
+          <Button variant="primary" size="sm" onClick={() => setHandoff(true)} data-testid="canvas-handoff"><Icon name="send" />生成实现任务</Button>
         </div>
 
         {old && (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule bg-accent-soft px-3 py-1.5 text-sm text-ink-2" data-testid="version-banner">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule bg-accent-soft px-4 py-2 text-sm text-ink-2" data-testid="version-banner">
+            <Icon name="clock" className="text-accent" />
             <span className="min-w-0 flex-1">正在看历史版本 v{pinned}，最新是 v{design.version}</span>
-            <Button aria-pressed={compare} onClick={() => setCompare((v) => !v)} className="aria-pressed:bg-paper-3">{compare ? '单独看' : '并排对比'}</Button>
-            <Button onClick={() => setPinned(null)}>回到最新</Button>
-            <Button variant="primary" disabled={rollback.isPending} onClick={() => rollback.mutate(pinned!)} data-testid="version-restore">恢复这个版本</Button>
+            <Button size="sm" aria-pressed={compare} onClick={() => setCompare((v) => !v)} className="aria-pressed:bg-paper-3">{compare ? '单独看' : '并排对比'}</Button>
+            <Button size="sm" onClick={() => setPinned(null)}>回到最新</Button>
+            <Button variant="primary" size="sm" disabled={rollback.isPending} onClick={() => rollback.mutate(pinned!)} data-testid="version-restore">恢复这个版本</Button>
           </div>
         )}
 

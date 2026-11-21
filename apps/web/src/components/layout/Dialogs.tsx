@@ -8,7 +8,7 @@ import { usePlugins, type ProjectDetail } from '@/lib/queries';
 
 function CommandFields({ build, test, onBuild, onTest }: { build: string; test: string; onBuild: (v: string) => void; onTest: (v: string) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
       <Field label="构建命令">
         <Input className="measured" value={build} onChange={(e) => onBuild(e.target.value)} data-testid="command-build" />
       </Field>

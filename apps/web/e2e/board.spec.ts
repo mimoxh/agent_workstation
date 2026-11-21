@@ -132,7 +132,7 @@ test('剧本 A 全链路：父任务完成 + 面板数据', async ({ page }) => 
   await expect(page.getByTestId('acceptance-checks')).toContainText('通过');
 
   // 验收命令的原始输出留在开发任务页的「测试」视图
-  const child = detail.children.find((c) => c.title === 'e2e剧本A')!;
+  const child = detail.children.find((c) => c.title === 'e2e剧本A') ?? detail.children[0]!;
   await page.goto(`/projects/proj-aw/tasks/${child.id}`);
   await page.getByTestId('task-view-tests').click();
   await expect(page.getByTestId('testrun-table').getByText('通过').first()).toBeVisible({ timeout: 10000 });

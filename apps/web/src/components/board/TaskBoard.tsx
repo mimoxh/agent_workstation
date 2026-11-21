@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ErrorState, Loading } from '@/components/ui/feedback';
-import { Input, Select } from '@/components/ui/input';
+import { Icon } from '@/components/ui/icons';
+import { chipClass, Input, Select } from '@/components/ui/input';
 import { nameMaps, useOverview, useProjectTasks, useWsTasks, type BoardTask, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { useTaskActions } from './actions';
 import { BatchBar, useBatch } from './BatchBar';
 import { BoardColumn } from './BoardColumn';
@@ -61,16 +61,19 @@ export function TaskBoard({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="task-board">
-      <div className="flex flex-wrap items-center gap-2 border-b border-rule px-4 py-2 md:px-6">
-        <Input
-          className="h-8 w-52"
-          placeholder="搜索标题、模块、指派"
-          aria-label="搜索任务"
-          data-testid="board-search"
-          value={filter.q ?? ''}
-          onChange={(e) => onFilter({ ...filter, q: e.target.value || undefined })}
-        />
-        <div className="flex gap-0.5" role="group" aria-label="按状态筛选">
+      <div className="flex flex-wrap items-center gap-2 border-b border-rule px-5 py-2.5">
+        <span className="relative">
+          <Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 size-[15px] -translate-y-1/2 text-muted" />
+          <Input
+            className="h-8 w-56 pl-8"
+            placeholder="搜索标题、模块、指派"
+            aria-label="搜索任务"
+            data-testid="board-search"
+            value={filter.q ?? ''}
+            onChange={(e) => onFilter({ ...filter, q: e.target.value || undefined })}
+          />
+        </span>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="按状态筛选">
           {FILTERS.map((f) => {
             const on = (filter.status ?? 'all') === f.id;
             return (
@@ -80,7 +83,7 @@ export function TaskBoard({
                 aria-pressed={on}
                 data-testid={`board-filter-${f.id}`}
                 onClick={() => onFilter({ ...filter, status: f.id === 'all' ? undefined : f.id })}
-                className={cn('min-h-8 rounded-pill px-2.5 text-sm transition-colors duration-150', on ? 'bg-paper-3 font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+                className={chipClass(on)}
               >
                 {f.label}
               </button>
@@ -98,7 +101,7 @@ export function TaskBoard({
           <option value="none">未指派</option>
           {(ws.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </Select>
-        <div className="flex gap-0.5" role="group" aria-label="按标记筛选">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="按标记筛选">
           {FLAGS.map((f) => {
             const on = filter.flag === f.id;
             return (
@@ -108,7 +111,7 @@ export function TaskBoard({
                 aria-pressed={on}
                 data-testid={`board-flag-${f.id}`}
                 onClick={() => onFilter({ ...filter, flag: on ? undefined : f.id })}
-                className={cn('min-h-8 rounded-pill px-2.5 text-sm transition-colors duration-150', on ? 'bg-paper-3 font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+                className={chipClass(on)}
               >
                 {f.label}
               </button>
@@ -117,13 +120,15 @@ export function TaskBoard({
         </div>
         {shown.length !== all.length && <span className="measured text-xs text-muted">{shown.length} / {all.length}</span>}
         <span className="flex-1" />
-        <Button variant="quiet" aria-pressed={batch.active} onClick={() => (batch.active ? batch.exit() : batch.setActive(true))} data-testid="batch-toggle" className="aria-pressed:bg-paper-3 aria-pressed:text-ink">多选</Button>
-        <Button variant="primary" onClick={() => setCreating(true)} data-testid="new-task">新建任务</Button>
+        <Button aria-pressed={batch.active} onClick={() => (batch.active ? batch.exit() : batch.setActive(true))} data-testid="batch-toggle" className="aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-ink">
+          <Icon name="check" />多选
+        </Button>
+        <Button variant="primary" onClick={() => setCreating(true)} data-testid="new-task"><Icon name="plus" />新建任务</Button>
       </div>
       {tasks.isLoading && <Loading />}
       {tasks.isError && <ErrorState error={tasks.error} onRetry={() => void tasks.refetch()} />}
       {tasks.data && (
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 py-3 md:px-6">
+        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 py-4">
           {cols.map((col) => {
             const list = shown.filter(col.match);
             return (

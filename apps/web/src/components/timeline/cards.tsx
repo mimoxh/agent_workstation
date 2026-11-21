@@ -1,8 +1,9 @@
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { Icon } from '@/components/ui/icons';
 import { api, unwrap } from '@/lib/api';
 import { clock, parseJson } from '@/lib/format';
 import { useChunk } from '@/lib/queries';
@@ -26,7 +27,7 @@ function Citation({ id }: { id: string }) {
   const chunk = useChunk(open ? id : null);
   return (
     <>
-      <button type="button" className="mx-0.5 rounded-chip bg-tag px-1 text-xs text-tag-ink hover:bg-paper-3" onClick={() => setOpen(true)} data-testid="citation">引用</button>
+      <button type="button" className="mx-0.5 inline-flex h-5 items-center rounded-btn bg-tag px-2 align-[1px] text-xs font-semibold text-tag-ink transition-colors duration-150 hover:bg-paper-3" onClick={() => setOpen(true)} data-testid="citation">引用</button>
       {open && (
         <Dialog title={chunk.data?.sourceName ?? '引用'} onClose={() => setOpen(false)} testId="citation-dialog">
           {chunk.data && <p className="mb-2 text-xs text-muted">{chunk.data.anchor.headingPath.join(' › ')}</p>}
@@ -43,7 +44,7 @@ function Rich({ text }: { text: string }) {
       {text.split(TOKEN).map((part, i) => {
         if (i % 2 === 0) return part;
         const kb = /^\[\[kb:([\w-]+)\]\]$/.exec(part);
-        return kb ? <Citation key={i} id={kb[1]!} /> : <span key={i} className="font-medium text-cool">{part}</span>;
+        return kb ? <Citation key={i} id={kb[1]!} /> : <span key={i} className="rounded px-[3px] bg-cool-soft font-medium text-cool">{part}</span>;
       })}
     </>
   );
@@ -56,12 +57,12 @@ const senderOf = (m: MessageLike, names: Record<string, string>) => {
 };
 
 function Lane({ lane }: { lane?: string | null | undefined }) {
-  return lane ? <span className="measured ml-2 max-w-40 truncate text-xs text-muted" title={lane}>{lane}</span> : null;
+  return lane ? <span className="measured max-w-40 shrink-0 truncate rounded-chip bg-paper-2 px-1.5 text-xs text-muted" title={lane}>{lane}</span> : null;
 }
 
 export function Avatar({ name, human, className }: { name: string; human?: boolean; className?: string }) {
   return (
-    <span aria-hidden className={cn('grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold', human ? 'bg-accent-tag text-accent-tag-ink' : 'bg-tag text-tag-ink', className)}>
+    <span aria-hidden className={cn('grid size-[26px] shrink-0 place-items-center rounded-full text-[11px] font-semibold', human ? 'bg-accent-tag text-accent-tag-ink' : 'bg-tag text-tag-ink', className)}>
       {human ? '你' : name.slice(0, 1)}
     </span>
   );
@@ -74,23 +75,23 @@ export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<stri
   const design = meta.design;
   const elements = meta.elements ?? [];
   return (
-    <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2.5" data-testid="thread-message">
-      <Avatar name={who} human={human} />
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3" data-testid="thread-message">
+      <Avatar name={who} human={human} className="mt-0.5" />
       <div className="min-w-0">
-        <p className="flex items-baseline">
-          <span className="mr-2 text-sm font-semibold text-ink">{who}</span>
-          <span className="measured text-xs text-faint">{clock(m.at)}</span>
+        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="text-sm font-bold text-ink">{who}</span>
+          <span className="text-xs tabular-nums text-muted">{clock(m.at)}</span>
           <Lane lane={lane} />
         </p>
-        {design && <p className="text-xs text-muted" data-testid="message-design">看着 {design.title} v{design.version}</p>}
+        {design && <p className="mt-0.5 text-xs text-muted" data-testid="message-design">看着 {design.title} v{design.version}</p>}
         {elements.length > 0 && (
-          <p className="mt-0.5 flex flex-wrap items-center gap-1" data-testid="message-elements">
+          <p className="mt-1 flex flex-wrap items-center gap-1" data-testid="message-elements">
             {elements.map((e, i) => (
-              <span key={i} className="rounded-chip border border-rule px-1.5 py-0.5 text-xs text-muted"><span className="measured">&lt;{e.tag}&gt;</span> {e.anchor}</span>
+              <span key={i} className="rounded-chip bg-paper-2 px-1.5 py-0.5 text-xs text-muted"><span className="measured">&lt;{e.tag}&gt;</span> {e.anchor}</span>
             ))}
           </p>
         )}
-        <p className="whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink"><Rich text={m.content ?? ''} /></p>
+        <p className={cn('mt-0.5 whitespace-pre-wrap text-sm leading-relaxed', human ? 'text-ink' : 'text-ink-2')}><Rich text={m.content ?? ''} /></p>
       </div>
     </div>
   );
@@ -98,11 +99,11 @@ export function ChatRow({ m, names, lane }: { m: MessageLike; names: Record<stri
 
 export function StatusLine({ children, at, lane }: { children: ReactNode; at?: string | undefined; lane?: string | null | undefined }) {
   return (
-    <p className="measured flex items-baseline gap-2 pl-[2.375rem] text-xs text-muted">
-      <span aria-hidden className="text-cool">•</span>
+    <p className="flex items-center gap-2 pl-[38px] text-xs text-muted">
+      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-rule-2" />
       <span className="min-w-0 whitespace-pre-wrap">{children}</span>
-      {at && <span className="shrink-0">{clock(at)}</span>}
       <Lane lane={lane} />
+      {at && <span className="ml-auto shrink-0 tabular-nums">{clock(at)}</span>}
     </p>
   );
 }
@@ -110,15 +111,18 @@ export function StatusLine({ children, at, lane }: { children: ReactNode; at?: s
 export function HandoffCard({ m, lane }: { m: MessageLike; lane?: string | null | undefined }) {
   const meta = parseJson<{ from?: string; to?: string; next?: string }>(m.metaJson, {});
   return (
-    <article className="ml-[2.375rem] border-l-[3px] border-ink py-0.5 pl-3.5" data-testid="handoff-card">
-      <p className="flex items-baseline gap-2 text-xs text-muted">
-        <span className="font-semibold text-ink">交接</span>
-        {meta.from && meta.to && <span>{meta.from} → {meta.to}</span>}
-        <span className="measured ml-auto shrink-0">{clock(m.at)}</span>
+    <article className="ml-[38px] overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)]" data-testid="handoff-card">
+      <p className="flex items-center gap-2 bg-paper-3 px-4 py-2 text-xs font-bold text-ink-2">
+        <Icon name="link" className="size-3.5" />
+        <span>交接</span>
+        {meta.from && meta.to && <span className="min-w-0 truncate font-medium">{meta.from} → {meta.to}</span>}
         <Lane lane={lane} />
+        <span className="ml-auto shrink-0 font-normal tabular-nums opacity-85">{clock(m.at)}</span>
       </p>
-      <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink">{m.content}</p>
-      {meta.next && <p className="mt-0.5 text-xs text-muted">下一步：{meta.next}</p>}
+      <div className="grid gap-1.5 px-4 pb-4 pt-3">
+        <p className="whitespace-pre-wrap text-sm text-ink">{m.content}</p>
+        {meta.next && <p className="text-xs text-muted">下一步：{meta.next}</p>}
+      </div>
     </article>
   );
 }
@@ -128,14 +132,16 @@ export function DecisionCard({ m, foldedCount, children }: { m: MessageLike; fol
   const meta = parseJson<{ openQuestions?: string | null }>(m.metaJson, {});
   const propose = useMutation({ mutationFn: async () => unwrap(await api.messages[':id']['propose-adr'].$post({ param: { id: m.id } })) });
   return (
-    <article className="rounded-chip bg-ok-soft px-4 py-3" data-testid="decision-card">
-      <p className="flex items-baseline gap-2 text-xs text-muted">
-        <span className="font-semibold text-ok">结论</span>
-        <span className="measured ml-auto shrink-0">{clock(m.at)}</span>
+    <article className="ml-[38px] overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)]" data-testid="decision-card">
+      <p className="flex items-center gap-2 bg-ok px-4 py-2 text-xs font-bold text-ok-ink">
+        <Icon name="decision" className="size-3.5" />
+        <span>结论</span>
+        <span className="ml-auto shrink-0 font-normal tabular-nums opacity-85">{clock(m.at)}</span>
       </p>
-      <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink">{m.content}</p>
-      {meta.openQuestions && <p className="mt-1 text-xs text-muted">遗留：{meta.openQuestions}</p>}
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <div className="grid gap-2.5 px-4 pb-4 pt-3">
+      <p className="whitespace-pre-wrap text-sm font-semibold text-ink">{m.content}</p>
+      {meta.openQuestions && <p className="text-xs text-muted">遗留：{meta.openQuestions}</p>}
+      <div className="flex flex-wrap items-center gap-1.5">
         {foldedCount > 0 && (
           <Button size="sm" variant="quiet" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="decision-toggle">
             {open ? '收起讨论' : `展开 ${foldedCount} 条讨论`}
@@ -145,7 +151,8 @@ export function DecisionCard({ m, foldedCount, children }: { m: MessageLike; fol
           {propose.isSuccess ? '已提交 ADR 提案' : '沉淀为 ADR 提案'}
         </Button>
       </div>
-      {open && <div className="mt-2 space-y-2 border-t border-rule pt-2">{children}</div>}
+      {open && <div className="flex flex-col gap-3 border-t border-rule pt-3">{children}</div>}
+      </div>
     </article>
   );
 }
@@ -154,7 +161,7 @@ export function DraftLink({ m, projectId }: { m: MessageLike; projectId: string 
   const taskId = parseJson<{ draftTaskId?: string }>(m.metaJson, {}).draftTaskId;
   if (!taskId) return null;
   return (
-    <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId }} className="ml-[2.375rem] inline-block text-sm font-medium text-ink underline decoration-rule-2 underline-offset-[3px] hover:decoration-ink" data-testid="draft-link">
+    <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId }} className={buttonClass('primary', 'sm', 'ml-[38px] mt-2')} data-testid="draft-link">
       查看草稿并派发
     </Link>
   );

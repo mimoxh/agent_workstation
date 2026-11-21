@@ -1,4 +1,5 @@
-import { serve } from '@hono/node-server';
+import { serve, type WebSocketServerLike } from '@hono/node-server';
+import { WebSocketServer } from 'ws';
 import { and, eq } from 'drizzle-orm';
 import { createDb, migrateDb } from './db/client.js';
 import { seed } from './db/seed.js';
@@ -11,6 +12,7 @@ import { startRepoWatch } from './runtime/repo_watch.js';
 import { startQaSchedule } from './runtime/qa/schedule.js';
 import { recoverMergeQueue } from './runtime/dev_workflow.js';
 import { recoverQaRuns } from './usecases/qa.js';
+import { killAllTerminals } from './runtime/terminal.js';
 import { migrateDesignWorkstations, migrateQaWorkstations, syncWorkstations } from './usecases/workstations.js';
 import { freezeDesignTokens } from './usecases/design_tokens.js';
 
@@ -54,6 +56,10 @@ startQaSchedule(db);
 const { app } = createApp(db);
 const port = Number(process.env.AW_PORT ?? 8787);
 const hostname = process.env.AW_HOST ?? '127.0.0.1';
-serve({ fetch: app.fetch, port, hostname }, (info) => {
+serve({ fetch: app.fetch, port, hostname, websocket: { server: new WebSocketServer({ noServer: true }) as unknown as WebSocketServerLike } }, (info) => {
   console.log(`server listening on http://${info.address}:${info.port}`);
 });
+
+// harness 终端是本进程的子进程：退出时一并带走，不留孤儿 CLI
+process.on('exit', killAllTerminals);
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { killAllTerminals(); process.exit(0); });

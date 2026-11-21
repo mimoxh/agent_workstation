@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Select } from '@/components/ui/input';
 import { bytes } from '@/lib/format';
 import { useBranches, useFile, useFiles } from '@/lib/queries';
@@ -12,17 +13,17 @@ function FileView({ wsId, path, branch }: { wsId: string; path: string; branch: 
   const lines = q.data?.content.split('\n') ?? [];
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="file-view">
-      <p className="measured flex justify-between gap-3 border-b border-rule px-4 py-2 text-xs text-muted">
-        <span className="truncate">{path}</span>
+      <p className="measured flex shrink-0 justify-between gap-3 border-b border-rule bg-paper-2 px-3.5 py-2 text-xs text-muted">
+        <span className="truncate font-medium text-ink">{path}</span>
         <span className="shrink-0">{q.data?.ref} · {lines.length} 行{q.data?.truncated ? '（已截断）' : ''}</span>
       </p>
       {q.data?.binary ? (
-        <Empty title="二进制文件" />
+        <Empty title="二进制文件" icon="files" />
       ) : (
-        <div className="measured min-h-0 flex-1 overflow-auto bg-paper-3 py-2 text-sm leading-6 text-ink-2">
+        <div className="min-h-0 flex-1 overflow-auto bg-paper-2 py-2.5 font-mono text-xs leading-[1.7] text-ink-2">
           {lines.map((l, i) => (
             <div key={i} className="flex min-w-max">
-              <span className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-6 text-muted">{i + 1}</span>
+              <span className="w-12 shrink-0 select-none pr-3 text-right text-faint">{i + 1}</span>
               <span className="whitespace-pre pr-4">{l}</span>
             </div>
           ))}
@@ -41,7 +42,7 @@ export function FilesPanel({ wsId }: { wsId: string }) {
   const parts = dir ? dir.split('/') : [];
   const taskBranches = refs.data?.branches ?? [];
 
-  if (list.data?.error && !dir && !branch) return <Empty title="文件树不可用">{list.data.error}</Empty>;
+  if (list.data?.error && !dir && !branch) return <Empty title="文件树不可用" icon="alert">{list.data.error}</Empty>;
 
   return (
     // 右侧栏里宽度有限：窄时目录在上、文件在下，够宽再左右分栏
@@ -67,17 +68,17 @@ export function FilesPanel({ wsId }: { wsId: string }) {
             </Select>
           </div>
         )}
-        <nav aria-label="当前目录" className="measured flex flex-wrap gap-1 border-b border-rule px-3 py-2 text-xs text-muted">
-          <button type="button" className="hover:text-ink" onClick={() => setDir('')}>{list.data?.ref ?? '根'}</button>
+        <nav aria-label="当前目录" className="measured flex flex-wrap items-center gap-0.5 border-b border-rule px-2.5 py-2 text-xs text-muted">
+          <button type="button" className="rounded-chip px-1.5 py-0.5 font-medium text-ink-2 hover:bg-hover hover:text-ink" onClick={() => setDir('')}>{list.data?.ref ?? '根'}</button>
           {parts.map((p, i) => (
-            <button key={i} type="button" className="hover:text-ink" onClick={() => setDir(parts.slice(0, i + 1).join('/'))}>/{p}</button>
+            <button key={i} type="button" className="rounded-chip px-1 py-0.5 hover:bg-hover hover:text-ink" onClick={() => setDir(parts.slice(0, i + 1).join('/'))}>/{p}</button>
           ))}
         </nav>
-        <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <ul className="grid min-h-0 flex-1 content-start gap-px overflow-y-auto p-1.5">
           {list.isLoading && <Loading className="p-2" />}
           {dir && (
             <li>
-              <button type="button" className="w-full rounded-pill px-2 py-1 text-left text-sm text-muted hover:bg-paper-2" onClick={() => setDir(parts.slice(0, -1).join('/'))}>..</button>
+              <button type="button" className="flex min-h-[30px] w-full items-center gap-1.5 rounded-ctl px-2 text-left text-sm text-muted hover:bg-hover" onClick={() => setDir(parts.slice(0, -1).join('/'))}><Icon name="chev-l" className="size-3.5" />..</button>
             </li>
           )}
           {list.data?.entries.map((e) => (
@@ -86,10 +87,12 @@ export function FilesPanel({ wsId }: { wsId: string }) {
                 type="button"
                 data-testid="file-entry"
                 onClick={() => (e.type === 'tree' ? setDir(e.path) : setFile(e.path))}
-                className={cn('flex w-full items-baseline justify-between gap-2 rounded-pill px-2 py-1 text-left text-sm hover:bg-paper-2', file === e.path ? 'bg-paper-2 text-ink' : e.type === 'tree' ? 'text-cool' : 'text-ink-2')}
+                aria-current={file === e.path || undefined}
+                className={cn('flex min-h-[30px] w-full items-center gap-1.5 rounded-ctl px-2 text-left text-sm transition-colors duration-100 hover:bg-hover', file === e.path ? 'bg-paper-3 font-semibold text-ink' : 'text-ink-2')}
               >
-                <span className="truncate">{e.name}{e.type === 'tree' ? '/' : ''}</span>
-                <span className="measured shrink-0 text-xs text-muted">{bytes(e.size)}</span>
+                <Icon name={e.type === 'tree' ? 'folder' : 'doc'} className="size-3.5 shrink-0 text-muted" />
+                <span className="min-w-0 flex-1 truncate">{e.name}{e.type === 'tree' ? '/' : ''}</span>
+                <span className="shrink-0 text-xs tabular-nums text-faint">{bytes(e.size)}</span>
               </button>
             </li>
           ))}
@@ -100,7 +103,7 @@ export function FilesPanel({ wsId }: { wsId: string }) {
         {file ? (
           <FileView wsId={wsId} path={file} branch={branch} />
         ) : (
-          <Empty title="选择文件查看内容">{branch ? `读取的是任务分支 ${branch} 上已提交的版本。` : '读取的是目标分支上的版本；要看还没合并的改动，在上方切到任务分支。'}</Empty>
+          <Empty title="选择文件查看内容" icon="files">{branch ? `读取的是任务分支 ${branch} 上已提交的版本。` : '读取的是目标分支上的版本；要看还没合并的改动，在上方切到任务分支。'}</Empty>
         )}
       </div>
     </div>

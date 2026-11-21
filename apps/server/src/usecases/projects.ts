@@ -29,6 +29,7 @@ import {
 } from '../db/schema.js';
 import { checkFolder } from '../runtime/folder.js';
 import { devSettings, removeTaskWorktree } from '../runtime/git.js';
+import { BUILTIN_ENGINE, knownEngine } from '../runtime/harness/index.js';
 import { cancelRun } from '../runtime/loop.js';
 import { stopPreview } from '../runtime/preview.js';
 import { hasPendingRuns } from '../runtime/scheduler.js';
@@ -119,8 +120,10 @@ export async function updateAgent(
     model?: { provider: string; name: string } | null | undefined;
     prompt?: string | null | undefined;
     tools?: string[] | undefined;
+    engine?: string | null | undefined;
   },
 ) {
+  if (input.engine && !knownEngine(input.engine)) return { kind: 'error' as const, status: 400 as const, error: `未知的运行引擎：${input.engine}` };
   const a = (await db.select().from(agent).where(eq(agent.id, agentId)))[0];
   if (!a) return { kind: 'not_found' as const, status: 404 as const, error: 'Agent 不存在' };
   const ws = (await db.select().from(workstation).where(eq(workstation.id, a.workstationId)))[0];
@@ -137,6 +140,7 @@ export async function updateAgent(
   if (input.model !== undefined) patch.modelJson = input.model ? JSON.stringify(input.model) : null;
   if (input.prompt !== undefined) patch.prompt = input.prompt?.trim() ? input.prompt : (tpl?.promptFile ?? null);
   if (input.tools !== undefined) patch.toolsJson = JSON.stringify(input.tools);
+  if (input.engine !== undefined) patch.engine = input.engine && input.engine !== BUILTIN_ENGINE ? input.engine : null;
   if (Object.keys(patch).length > 0) await db.update(agent).set(patch).where(eq(agent.id, agentId));
   await logEvent(db, actor, 'agent_updated', 'workstation', a.workstationId, { agentId, fields: Object.keys(patch) });
   return { kind: 'ok' as const, agent: (await db.select().from(agent).where(eq(agent.id, agentId)))[0]! };

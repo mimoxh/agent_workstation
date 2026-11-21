@@ -66,13 +66,13 @@ export function PlanDialog({ projectId, task, onClose }: { projectId: string; ta
         </Field>
         <Field label="前置任务" hint="这些任务完成后本任务才能派发">
           <Input placeholder="搜索任务" value={q} onChange={(e) => setQ(e.target.value)} data-testid="plan-dep-search" />
-          <ul className="mt-1.5 max-h-44 overflow-y-auto rounded-card border border-rule" role="group" aria-label="前置任务">
+          <ul className="mt-1 grid max-h-44 gap-px overflow-y-auto rounded-ctl bg-paper-2 p-1" role="group" aria-label="前置任务">
             {shown.length === 0 && <li className="px-2.5 py-2 text-xs text-muted">没有可选任务</li>}
             {shown.map((t) => (
               <li key={t.id}>
-                <label className={cn('flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-sm hover:bg-hover', deps.includes(t.id) && 'bg-paper-2')} >
-                  <input type="checkbox" checked={deps.includes(t.id)} onChange={() => toggle(t.id)} data-testid={`plan-dep-${t.id}`} />
-                  <span className="min-w-0 flex-1 truncate text-ink-2">{t.title}</span>
+                <label className={cn('flex min-h-[34px] cursor-pointer items-center gap-2.5 rounded-chip px-2.5 py-1 text-sm transition-colors duration-150 hover:bg-hover', deps.includes(t.id) && 'bg-paper shadow-[var(--shadow-card)]')} >
+                  <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={deps.includes(t.id)} onChange={() => toggle(t.id)} data-testid={`plan-dep-${t.id}`} />
+                  <span className={cn('min-w-0 flex-1 truncate', deps.includes(t.id) ? 'font-medium text-ink' : 'text-ink-2')}>{t.title}</span>
                   <span className="measured shrink-0 text-xs text-muted">{t.status}</span>
                 </label>
               </li>

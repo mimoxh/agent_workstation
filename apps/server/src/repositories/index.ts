@@ -302,6 +302,8 @@ const runFields = {
   trigger: run.trigger,
   provider: run.provider,
   model: run.model,
+  engine: run.engine,
+  sessionId: run.sessionId,
   fallbackFrom: run.fallbackFrom,
   threadId: run.threadId,
   cost: run.cost,

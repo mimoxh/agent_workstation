@@ -12,7 +12,7 @@ import { when } from '@/lib/format';
 import { useQaHandoffs } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { BUG_LABEL, BUG_TONE, SEVERITY_TONE, useDocs, type BugData, type Doc } from './model';
-import { HandoffDialog, NewBugDialog, ROW, Scroll, TABLE, TD, TH, Toolbar, type QaProps } from './shared';
+import { HandoffDialog, NewBugDialog, ROW, Scroll, TABLE, TABLE_WRAP, TD, TH, Toolbar, type QaProps } from './shared';
 
 type Event = 'confirm' | 'dev_done' | 'verify_pass' | 'verify_fail' | 'reject' | 'reopen';
 type Filter = 'todo' | 'fixing' | 'closed' | 'all';
@@ -23,7 +23,7 @@ const SEVERITY_ORDER: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 
 function Section({ label, text }: { label: string; text: string | undefined }) {
   if (!text) return null;
-  return <div className="mt-3"><p className="text-xs text-muted">{label}</p><p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-2">{text}</p></div>;
+  return <div className="mt-4 grid gap-1"><p className="text-xs font-medium text-muted">{label}</p><p className="whitespace-pre-wrap break-words rounded-ctl bg-paper-2 px-3.5 py-2.5 text-sm text-ink-2">{text}</p></div>;
 }
 
 function BugDetail({ doc, wsId, project, go, onClose }: { doc: Doc<BugData>; wsId: string; project: QaProps['project']; go: QaProps['go']; onClose: () => void }) {
@@ -49,16 +49,16 @@ function BugDetail({ doc, wsId, project, go, onClose }: { doc: Doc<BugData>; wsI
         {d.module && <code className="measured text-xs text-muted">{d.module}</code>}
         <span className="text-xs text-muted">{doc.authorType === 'agent' ? 'Agent 起草' : '人工创建'} · {when(doc.createdAt)}</span>
       </div>
-      {d.case_name && <p className="mt-3 text-sm text-ink-2">关联用例 <code className="measured text-xs">{d.case_name}</code>{status === 'verifying' ? '，回归通过后自动验证' : ''}</p>}
-      {d.run_id && <Button variant="quiet" size="sm" className="-ml-2 mt-1" onClick={() => { onClose(); go('runs', d.run_id); }}>查看失败的运行</Button>}
+      {d.case_name && <p className="mt-4 text-sm text-ink-2">关联用例 <code className="measured rounded-chip bg-paper-3 px-1.5 text-xs">{d.case_name}</code>{status === 'verifying' ? '，回归通过后自动验证' : ''}</p>}
+      {d.run_id && <Button variant="quiet" size="sm" className="-ml-2 mt-1.5" onClick={() => { onClose(); go('runs', d.run_id); }}><Icon name="play" />查看失败的运行</Button>}
       <Section label="复现步骤" text={d.steps} />
       <Section label="期望" text={d.expected} />
       <Section label="实际" text={d.actual} />
       {d.handoff && (
-        <p className="mt-3 text-sm text-ink-2">开发任务：<Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId: d.handoff.taskId }} className="text-cool hover:underline">打开</Link></p>
+        <p className="mt-4 text-sm text-ink-2">开发任务：<Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId: d.handoff.taskId }} className="font-medium text-cool underline-offset-2 hover:underline">打开</Link></p>
       )}
-      {status === 'verifying' && !d.case_key && <p className="mt-3 rounded-pill bg-accent-soft p-2.5 text-sm text-accent">这个缺陷没有关联自动化用例，需要你手工验证。</p>}
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
+      {status === 'verifying' && !d.case_key && <p className="mt-4 flex items-center gap-2.5 rounded-ctl bg-accent-soft px-3.5 py-2.5 text-sm text-ink-2"><Icon name="hand" className="text-accent" />这个缺陷没有关联自动化用例，需要你手工验证。</p>}
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
         {status === 'draft' && btn('reject', '驳回')}
         {status === 'draft' && btn('confirm', '确认缺陷', true)}
         {(status === 'open' || status === 'reopened') && btn('reject', '不修复')}
@@ -89,14 +89,14 @@ export function Bugs({ ws, project, item, go }: QaProps) {
   return (
     <Scroll testId="qa-bugs">
       <Toolbar>
-        <Segmented label="缺陷筛选" value={filter} onChange={setFilter} options={[{ id: 'todo', label: '待处理' }, { id: 'fixing', label: '修复中' }, { id: 'closed', label: '已关闭' }, { id: 'all', label: `全部 ${docs.length}` }]} />
+        <Segmented size="default" label="缺陷筛选" value={filter} onChange={setFilter} options={[{ id: 'todo', label: '待处理' }, { id: 'fixing', label: '修复中' }, { id: 'closed', label: '已关闭' }, { id: 'all', label: `全部 ${docs.length}` }]} />
         <span className="flex-1" />
-        <Button variant="primary" onClick={() => setCreating(true)} data-testid="qa-bug-new"><Icon name="plus" className="size-3.5" />新建缺陷</Button>
+        <Button variant="primary" onClick={() => setCreating(true)} data-testid="qa-bug-new"><Icon name="plus" />新建缺陷</Button>
       </Toolbar>
-      {docs.length === 0 ? <Empty title="还没有缺陷">在失败的运行里点「建缺陷」，或让失败分析起草。</Empty> : shown.length === 0 ? <p className="py-2 text-sm text-muted">这个分类下没有缺陷。</p> : (
-        <div className="overflow-x-auto">
+      {docs.length === 0 ? <Empty title="还没有缺陷" icon="bug">在失败的运行里点「建缺陷」，或让失败分析起草。</Empty> : shown.length === 0 ? <p className="py-2 text-sm text-muted">这个分类下没有缺陷。</p> : (
+        <div className={TABLE_WRAP}>
           <table className={TABLE} data-testid="qa-bug-table">
-            <thead><tr className="border-b border-rule"><th className={TH}>严重度</th><th className={TH}>标题</th><th className={TH}>状态</th><th className={TH}>开发任务</th><th className={cn(TH, 'text-right')}>创建</th></tr></thead>
+            <thead><tr><th className={TH}>严重度</th><th className={TH}>标题</th><th className={TH}>状态</th><th className={TH}>开发任务</th><th className={cn(TH, 'text-right')}>创建</th></tr></thead>
             <tbody>
               {shown.map((b) => {
                 const s = b.data.status ?? 'open';
@@ -104,9 +104,9 @@ export function Bugs({ ws, project, item, go }: QaProps) {
                 return (
                   <tr key={b.id} className={ROW} onClick={() => go('bugs', b.id)} data-testid="qa-bug-row">
                     <td className={cn(TD, 'w-16')}><Badge tone={SEVERITY_TONE[b.data.severity] ?? 'neutral'}>{b.data.severity.toUpperCase()}</Badge></td>
-                    <td className={cn(TD, 'max-w-96 truncate text-ink')}>{b.data.title}</td>
+                    <td className={cn(TD, 'max-w-96 truncate font-semibold text-ink')}>{b.data.title}</td>
                     <td className={TD}><Badge tone={BUG_TONE[s] ?? 'neutral'}>{BUG_LABEL[s] ?? s}</Badge></td>
-                    <td className={cn(TD, 'text-xs')}>{t ? `${t.stage ?? t.status}` : '—'}</td>
+                    <td className={cn(TD, 'text-xs')}>{t ? `${t.stage ?? t.status}` : <span className="text-muted">—</span>}</td>
                     <td className={cn(TD, 'measured text-right text-xs')}>{when(b.createdAt)}</td>
                   </tr>
                 );

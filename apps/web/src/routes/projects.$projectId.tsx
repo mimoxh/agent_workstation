@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { Shell } from '@/components/layout/Shell';
+import { buttonClass } from '@/components/ui/button';
 import { Empty, Loading } from '@/components/ui/feedback';
 import { useProject } from '@/lib/queries';
 
@@ -13,8 +14,8 @@ function ProjectLayout() {
   if (project.isLoading) return <Loading className="h-dvh" />;
   if (!project.data) {
     return (
-      <Empty title="项目不存在" className="h-dvh">
-        <Link to="/" className="text-cool hover:underline">回到项目列表</Link>
+      <Empty title="项目不存在" icon="alert" className="h-dvh">
+        <Link to="/" className={buttonClass('default', 'sm', 'mt-2')}>回到项目列表</Link>
       </Empty>
     );
   }

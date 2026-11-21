@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Empty } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
+import { cn } from '@/lib/utils';
 
 export interface LiveStream {
   id: string;
@@ -52,9 +55,10 @@ function StreamBlock({ s, open }: { s: LiveStream; open: boolean }) {
   }, [s.text]);
   const header = (
     <div className="flex items-center gap-2">
-      <span className="measured min-w-0 flex-1 truncate text-xs text-ink-2">{s.label}</span>
+      <Icon name="terminal" className="size-3.5 text-muted" />
+      <span className="measured min-w-0 flex-1 truncate text-xs font-medium text-ink">{s.label}</span>
       {!s.done ? (
-        <Badge tone="cool" className="animate-pulse-soft">运行中</Badge>
+        <Badge tone="cool"><span aria-hidden className="size-1.5 animate-pulse-soft rounded-full bg-current" />运行中</Badge>
       ) : (
         <Badge tone={s.exitCode === 0 ? 'ok' : 'bad'}>退出码 {s.exitCode ?? '—'}</Badge>
       )}
@@ -67,7 +71,7 @@ function StreamBlock({ s, open }: { s: LiveStream; open: boolean }) {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
-      className="measured max-h-80 overflow-auto whitespace-pre-wrap break-all px-3 pb-3 text-xs leading-relaxed text-ink-2"
+      className={cn('max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-ctl bg-code px-3.5 py-3 font-mono text-xs leading-[1.65]', s.text ? 'text-code-ink' : 'text-code-dim')}
       data-testid="live-stream-text"
     >
       {s.text || '（暂无输出）'}
@@ -75,14 +79,17 @@ function StreamBlock({ s, open }: { s: LiveStream; open: boolean }) {
   );
   if (!open) {
     return (
-      <details className="rounded-chip bg-paper-2 px-3 py-2" data-testid="live-stream">
-        <summary className="cursor-pointer">{header}</summary>
-        {body}
+      <details className="group rounded-card bg-paper-2 px-3.5 py-2.5" data-testid="live-stream">
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-ctl [&::-webkit-details-marker]:hidden">
+          <Icon name="chev" className="size-3.5 -rotate-90 text-muted transition-transform duration-150 group-open:rotate-0" />
+          <div className="min-w-0 flex-1">{header}</div>
+        </summary>
+        <div className="mt-2.5">{body}</div>
       </details>
     );
   }
   return (
-    <div className="rounded-chip bg-paper-2 px-3 py-2" data-testid="live-stream">
+    <div className="grid gap-2.5 rounded-card bg-paper-2 px-3.5 py-3" data-testid="live-stream">
       {header}
       {body}
     </div>
@@ -90,10 +97,16 @@ function StreamBlock({ s, open }: { s: LiveStream; open: boolean }) {
 }
 
 export function StreamBlocks({ streams }: { streams: LiveStream[] }) {
-  if (streams.length === 0) return <p className="px-1 py-6 text-center text-sm text-muted" data-testid="live-empty">这个任务还没有跑过命令</p>;
+  if (streams.length === 0) {
+    return (
+      <div data-testid="live-empty">
+        <Empty title="这个任务还没有跑过命令" icon="terminal" />
+      </div>
+    );
+  }
   const last = streams[streams.length - 1];
   return (
-    <div className="flex flex-col gap-2" data-testid="live-output">
+    <div className="flex flex-col gap-3" data-testid="live-output">
       {streams.map((s) => (
         <StreamBlock key={s.id} s={s} open={!s.done || s.id === last?.id} />
       ))}

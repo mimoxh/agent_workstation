@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import type { MessageMeta } from '@/components/chat/Composer';
 import { ThreadView } from '@/components/chat/Thread';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icons';
 import { Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { when } from '@/lib/format';
@@ -16,16 +17,16 @@ export interface DesignSelection { items: SelectItem[]; onRemove: (selector: str
 // 画布里选中的元素作为待发上下文列在输入框上方；发给设计师后由 onSent 清掉
 function SelectionRow({ selection }: { selection: DesignSelection }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-rule bg-paper-2 px-2.5 py-1.5" data-testid="design-selection">
-      <span className="shrink-0 text-xs text-muted">已选 {selection.items.length} 个元素</span>
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-rule bg-ok-soft px-3 py-2" data-testid="design-selection">
+      <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-2"><Icon name="cursor" className="size-3.5 text-ok" />已选 {selection.items.length} 个元素</span>
       {selection.items.map((it) => (
-        <span key={it.selector} className="flex items-center gap-1 rounded-chip border border-rule bg-paper px-1.5 py-0.5 text-xs text-ink-2" title={it.selector}>
+        <span key={it.selector} className="flex h-6 items-center gap-1 rounded-btn bg-paper pl-2.5 pr-1 text-xs text-ink-2 shadow-[inset_0_0_0_1px_var(--color-rule-2)]" title={it.selector}>
           <span className="measured text-muted">&lt;{it.tag}&gt;</span>
           <span className="max-w-36 truncate">{it.anchor || it.selector}</span>
-          <button type="button" aria-label="移出所选" className="text-faint hover:text-ink" onClick={() => selection.onRemove(it.selector)}>×</button>
+          <button type="button" aria-label="移出所选" className="grid size-[18px] place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-hover hover:text-ink" onClick={() => selection.onRemove(it.selector)}><Icon name="x" className="size-3" /></button>
         </span>
       ))}
-      <button type="button" className="ml-auto text-xs text-muted hover:text-ink" onClick={selection.onClear} data-testid="design-selection-clear">清除</button>
+      <Button variant="quiet" size="sm" className="ml-auto" onClick={selection.onClear} data-testid="design-selection-clear">清除</Button>
     </div>
   );
 }
@@ -66,17 +67,17 @@ export function DesignChat({ ws, project, designer, threadId, onThread, meta, hi
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="design-chat">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-rule px-2 py-1.5">
-        <span className="shrink-0 text-xs font-medium text-ink">和设计师对话</span>
+      <div className="flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2">
+        <span className="shrink-0 text-sm font-bold text-ink">和设计师对话</span>
         <Select className="h-7 min-w-0 flex-1 text-xs" value={selId ?? ''} onChange={(e) => onThread(e.target.value)} data-testid="design-chat-thread" aria-label="选择会话">
           {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         </Select>
-        <Button size="sm" variant="quiet" className="shrink-0" disabled={create.isPending} onClick={() => create.mutate()} data-testid="design-chat-new">新建会话</Button>
+        <Button size="sm" variant="quiet" className="shrink-0" disabled={create.isPending} onClick={() => create.mutate()} data-testid="design-chat-new"><Icon name="plus" />新建会话</Button>
       </div>
       {sel ? (
         <ThreadView thread={sel} projectId={project.id} names={names} hint={hint ?? '只有你和它能看到'} placeholder={selection && selection.items.length > 0 ? '告诉设计师怎么改选中的元素' : placeholder} meta={meta} composerTop={selection && selection.items.length > 0 ? <SelectionRow selection={selection} /> : undefined} onSent={onSent} />
       ) : (
-        <p className="p-3 text-sm text-muted">加载会话…</p>
+        <p className="flex items-center gap-2 p-3 text-sm text-muted"><i aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />加载会话…</p>
       )}
     </div>
   );

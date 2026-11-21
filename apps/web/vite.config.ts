@@ -26,6 +26,8 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${process.env.AW_API_PORT ?? '8787'}`,
         changeOrigin: true,
+        // 终端走 /api/terminals/:id/ws
+        ws: true,
       },
     },
   },

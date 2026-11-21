@@ -4,10 +4,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { Empty, Loading, toast } from '@/components/ui/feedback';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { Field, Input, Select } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { when } from '@/lib/format';
 import { useDocHealth, useDocsSettings, useProjectStatus, type DocHealth, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 import { STATUS_LABEL, STATUS_TONE } from './model';
 
 type HealthDoc = DocHealth['docs'][number];
@@ -65,15 +67,15 @@ export function HealthPanel({ ws, project, onOpen }: { ws: WorkstationDetail; pr
   const reverse = health.data.docs.filter((d) => d.reverse);
 
   const DocLine = ({ d, children }: { d: HealthDoc; children?: React.ReactNode }) => (
-    <li className="rounded-card border border-rule bg-paper p-3" data-testid={`health-doc-${d.id}`}>
-      <div className="flex items-center gap-2">
-        <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline" onClick={() => onOpen(d.id)}>
+    <li className="grid gap-3 rounded-card bg-paper p-4 shadow-[var(--shadow-card)]" data-testid={`health-doc-${d.id}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-ink underline decoration-transparent underline-offset-[3px] hover:decoration-rule-2" onClick={() => onOpen(d.id)}>
           {d.title}
         </button>
         <Badge tone={STATUS_TONE[d.status] ?? 'neutral'}>{STATUS_LABEL[d.status] ?? d.status}</Badge>
         {children}
       </div>
-      <ul className="mt-2 space-y-1.5">
+      <ul className="grid gap-2">
         {d.items.map((i) => (
           <DriftLine key={i.id} d={d} i={i} />
         ))}
@@ -81,88 +83,115 @@ export function HealthPanel({ ws, project, onOpen }: { ws: WorkstationDetail; pr
     </li>
   );
 
+  const stats: { label: string; icon: IconName; value: number; foot: string; tone: string }[] = [
+    { label: '引用过时', icon: 'alert', value: stale.length, foot: '出处内容变了或文件没了', tone: stale.length ? 'text-bad' : '' },
+    { label: '行号挪位', icon: 'link', value: moved.length, foot: '内容没变，可一键重指', tone: moved.length ? 'text-cool' : '' },
+    { label: '入库外改动', icon: 'branch', value: reverse.length, foot: '导回或忽略，等你定', tone: reverse.length ? 'text-accent' : '' },
+    { label: '合并影响', icon: 'merge', value: health.data.impacts.length, foot: '开发合并波及的文档', tone: '' },
+  ];
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="doc-health">
-      <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-4 py-2">
-        <h2 className="text-sm font-medium">文档健康</h2>
-        <span className="text-xs text-muted">引用出处变了、行号挪了、入库后被直接改，都在这里收口</span>
-        <Button size="sm" variant="primary" className="ml-auto" onClick={() => setReleaseOpen(true)} data-testid="release-notes-open">
-          起草发布说明
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 md:px-6">
-        <section>
-          <h3 className="mb-2 text-xs font-medium text-muted">过时文档</h3>
-          {stale.length === 0 ? <p className="text-sm text-muted">引用的出处都还和写的时候一致。</p> : null}
-          <ul className="space-y-2">
-            {stale.map((d) => (
-              <DocLine key={d.id} d={d}>
-                <Button size="sm" variant="quiet" disabled={updateDoc.isPending} onClick={() => updateDoc.mutate(d)} data-testid={`health-update-${d.id}`}>
-                  @主笔 按变更更新
-                </Button>
-              </DocLine>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[75rem] animate-fade px-8 pb-14 pt-7 max-md:px-4 max-md:pb-10 max-md:pt-5">
+          <header className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3">
+            <div className="grid min-w-0 flex-[1_1_320px] gap-1.5">
+              <h2 className="text-h2 font-bold tracking-[-0.01em] text-ink">文档健康</h2>
+              <p className="text-sm text-muted">引用出处变了、行号挪了、入库后被直接改，都在这里收口</p>
+            </div>
+            <Button variant="primary" onClick={() => setReleaseOpen(true)} data-testid="release-notes-open">
+              <Icon name="doc" />起草发布说明
+            </Button>
+          </header>
+          <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2">
+            {stats.map((s) => (
+              <div key={s.label} className="grid content-start gap-1 rounded-card bg-paper-2 p-4">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted"><Icon name={s.icon} className="size-3.5" />{s.label}</span>
+                <span className={cn('text-display font-bold tabular-nums text-ink', s.tone)}>{s.value}</span>
+                <span className="text-xs text-muted">{s.foot}</span>
+              </div>
             ))}
-          </ul>
-        </section>
-        <section>
-          <h3 className="mb-2 text-xs font-medium text-muted">行号漂移</h3>
-          {moved.length === 0 ? <p className="text-sm text-muted">没有引用挪位。</p> : null}
-          <ul className="space-y-2">
-            {moved.map((d) => (
-              <DocLine key={d.id} d={d}>
-                <Button size="sm" variant="quiet" disabled={repoint.isPending} onClick={() => repoint.mutate(d.id)} data-testid={`health-repoint-${d.id}`}>
-                  更新行号
-                </Button>
-              </DocLine>
-            ))}
-          </ul>
-        </section>
-        <section>
-          <h3 className="mb-2 text-xs font-medium text-muted">入库后被改</h3>
-          {reverse.length === 0 ? <p className="text-sm text-muted">入库后的文件没有平台之外的改动。</p> : null}
-          <ul className="space-y-2">
-            {reverse.map((d) => (
-              <li key={d.id} className="rounded-card border border-rule bg-paper p-3" data-testid={`health-reverse-${d.id}`}>
-                <div className="flex items-center gap-2">
-                  <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline" onClick={() => onOpen(d.id)}>
-                    {d.title}
-                  </button>
-                  <Badge tone="cool">{d.reverse?.status === 'deleted' ? '文件已删' : '被直接改过'}</Badge>
-                  <Button size="sm" variant="quiet" disabled={importBack.isPending} onClick={() => importBack.mutate(d.id)} data-testid={`health-import-${d.id}`}>
-                    导回为新版本
-                  </Button>
-                  <Button size="sm" variant="quiet" disabled={ack.isPending} onClick={() => ack.mutate(d.id)} data-testid={`health-ack-${d.id}`}>
-                    忽略
-                  </Button>
-                </div>
-                <p className="mt-1 text-xs text-muted">{d.path} 在仓库里被平台之外改过；导回会拿仓库现文出新草稿，去掉引用标记交接的文档导回后引用会丢。</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section>
-          <h3 className="mb-2 text-xs font-medium text-muted">最近合并影响</h3>
-          {health.data.impacts.length === 0 ? <p className="text-sm text-muted">还没有开发合并波及到文档。</p> : null}
-          <ul className="space-y-1" data-testid="health-impacts">
-            {health.data.impacts.map((e, i) => (
-              <li key={i} className="flex items-baseline gap-2 text-sm">
-                <span className="shrink-0 text-xs text-muted">{when(e.at)}</span>
-                <span className="text-ink-2">「{e.taskTitle}」合并</span>
-                <span className="truncate text-muted">{e.docs?.map((x) => `《${x.title}》`).join('、')}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="rounded-card border border-rule bg-paper p-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">自动起草</span>
-            <span className="text-xs text-muted">开发合并波及文档时，要不要直接 @主笔 出新版本草稿</span>
-            <Select className="ml-auto" value={settings.data?.autoDraft ?? 'off'} disabled={saveSettings.isPending} onChange={(e) => saveSettings.mutate(e.target.value as 'off' | 'affected')} data-testid="health-autodraft">
-              <option value="off">只提示</option>
-              <option value="affected">自动起草</option>
-            </Select>
           </div>
-        </section>
+          <section className="mt-8 grid gap-3.5">
+            <h3 className="text-title font-bold text-ink">过时文档</h3>
+            {stale.length === 0 ? <p className="text-sm text-muted">引用的出处都还和写的时候一致。</p> : null}
+            <ul className="grid gap-3 empty:hidden">
+              {stale.map((d) => (
+                <DocLine key={d.id} d={d}>
+                  <Button size="sm" disabled={updateDoc.isPending} onClick={() => updateDoc.mutate(d)} data-testid={`health-update-${d.id}`}>
+                    @主笔 按变更更新
+                  </Button>
+                </DocLine>
+              ))}
+            </ul>
+          </section>
+          <section className="mt-8 grid gap-3.5">
+            <h3 className="text-title font-bold text-ink">行号漂移</h3>
+            {moved.length === 0 ? <p className="text-sm text-muted">没有引用挪位。</p> : null}
+            <ul className="grid gap-3 empty:hidden">
+              {moved.map((d) => (
+                <DocLine key={d.id} d={d}>
+                  <Button size="sm" disabled={repoint.isPending} onClick={() => repoint.mutate(d.id)} data-testid={`health-repoint-${d.id}`}>
+                    更新行号
+                  </Button>
+                </DocLine>
+              ))}
+            </ul>
+          </section>
+          <section className="mt-8 grid gap-3.5">
+            <h3 className="text-title font-bold text-ink">入库后被改</h3>
+            {reverse.length === 0 ? <p className="text-sm text-muted">入库后的文件没有平台之外的改动。</p> : null}
+            <ul className="grid gap-3 empty:hidden">
+              {reverse.map((d) => (
+                <li key={d.id} className="grid gap-2 rounded-card bg-paper p-4 shadow-[var(--shadow-card)]" data-testid={`health-reverse-${d.id}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-ink underline decoration-transparent underline-offset-[3px] hover:decoration-rule-2" onClick={() => onOpen(d.id)}>
+                      {d.title}
+                    </button>
+                    <Badge tone="cool">{d.reverse?.status === 'deleted' ? '文件已删' : '被直接改过'}</Badge>
+                    <Button size="sm" disabled={importBack.isPending} onClick={() => importBack.mutate(d.id)} data-testid={`health-import-${d.id}`}>
+                      导回为新版本
+                    </Button>
+                    <Button size="sm" variant="quiet" disabled={ack.isPending} onClick={() => ack.mutate(d.id)} data-testid={`health-ack-${d.id}`}>
+                      忽略
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted"><span className="measured">{d.path}</span> 在仓库里被平台之外改过；导回会拿仓库现文出新草稿，去掉引用标记交接的文档导回后引用会丢。</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="mt-8 grid gap-3.5">
+            <h3 className="text-title font-bold text-ink">最近合并影响</h3>
+            {health.data.impacts.length === 0 ? <p className="text-sm text-muted">还没有开发合并波及到文档。</p> : null}
+            <ul className="overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)] empty:hidden" data-testid="health-impacts">
+              {health.data.impacts.map((e, i) => (
+                <li key={i} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-b border-rule px-4 py-3 last:border-b-0">
+                  <span className="grid size-8 place-items-center rounded-ctl bg-paper-2 text-ink-2"><Icon name="merge" /></span>
+                  <span className="grid min-w-0 gap-0.5">
+                    <span className="truncate text-sm font-semibold text-ink">「{e.taskTitle}」合并</span>
+                    <span className="flex min-w-0 items-center gap-3 text-xs text-muted">
+                      <span className="shrink-0">{when(e.at)}</span>
+                      <span className="truncate">{e.docs?.map((x) => `《${x.title}》`).join('、')}</span>
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="mt-8 rounded-card bg-paper p-4 shadow-[var(--shadow-card)]">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="grid min-w-0 flex-1 gap-0.5">
+                <span className="text-sm font-semibold text-ink">自动起草</span>
+                <span className="text-xs text-muted">开发合并波及文档时，要不要直接 @主笔 出新版本草稿</span>
+              </div>
+              <Select className="w-auto min-w-36" value={settings.data?.autoDraft ?? 'off'} disabled={saveSettings.isPending} onChange={(e) => saveSettings.mutate(e.target.value as 'off' | 'affected')} data-testid="health-autodraft">
+                <option value="off">只提示</option>
+                <option value="affected">自动起草</option>
+              </Select>
+            </div>
+          </section>
+        </div>
       </div>
       {releaseOpen ? <ReleaseNotesDialog wsId={ws.id} milestones={status.data?.milestones ?? []} onClose={() => setReleaseOpen(false)} /> : null}
     </div>
@@ -171,18 +200,18 @@ export function HealthPanel({ ws, project, onOpen }: { ws: WorkstationDetail; pr
 
 function DriftLine({ d, i }: { d: HealthDoc; i: DriftRow }) {
   return (
-    <li className="rounded-btn bg-canvas px-2.5 py-1.5 text-xs" data-testid={`drift-${d.id}-${i.id}`}>
-      <div className="flex items-center gap-2">
-        <code className="font-mono">{i.id}</code>
+    <li className="grid gap-2 rounded-ctl bg-paper-2 px-3 py-2.5 text-xs" data-testid={`drift-${d.id}-${i.id}`}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <code>{i.id}</code>
         <Badge tone={i.status === 'moved' ? 'cool' : 'bad'}>{DRIFT_LABEL[i.status] ?? i.status}</Badge>
-        {i.path ? <span className="font-mono text-muted">{i.path}</span> : <span className="text-muted">知识库引用</span>}
-        {i.lines ? <span className="text-muted">第 {i.lines[0]}–{i.lines[1]} 行</span> : null}
-        {i.status === 'moved' && i.newLines ? <span className="text-cool">→ 第 {i.newLines[0]}–{i.newLines[1]} 行</span> : null}
+        {i.path ? <span className="measured text-muted">{i.path}</span> : <span className="text-muted">知识库引用</span>}
+        {i.lines ? <span className="text-muted tabular-nums">第 {i.lines[0]}–{i.lines[1]} 行</span> : null}
+        {i.status === 'moved' && i.newLines ? <span className="font-medium text-cool tabular-nums">→ 第 {i.newLines[0]}–{i.newLines[1]} 行</span> : null}
       </div>
       {i.excerpt ? (
-        <div className="mt-1 grid gap-1 md:grid-cols-2">
-          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-paper p-1.5 text-muted">引用时：{i.excerpt}</pre>
-          {i.current !== null && i.current !== undefined ? <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-paper p-1.5 text-ink-2">现在：{i.current}</pre> : null}
+        <div className="grid gap-2 md:grid-cols-2">
+          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-chip bg-paper px-2.5 py-2 leading-[1.65] text-muted shadow-[var(--shadow-card)]">引用时：{i.excerpt}</pre>
+          {i.current !== null && i.current !== undefined ? <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-chip bg-paper px-2.5 py-2 leading-[1.65] text-ink-2 shadow-[var(--shadow-card)]">现在：{i.current}</pre> : null}
         </div>
       ) : null}
     </li>
@@ -215,9 +244,9 @@ function ReleaseNotesDialog({ wsId, milestones, onClose }: { wsId: string; miles
   return (
     <Dialog title="起草发布说明" onClose={onClose} testId="release-notes-dialog">
       <DialogForm error={error} submitting={send.isPending} submitLabel="起草" canSubmit={canSubmit} onSubmit={() => send.mutate()} onCancel={onClose}>
-        <div className="flex gap-2">
+        <div className="inline-flex w-fit gap-0.5 rounded-btn bg-paper-3 p-[3px]">
           {(['milestone', 'range'] as const).map((m) => (
-            <button key={m} type="button" data-testid={`release-mode-${m}`} onClick={() => setMode(m)} className={`rounded-chip px-2.5 py-1 text-xs ${mode === m ? 'bg-ink text-paper' : 'bg-canvas text-muted hover:text-ink'}`}>
+            <button key={m} type="button" aria-pressed={mode === m} data-testid={`release-mode-${m}`} onClick={() => setMode(m)} className={cn('h-[30px] rounded-btn px-3.5 text-sm transition-colors duration-150', mode === m ? 'bg-primary font-semibold text-primary-ink' : 'text-muted hover:text-ink')}>
               {m === 'milestone' ? '按里程碑' : '按时间范围'}
             </button>
           ))}
@@ -234,7 +263,7 @@ function ReleaseNotesDialog({ wsId, milestones, onClose }: { wsId: string; miles
             </Select>
           </Field>
         ) : (
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <Field label="从">
               <Input type="date" value={since} onChange={(e) => setSince(e.target.value)} data-testid="release-since" />
             </Field>

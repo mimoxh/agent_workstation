@@ -16,15 +16,15 @@ function Member({ a, projectId, onDm, highlight }: { a: PulseAgent; projectId: s
   const paused = a.status === 'paused';
   const activity = activityOf(a);
   return (
-    <li className={cn('group mx-1.5 flex min-h-11 items-center gap-2.5 rounded-pill px-2 py-1 hover:bg-hover', !a.run && !highlight && 'opacity-80')} data-testid="member-row">
-      <span aria-hidden className={cn('relative grid size-7 shrink-0 place-items-center rounded-full bg-tag text-xs font-semibold text-tag-ink', a.run && 'shadow-[0_0_0_1.5px_var(--color-paper),0_0_0_3px_var(--color-cool)]')}>{a.name.slice(0, 1)}</span>
+    <li className={cn('group mx-2 flex min-h-11 items-center gap-2.5 rounded-ctl px-2 py-1 transition-colors duration-150 hover:bg-hover', !a.run && !highlight && 'opacity-80')} data-testid="member-row">
+      <span aria-hidden className={cn('relative grid size-[26px] shrink-0 place-items-center rounded-full text-[11px] font-semibold', a.run ? 'bg-cool-tag text-cool-tag-ink shadow-[0_0_0_2px_var(--color-paper),0_0_0_4px_var(--color-cool)]' : 'bg-tag text-tag-ink')}>{a.name.slice(0, 1)}</span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-1.5">
-          <span className="truncate text-sm font-medium text-ink">{a.name}</span>
-          {a.isSteward === 1 && <span className="measured shrink-0 text-xs text-cool">steward</span>}
+          <span className="truncate text-sm font-semibold text-ink">{a.name}</span>
+          {a.isSteward === 1 && <span className="measured shrink-0 text-xs font-medium text-cool">steward</span>}
         </span>
         {a.run ? (
-          <span className="block truncate text-xs text-cool" data-testid="member-activity">
+          <span className="block truncate text-xs font-medium text-cool" data-testid="member-activity">
             {activity}
             {a.run.taskId && a.run.taskTitle && (
               <>
@@ -51,15 +51,20 @@ export function TeamPulse({ projectId, names, only, highlightTemplates, classNam
   const busy = agents.filter((a) => a.run).length;
   return (
     <section className={className} aria-label="成员">
-      <h2 className="flex items-baseline gap-2 px-3.5 pb-1.5 pt-3.5 text-xs font-semibold text-faint">
-        成员 <span className="measured text-xs">{agents.length + 1}</span>
-        {busy > 0 && <span className="measured text-xs text-cool">{busy} 在跑</span>}
+      <h2 className="flex items-center gap-2 px-4 pb-2 pt-4 text-sm font-bold text-ink">
+        成员 <span className="font-medium tabular-nums text-muted">{agents.length + 1}</span>
+        {busy > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium tabular-nums text-cool">
+            <span aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />
+            {busy} 在跑
+          </span>
+        )}
       </h2>
-      <ul>
-        <li className="mx-1.5 flex min-h-11 items-center gap-2.5 px-2">
-          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-tag text-xs font-semibold text-accent-tag-ink">你</span>
-          <span className="text-sm font-medium text-ink">本地用户</span>
-          <span className="measured min-w-0 flex-1 truncate text-xs text-muted">全权</span>
+      <ul className="grid gap-px">
+        <li className="mx-2 flex min-h-11 items-center gap-2.5 px-2">
+          <span aria-hidden className="grid size-[26px] shrink-0 place-items-center rounded-full bg-accent-tag text-[11px] font-semibold text-accent-tag-ink">你</span>
+          <span className="text-sm font-semibold text-ink">本地用户</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted">全权</span>
           <Badge tone="amber">人</Badge>
         </li>
         {agents.map((a) => <Member key={a.id} a={a} projectId={projectId} highlight={highlightTemplates?.includes(a.templateId ?? '') ?? false} onDm={() => setDm(a)} />)}

@@ -1,13 +1,16 @@
 import { useMutation } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { GlobalPage } from '@/components/layout/ProjectHeader';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Loading, toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { useModelConfig, useModels, type ModelConfig } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/_console/settings')({ component: SettingsPage });
 
@@ -60,48 +63,56 @@ function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (ne
     onChange({ ...p, ...patch });
   };
   return (
-    <div className="grid grid-cols-2 gap-3 rounded-card border border-rule p-3" data-testid="provider-row">
-      <Field label="名称" required hint="用于 provider:model 引用">
-        <Input className="measured" value={p.name} onChange={(e) => set({ name: e.target.value })} data-testid="provider-name" />
-      </Field>
-      <Field label="类型">
-        <Select value={p.kind} onChange={(e) => set({ kind: e.target.value as Kind })} data-testid="provider-kind">
-          {KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
-        </Select>
-      </Field>
-      <Field label="默认模型" required>
-        <Input className="measured" value={p.model} onChange={(e) => set({ model: e.target.value })} data-testid="provider-model" />
-      </Field>
-      <Field label="地址" hint={p.kind === 'ollama' ? '留空用 http://localhost:11434/v1' : p.kind === 'anthropic' ? '可选' : '必填'}>
-        <Input className="measured" value={p.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} />
-      </Field>
-      <Field label="上下文窗口" hint="tokens，留空不限；用于裁剪过长的工具结果、给输出留空间">
-        <Input className="measured" inputMode="numeric" value={p.contextWindow} onChange={(e) => set({ contextWindow: e.target.value })} data-testid="provider-context" />
-        <span className="mt-1 block text-xs text-faint">按模型文档填写，例如 128000</span>
-        {!validNum(p.contextWindow) && <span className="mt-1 block text-xs text-bad">请填整数</span>}
-      </Field>
-      <Field label="最大输出" hint="tokens；写设计稿这类大输出的 Agent 单次最多生成这么多，留空用默认 16000（AW_LARGE_OUTPUT_TOKENS）">
-        <Input className="measured" inputMode="numeric" value={p.maxOutput} onChange={(e) => set({ maxOutput: e.target.value })} data-testid="provider-max-output" />
-        <span className="mt-1 block text-xs text-faint">按模型文档填写，例如 128000</span>
-        {!validNum(p.maxOutput) && <span className="mt-1 block text-xs text-bad">请填整数</span>}
-      </Field>
-      {p.kind !== 'ollama' && (
-        <Field label="API Key" hint={p.hasKey ? '已保存，留空沿用' : '加密存在本地，不进数据库和日志'} className="col-span-2">
-          <Input type="password" autoComplete="off" value={p.apiKey} onChange={(e) => set({ apiKey: e.target.value })} data-testid="provider-key" />
-        </Field>
-      )}
-      <label className="col-span-2 flex items-center gap-2 text-sm text-ink-2">
-        <input type="checkbox" checked={p.vision} onChange={(e) => set({ vision: e.target.checked })} data-testid="provider-vision" />支持看图
-        <span className="text-xs text-faint">工具结果（如 view_design 截图）会作为图片发给模型；不开就只给文字说明</span>
-      </label>
-      <div className="col-span-2 flex justify-end gap-2">
-        <Button size="sm" disabled={test.isPending || !p.name.trim() || !p.model.trim()} onClick={() => test.mutate()} data-testid="provider-test">
-          {test.isPending ? '测试中…' : '测试'}
-        </Button>
-        <Button size="sm" variant="danger" onClick={onRemove}>移除</Button>
+    <Card className="grid gap-4 p-4" data-testid="provider-row">
+      <div className="flex flex-wrap items-center gap-2">
+        <span aria-hidden className="grid size-8 place-items-center rounded-ctl bg-paper-2 text-ink-2"><Icon name="cpu" /></span>
+        <h3 className={cn('min-w-0 truncate text-sm font-bold', p.name.trim() ? 'text-ink' : 'text-muted')}>{p.name.trim() || '新 Provider'}</h3>
+        <Badge tone="line">{KINDS.find((k) => k.id === p.kind)?.label ?? p.kind}</Badge>
+        {p.kind !== 'ollama' && (p.hasKey ? <Badge tone="ok"><Icon name="key" />已保存密钥</Badge> : <Badge tone="line">未配置密钥</Badge>)}
       </div>
+      <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+        <Field label="名称" required hint="用于 provider:model 引用">
+          <Input className="measured" value={p.name} onChange={(e) => set({ name: e.target.value })} data-testid="provider-name" />
+        </Field>
+        <Field label="类型">
+          <Select value={p.kind} onChange={(e) => set({ kind: e.target.value as Kind })} data-testid="provider-kind">
+            {KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+          </Select>
+        </Field>
+        <Field label="默认模型" required>
+          <Input className="measured" value={p.model} onChange={(e) => set({ model: e.target.value })} data-testid="provider-model" />
+        </Field>
+        <Field label="地址" hint={p.kind === 'ollama' ? '留空用 http://localhost:11434/v1' : p.kind === 'anthropic' ? '可选' : '必填'}>
+          <Input className="measured" value={p.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} />
+        </Field>
+        <Field label="上下文窗口" hint="tokens，留空不限；用于裁剪过长的工具结果、给输出留空间">
+          <Input className="measured" inputMode="numeric" value={p.contextWindow} aria-invalid={!validNum(p.contextWindow) || undefined} onChange={(e) => set({ contextWindow: e.target.value })} data-testid="provider-context" />
+          <span className="block text-xs text-muted">按模型文档填写，例如 128000</span>
+          {!validNum(p.contextWindow) && <span className="block text-xs font-medium text-bad">请填整数</span>}
+        </Field>
+        <Field label="最大输出" hint="tokens；写设计稿这类大输出的 Agent 单次最多生成这么多，留空用默认 16000（AW_LARGE_OUTPUT_TOKENS）">
+          <Input className="measured" inputMode="numeric" value={p.maxOutput} aria-invalid={!validNum(p.maxOutput) || undefined} onChange={(e) => set({ maxOutput: e.target.value })} data-testid="provider-max-output" />
+          <span className="block text-xs text-muted">按模型文档填写，例如 128000</span>
+          {!validNum(p.maxOutput) && <span className="block text-xs font-medium text-bad">请填整数</span>}
+        </Field>
+        {p.kind !== 'ollama' && (
+          <Field label="API Key" hint={p.hasKey ? '已保存，留空沿用' : '加密存在本地，不进数据库和日志'} className="col-span-2 max-md:col-span-1">
+            <Input className="measured" type="password" autoComplete="off" value={p.apiKey} onChange={(e) => set({ apiKey: e.target.value })} data-testid="provider-key" />
+          </Field>
+        )}
+      </div>
+      <label className="flex cursor-pointer items-start gap-3 border-t border-rule pt-3.5">
+        <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={p.vision} onChange={(e) => set({ vision: e.target.checked })} data-testid="provider-vision" />
+        <span className="grid gap-0.5">
+          <span className="text-sm font-semibold text-ink">支持看图</span>
+          <span className="text-xs text-muted">工具结果（如 view_design 截图）会作为图片发给模型；不开就只给文字说明</span>
+        </span>
+      </label>
       {(test.data ?? test.error) && (
-        <div className="col-span-2 flex items-center gap-2" data-testid="provider-test-result">
+        <div
+          className={cn('flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-ctl px-3.5 py-2.5 text-sm text-ink-2', test.isError || !test.data!.ok ? 'bg-bad-soft' : test.data!.toolCall ? 'bg-ok-soft' : 'bg-accent-soft')}
+          data-testid="provider-test-result"
+        >
           {test.isError ? (
             <>
               <Badge tone="bad">不可用</Badge>
@@ -121,7 +132,13 @@ function ProviderRow({ p, onChange, onRemove }: { p: ProviderForm; onChange: (ne
           )}
         </div>
       )}
-    </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="danger" onClick={onRemove}><Icon name="trash" />移除</Button>
+        <Button size="sm" disabled={test.isPending || !p.name.trim() || !p.model.trim()} aria-busy={test.isPending || undefined} onClick={() => test.mutate()} data-testid="provider-test">
+          {test.isPending ? <Spinner /> : <Icon name="pulse" />}{test.isPending ? '测试中…' : '测试'}
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -148,23 +165,29 @@ function ModelForm({ config }: { config: ModelConfig }) {
   });
 
   return (
-    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-      <div className="space-y-3">
+    <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <div className="grid gap-3">
         {providers.map((p, i) => (
           <ProviderRow key={i} p={p} onChange={(next) => setProviders(providers.map((x, k) => (k === i ? next : x)))} onRemove={() => setProviders(providers.filter((_, k) => k !== i))} />
         ))}
-        <Button onClick={() => setProviders([...providers, blank()])} data-testid="provider-add">添加 Provider</Button>
+        <Button className="justify-self-start" onClick={() => setProviders([...providers, blank()])} data-testid="provider-add"><Icon name="plus" />添加 Provider</Button>
       </div>
-      <Field label="默认模型" hint="provider:model；留空取第一个 provider">
-        <Input className="measured" value={defaultModel} onChange={(e) => setDefault(e.target.value)} />
-      </Field>
-      <Field label="降级链" hint="每行一个 provider:model。主模型限流、超时或不可用时按序切换，运行记录会标注">
-        <Textarea className="measured" rows={3} value={chain} onChange={(e) => setChain(e.target.value)} />
-      </Field>
-      <Field label="单价" hint="每行：provider:model 输入价 输出价（美元 / 百万 token）。没填单价的模型只统计 token">
-        <Textarea className="measured" rows={3} value={prices} onChange={(e) => setPrices(e.target.value)} />
-      </Field>
-      <Button type="submit" variant="primary" disabled={save.isPending || providers.some((p) => !validNum(p.contextWindow) || !validNum(p.maxOutput))} data-testid="models-save">{save.isPending ? '保存中…' : '保存模型配置'}</Button>
+      <Card className="grid gap-4 p-4">
+        <Field label="默认模型" hint="provider:model；留空取第一个 provider">
+          <Input className="measured" value={defaultModel} onChange={(e) => setDefault(e.target.value)} />
+        </Field>
+        <Field label="降级链" hint="每行一个 provider:model。主模型限流、超时或不可用时按序切换，运行记录会标注">
+          <Textarea className="measured" rows={3} value={chain} onChange={(e) => setChain(e.target.value)} />
+        </Field>
+        <Field label="单价" hint="每行：provider:model 输入价 输出价（美元 / 百万 token）。没填单价的模型只统计 token">
+          <Textarea className="measured" rows={3} value={prices} onChange={(e) => setPrices(e.target.value)} />
+        </Field>
+      </Card>
+      <div className="flex justify-end">
+        <Button type="submit" variant="primary" disabled={save.isPending || providers.some((p) => !validNum(p.contextWindow) || !validNum(p.maxOutput))} aria-busy={save.isPending || undefined} data-testid="models-save">
+          {save.isPending ? <Spinner /> : <Icon name="check" />}{save.isPending ? '保存中…' : '保存模型配置'}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -173,24 +196,30 @@ function SettingsPage() {
   const config = useModelConfig();
   const models = useModels();
   return (
-    <GlobalPage title="模型与设置" icon="gear" testId="settings-page">
-      <section className="space-y-3" aria-label="模型与密钥">
-        <div className="flex items-baseline gap-3">
-          <h2 className="text-title text-ink">模型与密钥</h2>
-          {models.data && <Badge tone={models.data.ready ? 'ok' : 'amber'}>{models.data.ready ? `${models.data.models.length} 个可用` : '没有可用模型'}</Badge>}
-        </div>
-        <p className="text-sm text-muted">环境变量（.env.local）里配置的 provider 优先于这里。调用云端模型时，任务内容和相关代码片段会发送给对应服务商。</p>
-        {models.data && models.data.models.length > 0 && (
-          <ul className="flex flex-wrap gap-2">
-            {models.data.models.map((m) => <li key={m.id}><Badge tone={m.local ? 'neutral' : 'cool'}>{m.id}{m.local ? ' · 本地' : ' · 云端'}</Badge></li>)}
-          </ul>
-        )}
-        {config.isLoading ? <Loading /> : config.data && <ModelForm config={config.data} />}
-      </section>
-      <section className="space-y-1" aria-label="数据">
-        <h2 className="text-title text-ink">数据</h2>
-        <p className="text-sm text-muted">全部数据在本地 SQLite（默认 data/agent-workstation.db），合并提案前自动快照到 data/snapshots，保留最近 20 份。项目数据可在指挥台的「设置」里导出。</p>
-      </section>
-    </GlobalPage>
+    <div className="min-h-0 flex-1 overflow-y-auto" data-testid="settings-page">
+      <Page narrow>
+        <PageHeader icon="gear" title="模型与设置" />
+        <section className="grid gap-3.5" aria-label="模型与密钥">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <h2 className="text-title font-bold text-ink">模型与密钥</h2>
+            {models.data && <Badge tone={models.data.ready ? 'ok' : 'amber'}>{models.data.ready ? `${models.data.models.length} 个可用` : '没有可用模型'}</Badge>}
+          </div>
+          <p className="text-sm text-muted">环境变量（.env.local）里配置的 provider 优先于这里。调用云端模型时，任务内容和相关代码片段会发送给对应服务商。</p>
+          {models.data && models.data.models.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {models.data.models.map((m) => <li key={m.id}><Badge tone={m.local ? 'line' : 'cool'}><span className="measured font-medium">{m.id}</span>{m.local ? ' · 本地' : ' · 云端'}</Badge></li>)}
+            </ul>
+          )}
+          {config.isLoading ? <Loading /> : config.data && <ModelForm config={config.data} />}
+        </section>
+        <section className="mt-8 grid gap-3.5" aria-label="数据">
+          <h2 className="text-title font-bold text-ink">数据</h2>
+          <div className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2.5 rounded-card bg-paper-2 p-4 text-sm text-ink-2">
+            <Icon name="info" className="mt-0.5 text-muted" />
+            <p>全部数据在本地 SQLite（默认 data/agent-workstation.db），合并提案前自动快照到 data/snapshots，保留最近 20 份。项目数据可在指挥台的「设置」里导出。</p>
+          </div>
+        </section>
+      </Page>
+    </div>
   );
 }

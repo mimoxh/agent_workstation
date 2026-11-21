@@ -21,8 +21,17 @@ type RailTab = 'chat' | 'comments' | 'citations' | 'review' | 'gate';
 
 function RailTabButton({ on, onClick, label, count, testId }: { on: boolean; onClick: () => void; label: string; count?: number; testId: string }) {
   return (
-    <button type="button" aria-pressed={on} onClick={onClick} data-testid={testId} className={cn('relative h-9 px-2.5 text-sm transition-colors duration-150 after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:bg-ink', on ? 'font-medium text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink')}>
-      {label}{count ? <span className="ml-1 text-xs text-faint">{count}</span> : null}
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      data-testid={testId}
+      className={cn(
+        'relative inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-sm transition-colors duration-150 after:absolute after:inset-x-2.5 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink',
+        on ? 'font-semibold text-ink after:opacity-100' : 'text-muted after:opacity-0 hover:text-ink',
+      )}
+    >
+      {label}{count ? <span className="text-xs tabular-nums opacity-70">{count}</span> : null}
     </button>
   );
 }
@@ -198,28 +207,28 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1" data-testid="doc-canvas">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-        <header className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-3 py-2">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-paper">
+        <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-rule bg-paper px-4 py-2.5">
           <Button variant="quiet" size="sm" onClick={onBack} title="回到文档列表" data-testid="doc-back">
-            <Icon name="chev" className="size-3.5 rotate-90" />全部
+            <Icon name="chev-l" />全部
           </Button>
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h1 className="min-w-0 truncate text-md font-medium">{doc.title}</h1>
-            <Badge tone="neutral">{kindLabel(doc.kind)}</Badge>
+          <div className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-2">
+            <h1 className="min-w-0 truncate text-title font-bold text-ink">{doc.title}</h1>
+            <Badge tone="line">{kindLabel(doc.kind)}</Badge>
             <Badge tone={STATUS_TONE[status] ?? 'neutral'} data-testid="doc-status">{STATUS_LABEL[status] ?? status}</Badge>
             {status === 'handed_off' && doc.handoff?.taskId ? (
-              <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId: doc.handoff.taskId }} className="text-xs text-primary underline" data-testid="doc-handoff-task">
+              <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId: doc.handoff.taskId }} className="text-xs font-medium text-ink underline decoration-rule-2 underline-offset-[3px] hover:decoration-current" data-testid="doc-handoff-task">
                 开发任务 →
               </Link>
             ) : null}
-            {status === 'published' && doc.handoff?.publishedCommit ? <span className="text-xs text-muted" data-testid="doc-published">已入库 {doc.handoff.publishedCommit.slice(0, 8)}</span> : null}
+            {status === 'published' && doc.handoff?.publishedCommit ? <span className="text-xs text-muted" data-testid="doc-published">已入库 <span className="measured">{doc.handoff.publishedCommit.slice(0, 8)}</span></span> : null}
             {doc.handoff?.cancelled ? <span className="text-xs text-muted">（上次交接已取消）</span> : null}
             {running ? <Badge tone="cool">主笔在动</Badge> : null}
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <div className="mr-1 flex rounded-btn bg-canvas p-0.5">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1">
+            <div className="mr-1 inline-flex gap-0.5 rounded-btn bg-paper-3 p-[3px]">
               {(['preview', 'edit'] as const).map((m) => (
-                <button key={m} type="button" data-testid={`doc-mode-${m}`} onClick={() => setMode(m)} className={cn('h-6 rounded-[5px] px-2 text-xs', mode === m ? 'bg-paper font-medium text-ink shadow-sm' : 'text-muted hover:text-ink')}>
+                <button key={m} type="button" aria-pressed={mode === m} data-testid={`doc-mode-${m}`} onClick={() => setMode(m)} className={cn('h-[22px] rounded-btn px-2.5 text-xs transition-colors duration-150', mode === m ? 'bg-primary font-semibold text-primary-ink' : 'text-muted hover:text-ink')}>
                   {m === 'preview' ? '预览' : '编辑'}
                 </button>
               ))}
@@ -227,26 +236,25 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
             <Popover
               trigger={(on, toggle) => (
                 <Button variant="quiet" size="sm" aria-expanded={on} onClick={toggle} title="版本历史" data-testid="doc-versions">
-                  <Icon name="clock" className="size-3.5" /> v{doc.version}
+                  <Icon name="clock" /><span className="tabular-nums">v{doc.version}</span>
                 </Button>
               )}
             >
               {(close) => (
-                <div className="max-h-64 w-44 overflow-y-auto py-1">
+                <div className="max-h-64 w-44 overflow-y-auto">
                   {versionList.map((v) => (
-                    <button
+                    <MenuItem
                       key={v}
-                      type="button"
                       onClick={() => {
                         setPinned(v === doc.version ? null : v);
                         close();
                       }}
-                      className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-canvas', pinned === v && 'font-medium')}
+                      className={cn('tabular-nums', pinned === v && 'bg-paper-2 font-semibold text-ink')}
                       data-testid={`doc-version-${v}`}
                     >
                       v{v}
                       {v === doc.version ? <span className="ml-auto text-xs text-muted">最新</span> : null}
-                    </button>
+                    </MenuItem>
                   ))}
                 </div>
               )}
@@ -254,12 +262,12 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
             <Popover
               trigger={(on, toggle) => (
                 <Button variant="quiet" size="sm" aria-expanded={on} onClick={toggle} title="导出当前版本" data-testid="doc-export">
-                  导出
+                  <Icon name="download" />导出
                 </Button>
               )}
             >
               {(close) => (
-                <div className="w-32 py-1">
+                <div className="w-32">
                   {([['md', 'Markdown'], ['html', 'HTML'], ['pdf', 'PDF']] as const).map(([f, label]) => (
                     <MenuItem key={f} data-testid={`doc-export-${f}`} onClick={() => { close(); void exportDoc(f); }}>
                       {label}
@@ -268,7 +276,7 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
                 </div>
               )}
             </Popover>
-            <Button variant="quiet" size="sm" onClick={() => setMetaOpen(true)} title="文档信息" data-testid="doc-meta">
+            <Button variant="quiet" size="icon-sm" onClick={() => setMetaOpen(true)} title="文档信息" aria-label="文档信息" data-testid="doc-meta">
               <Icon name="sliders" />
             </Button>
             <Button variant="quiet" size="sm" disabled={requestReview.isPending} title="让事实核对过一遍引用和表述" data-testid="doc-request-review" onClick={() => requestReview.mutate('fact-checker')}>
@@ -280,24 +288,25 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
             <Button variant="primary" size="sm" title="把成品文本冻结成交接工件，在开发台起写入任务" data-testid="doc-handoff-top" onClick={() => setHandoffOpen(true)}>
               交给开发
             </Button>
-            <button type="button" aria-label={railOpen ? '收起侧栏' : '展开侧栏'} onClick={() => setRailOpen((v) => !v)} className="grid size-7 place-items-center rounded-btn text-muted hover:bg-canvas hover:text-ink" data-testid="doc-rail-toggle">
-              <Icon name="chev" className={cn('size-3.5', railOpen ? '-rotate-90' : 'rotate-90')} />
-            </button>
+            <Button variant="quiet" size="icon-sm" aria-label={railOpen ? '收起侧栏' : '展开侧栏'} onClick={() => setRailOpen((v) => !v)} data-testid="doc-rail-toggle">
+              <Icon name={railOpen ? 'chev-r' : 'chev-l'} />
+            </Button>
           </div>
         </header>
         {old ? (
-          <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-accent-soft px-3 py-1.5 text-xs text-accent-tag-ink" data-testid="doc-old-banner">
-            正在看历史版本 v{pinned}，内容只读
+          <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-accent-soft px-4 py-1.5 text-sm text-ink-2" data-testid="doc-old-banner">
+            <Icon name="clock" className="text-accent" />正在看历史版本 v{pinned}，内容只读
             <Button size="sm" variant="quiet" className="ml-auto" disabled={rollback.isPending} onClick={() => pinned !== null && rollback.mutate(pinned)} data-testid="doc-rollback">
               恢复这个版本
             </Button>
           </div>
         ) : null}
-        {doc.brief && !old ? <p className="shrink-0 border-b border-rule bg-paper px-3 py-1.5 text-xs text-muted">{doc.brief}{repoName ? ` · 目标：${repoName}${doc.target_path ? ` ${doc.target_path}` : ''}` : ''}</p> : null}
+        {doc.brief && !old ? <p className="shrink-0 border-b border-rule bg-paper-2 px-4 py-2 text-xs text-muted">{doc.brief}{repoName ? ` · 目标：${repoName}${doc.target_path ? ` ${doc.target_path}` : ''}` : ''}</p> : null}
         {doc.drift && (doc.drift.items.length > 0 || doc.drift.reverse) && !old ? (
-          <p className="flex shrink-0 items-center gap-2 border-b border-rule bg-bad-soft px-3 py-1.5 text-xs text-bad-tag-ink" data-testid="doc-drift-strip">
+          <p className="flex shrink-0 items-center gap-2 border-b border-rule bg-bad-soft px-4 py-2 text-sm text-ink-2" data-testid="doc-drift-strip">
+            <Icon name="alert" className="text-bad" />
             {doc.drift.reverse ? '入库后被平台之外改过' : `引用漂移：${doc.drift.items.filter((i) => i.status !== 'moved').length} 处过时、${doc.drift.items.filter((i) => i.status === 'moved').length} 处挪位`}
-            <Link to="/projects/$projectId/ws/$wsId" params={{ projectId: project.id, wsId: ws.id }} search={{ panel: 'health' }} className="ml-auto underline" data-testid="doc-drift-health">
+            <Link to="/projects/$projectId/ws/$wsId" params={{ projectId: project.id, wsId: ws.id }} search={{ panel: 'health' }} className="ml-auto text-xs font-medium text-ink underline decoration-rule-2 underline-offset-[3px] hover:decoration-current" data-testid="doc-drift-health">
               去看文档健康 →
             </Link>
           </p>
@@ -308,11 +317,13 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
               <Textarea
                 value={draft ?? content}
                 onChange={(e) => setDraft(e.target.value)}
-                className="min-h-0 flex-1 resize-none rounded-none border-0 bg-canvas p-4 font-mono text-sm leading-6 focus:ring-0"
+                aria-label="正文（Markdown）"
+                spellCheck={false}
+                className="min-h-0 flex-1 resize-none rounded-none border-0 bg-paper px-5 py-4 font-mono text-[13px] leading-[1.7] hover:border-0 focus-visible:bg-paper focus-visible:shadow-[inset_0_0_0_2px_var(--color-focus)]"
                 data-testid="doc-editor"
               />
-              <div className="flex shrink-0 items-center gap-2 border-t border-rule bg-paper px-3 py-2">
-                <span className="text-xs text-muted">{dirty ? '有未保存的改动' : `v${doc.version}`}</span>
+              <div className="flex shrink-0 items-center gap-2 border-t border-rule bg-paper px-4 py-2">
+                <span className={cn('text-xs', dirty ? 'font-medium text-accent' : 'text-muted tabular-nums')}>{dirty ? '有未保存的改动' : `v${doc.version}`}</span>
                 {doc.lint.length ? <Badge tone={doc.lint.some((l) => l.level === 'error') ? 'bad' : 'amber'}>{doc.lint.length} 个风格问题</Badge> : null}
                 <Button variant="primary" size="sm" className="ml-auto" disabled={!dirty || save.isPending} data-testid="doc-save" onClick={() => draft !== null && save.mutate({ content: draft, baseVersion: doc.version })}>
                   保存
@@ -320,15 +331,15 @@ function DocEditor({ ws, project, id, running, onBack }: { ws: WorkstationDetail
               </div>
             </div>
           ) : (
-            <div ref={previewRef} onMouseUp={pickQuote} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-4 md:px-10 lg:px-14">
+            <div ref={previewRef} onMouseUp={pickQuote} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 pb-10 pt-6 md:px-10 lg:px-14">
               <DocMarkdown content={content} citationIds={citationIds} onCitation={(cid) => { setActiveCit(cid); setRail('citations'); setRailOpen(true); }} />
             </div>
           )}
         </div>
       </section>
       {railOpen ? (
-        <aside className="flex w-[21rem] shrink-0 flex-col border-l border-rule bg-paper" data-testid="doc-rail">
-          <div className="flex shrink-0 items-end gap-1 border-b border-rule px-2 pt-1">
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-rule bg-paper" data-testid="doc-rail">
+          <div className="flex shrink-0 items-end overflow-x-auto border-b border-rule px-2 [scrollbar-width:none]">
             <RailTabButton on={rail === 'chat'} onClick={() => setRail('chat')} label="对话" testId="doc-tab-chat" />
             <RailTabButton on={rail === 'comments'} onClick={() => setRail('comments')} label="评论" count={doc.openComments.length} testId="doc-tab-comments" />
             <RailTabButton on={rail === 'citations'} onClick={() => setRail('citations')} label="引用" count={citationIds.length} testId="doc-tab-citations" />
@@ -367,31 +378,32 @@ export function DocStudio({ ws, project, openId, onOpen }: { ws: WorkstationDeta
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1" data-testid="doc-studio">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-rule bg-paper">
-        <div className="flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2">
-          <h2 className="text-sm font-medium">文档</h2>
-          <Button size="sm" variant="quiet" className="ml-auto" onClick={() => setNewOpen(true)} data-testid="doc-new">
+      <aside className="flex w-72 shrink-0 flex-col border-r border-rule bg-paper-2">
+        <div className="flex shrink-0 items-center gap-2 border-b border-rule px-4 py-2.5">
+          <h2 className="text-title font-bold text-ink">文档</h2>
+          {list.length ? <span className="text-xs text-muted tabular-nums">{list.length}</span> : null}
+          <Button size="sm" className="ml-auto" onClick={() => setNewOpen(true)} data-testid="doc-new">
             <Icon name="plus" /> 新建
           </Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {list.length === 0 ? <p className="p-2 text-sm text-muted">还没有文档。新建一篇，或在右边对主笔说需求。</p> : null}
-          <ul className="space-y-1">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {list.length === 0 ? <p className="px-1 py-2 text-sm text-muted">还没有文档。新建一篇，或在右边对主笔说需求。</p> : null}
+          <ul className="grid gap-2">
             {list.map((d) => (
               <li key={d.id}>
-                <button type="button" onClick={() => onOpen(d.id)} className="w-full rounded-card border border-rule bg-paper p-2.5 text-left hover:border-ink/30" data-testid={`doc-item-${d.id}`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{d.title}</span>
+                <button type="button" onClick={() => onOpen(d.id)} className="grid w-full gap-1.5 rounded-ctl border border-rule bg-paper px-3 py-2.5 text-left transition-[background-color,translate] duration-150 hover:bg-paper-2 active:translate-y-px" data-testid={`doc-item-${d.id}`}>
+                  <span className="truncate text-sm font-semibold text-ink">{d.title}</span>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="line">{kindLabel(d.kind)}</Badge>
+                    <Badge tone={STATUS_TONE[d.status ?? ''] ?? 'neutral'}>{STATUS_LABEL[d.status ?? ''] ?? d.status}</Badge>
                     {d.drift?.bad ? <Badge tone="bad">过时 {d.drift.bad}</Badge> : null}
                     {d.drift?.moved ? <Badge tone="cool">挪位 {d.drift.moved}</Badge> : null}
                     {d.drift?.reverse ? <Badge tone="cool">被改</Badge> : null}
-                    <Badge tone={STATUS_TONE[d.status ?? ''] ?? 'neutral'}>{STATUS_LABEL[d.status ?? ''] ?? d.status}</Badge>
-                  </div>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
-                    <span>{kindLabel(d.kind)}</span>
-                    {d.openComments ? <span>· {d.openComments} 条评论</span> : null}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs text-muted">
+                    {d.openComments ? <span>{d.openComments} 条评论</span> : null}
                     <span className="ml-auto">{when(d.updatedAt)}</span>
-                  </div>
+                  </span>
                 </button>
               </li>
             ))}
@@ -399,8 +411,8 @@ export function DocStudio({ ws, project, openId, onOpen }: { ws: WorkstationDeta
         </div>
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-4 py-2.5">
-          <h2 className="text-sm font-medium">和主笔说需求</h2>
+        <div className="flex shrink-0 items-center gap-2 border-b border-rule bg-paper px-5 py-2.5">
+          <h2 className="text-title font-bold text-ink">和主笔说需求</h2>
           {running ? <Badge tone="cool">主笔在动</Badge> : null}
         </div>
         <ChatRail ws={ws} projectId={project.id} names={names} root={false} hint="@docs-writer 起草；写好后 @fact-checker 核对" placeholder="比如：给登录模块写一份 README" />

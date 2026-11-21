@@ -41,6 +41,8 @@ const fetchKnowledgeSearch = async (id: string, q: string) => unwrap(await api.p
 const fetchChunk = async (id: string) => unwrap(await api.knowledge.chunks[':id'].$get({ param: { id } }));
 const fetchPlugins = async () => unwrap(await api.plugins.$get());
 const fetchModels = async () => unwrap(await api.models.$get());
+const fetchHarnesses = async () => unwrap(await api.harnesses.$get({ query: {} }));
+const fetchTerminals = async (taskId: string) => unwrap(await api.terminals.$get({ query: { taskId } }));
 
 const fetchDocs = async (id: string) => unwrap(await api.workstations[':id'].docs.$get({ param: { id } }));
 const fetchDoc = async (id: string) => unwrap(await api.docs[':id'].$get({ param: { id } }));
@@ -191,6 +193,8 @@ export const useStyleGuide = (id: string) => useQuery({ queryKey: ['style-guide'
 export const useDocHealth = (id: string) => useQuery({ queryKey: ['doc-health', id], queryFn: () => fetchDocHealth(id) });
 export const useDocsSettings = (id: string) => useQuery({ queryKey: ['doc-settings', id], queryFn: () => fetchDocsSettings(id) });
 export const useModels = () => useQuery({ queryKey: ['models'], queryFn: fetchModels, staleTime: 60000 });
+export const useHarnesses = () => useQuery({ queryKey: ['harnesses'], queryFn: fetchHarnesses, staleTime: 60000 });
+export const useTerminals = (taskId: string, enabled = true) => useQuery({ queryKey: ['terminals', taskId], queryFn: () => fetchTerminals(taskId), enabled });
 
 export interface DispatchTarget { id: string; name: string; taskTypes: TaskType[] }
 

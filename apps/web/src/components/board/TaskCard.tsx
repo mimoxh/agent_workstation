@@ -2,9 +2,9 @@ import type { TaskStatus } from '@aw/domain';
 import { isOverdue, localDate } from '@aw/domain';
 import { Link } from '@tanstack/react-router';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Button, buttonClass } from '@/components/ui/button';
 import { MenuItem, Popover } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { parseJson } from '@/lib/format';
 import type { BoardTask, NameMaps } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -24,9 +24,9 @@ function whoOf(task: BoardTask, wsId: string, names: NameMaps) {
 function Ticks({ stages, current, finished }: { stages: string[]; current: string | null; finished: boolean }) {
   const idx = current ? stages.indexOf(current) : -1;
   return (
-    <span className="inline-flex shrink-0 gap-1" aria-label={`阶段 ${idx + 1}/${stages.length}`}>
+    <span className="inline-flex shrink-0 items-center gap-[3px]" aria-label={`阶段 ${idx + 1}/${stages.length}`}>
       {stages.map((s, i) => (
-        <i key={s} className={cn('h-[3px] w-2.5 rounded-full', finished || i < idx ? 'bg-cool' : i === idx ? 'bg-accent' : 'bg-rule')} />
+        <i key={s} className={cn('h-[3px] w-2.5 rounded-[2px]', finished || i < idx ? 'bg-cool' : i === idx ? 'bg-accent' : 'bg-rule-2')} />
       ))}
     </span>
   );
@@ -73,44 +73,54 @@ export function TaskCard({
   const waitingDeps = (task.dependsOn ?? []).filter((id) => (depStatus.get(id) ?? '') !== 'done').length;
 
   return (
-    <Card
+    <div
       data-testid="task-card"
       data-task-title={task.title}
-      className={cn('flex flex-col gap-2 border-0 p-3 shadow-[var(--shadow-card)] hover:bg-paper-2', status === 'blocked' || status === 'escalated' ? 'shadow-[0_0_0_1px_var(--color-accent),var(--shadow-card)]' : '', finished && 'opacity-70')}
+      className={cn(
+        'grid gap-2 rounded-xl bg-paper p-3.5 text-ink shadow-[var(--shadow-card)] transition-[box-shadow] duration-150 hover:shadow-[var(--shadow-card),0_0_0_1px_var(--color-rule-2)]',
+        (status === 'blocked' || status === 'escalated') && 'shadow-[inset_0_0_0_2px_var(--color-accent),var(--shadow-card)] hover:shadow-[inset_0_0_0_2px_var(--color-accent),var(--shadow-card)]',
+        selection?.checked && 'shadow-[0_0_0_2px_var(--color-primary)] hover:shadow-[0_0_0_2px_var(--color-primary)]',
+        finished && 'opacity-[0.66]',
+      )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2">
-          {selection && <input type="checkbox" checked={selection.checked} onChange={selection.onToggle} aria-label="选择任务" data-testid="task-select" className="size-4 shrink-0 accent-ink" />}
-          <span className="truncate text-xs text-muted">{task.parentId ? '子任务' : task.typeId ? '派发' : '内部'}</span>
-        </span>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-xs font-medium text-muted">{task.parentId ? '子任务' : task.typeId ? '派发' : '内部'}</span>
         <Badge tone={STATUS_TONE[status] ?? 'neutral'}>{STATUS_LABEL[status] ?? task.status}</Badge>
+        {selection && <input type="checkbox" checked={selection.checked} onChange={selection.onToggle} aria-label="选择任务" data-testid="task-select" className="ml-auto size-4 shrink-0 cursor-pointer accent-ink" />}
       </div>
-      <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: task.id }} className="text-md font-medium leading-snug text-ink hover:underline">
+      <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: task.id }} className="text-sm font-semibold leading-snug text-ink hover:underline">
         {task.title}
       </Link>
-      <p className="truncate text-xs text-muted">{whoOf(task, wsId, names)}</p>
-      {task.blockedReason && <p className="line-clamp-3 text-xs text-ink-2">{task.blockedReason}</p>}
+      <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+        <Icon name="person" className="size-[13px]" />
+        <span className="truncate">{whoOf(task, wsId, names)}</span>
+      </p>
+      {task.blockedReason && (
+        <p className="flex gap-1.5 rounded-chip bg-accent-soft px-2.5 py-1.5 text-xs text-ink-2">
+          <b className="shrink-0 font-bold text-accent">等你</b>
+          <span className="line-clamp-3 min-w-0">{task.blockedReason}</span>
+        </p>
+      )}
       {(task.dueAt || waitingDeps > 0) && (
-        <div className="flex items-center gap-1.5">
-          {task.dueAt && <span className={cn('measured text-xs', overdue ? 'font-medium text-bad' : 'text-muted')}>截止 {task.dueAt.slice(5)}</span>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          {task.dueAt && (
+            <span className={cn('inline-flex items-center gap-1 tabular-nums', overdue ? 'font-semibold text-bad' : 'text-muted')}>
+              <Icon name="clock" className="size-[13px]" />截止 {task.dueAt.slice(5)}
+            </span>
+          )}
           {waitingDeps > 0 && <Badge tone="amber" data-testid="dep-chip">等待前置 {waitingDeps}</Badge>}
         </div>
       )}
       {(module || stages.length > 0 || task.stage) && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="measured truncate text-xs text-muted" title={module ?? undefined}>{module}</span>
-          {stages.length > 0 ? <Ticks stages={stages} current={task.stage} finished={status === 'done'} /> : task.stage && <span className="shrink-0 text-xs text-cool" data-testid="card-stage">{stageNames[task.stage] ?? task.stage}</span>}
+        <div className="flex min-w-0 items-center gap-2.5 text-xs text-muted">
+          <span className="measured min-w-0 flex-1 truncate" title={module ?? undefined}>{module}</span>
+          {stages.length > 0 ? <Ticks stages={stages} current={task.stage} finished={status === 'done'} /> : task.stage && <span className="shrink-0 font-medium text-cool" data-testid="card-stage">{stageNames[task.stage] ?? task.stage}</span>}
         </div>
       )}
       {(actions.length > 0 || awaitingReview) && (
         <div className="flex items-center gap-1.5 pt-0.5">
           {awaitingReview ? (
-            <Link
-              to="/projects/$projectId/tasks/$taskId"
-              params={{ projectId, taskId: task.id }}
-              search={{ view: 'changes' }}
-              className="inline-flex min-h-6 items-center rounded-pill bg-primary px-2 text-xs font-medium text-primary-ink hover:bg-primary-hover"
-            >
+            <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: task.id }} search={{ view: 'changes' }} className={buttonClass('primary', 'sm')}>
               审阅改动
             </Link>
           ) : (
@@ -124,8 +134,10 @@ export function TaskCard({
             <Popover
               align="left"
               className="min-w-32"
-              trigger={(_, toggle) => (
-                <Button size="sm" variant="quiet" aria-label="更多操作" disabled={pending} onClick={toggle}>···</Button>
+              trigger={(open, toggle) => (
+                <Button size="icon-sm" variant="quiet" aria-label="更多操作" aria-expanded={open} disabled={pending} onClick={toggle}>
+                  <Icon name="more" />
+                </Button>
               )}
             >
               {(close) =>
@@ -143,6 +155,6 @@ export function TaskCard({
           )}
         </div>
       )}
-    </Card>
+    </div>
   );
 }

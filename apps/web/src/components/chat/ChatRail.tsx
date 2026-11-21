@@ -1,6 +1,8 @@
 import { Link } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { useAgentThread, useConversations, type ConversationRow, type WorkstationDetail } from '@/lib/queries';
+import { buttonClass } from '@/components/ui/button';
+import { Loading } from '@/components/ui/feedback';
 import { Select } from '@/components/ui/input';
 import type { MessageMeta } from './Composer';
 import { ThreadView, WsThread } from './Thread';
@@ -20,7 +22,7 @@ function convLabel(c: ConversationRow, names: Record<string, string>) {
 
 function AgentDm({ agentId, projectId, names, hint, placeholder, meta }: { agentId: string; projectId: string; names: Record<string, string>; hint: string; placeholder?: string | undefined; meta?: MessageMeta | undefined }) {
   const th = useAgentThread(agentId);
-  if (!th.data) return <p className="p-3 text-sm text-muted">加载会话…</p>;
+  if (!th.data) return <Loading label="加载会话…" />;
   return <ThreadView thread={th.data.thread} projectId={projectId} names={names} hint={hint} placeholder={placeholder} meta={meta} />;
 }
 
@@ -49,13 +51,13 @@ export function ChatRail({ ws, projectId, names, root, meta, hint, placeholder, 
     const conv = convs.find((c) => c.id === sel.id);
     body = conv
       ? <ThreadView thread={conv} projectId={projectId} names={names} meta={meta} hint={conv.kind === 'group' ? GROUP_HINT : DM_HINT} />
-      : <p className="p-3 text-sm text-muted">加载会话…</p>;
+      : <Loading label="加载会话…" />;
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="chat-rail">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-rule px-2 py-1.5">
-        <Select className="h-7 min-w-0 flex-1 text-xs" value={value} onChange={(e) => pick(e.target.value)} data-testid="chat-rail-target" aria-label="选择对话对象">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-rule px-3 py-2">
+        <Select className="h-8 min-w-0 flex-1 text-xs" value={value} onChange={(e) => pick(e.target.value)} data-testid="chat-rail-target" aria-label="选择对话对象">
           {steward && <option value={`dm:${steward.id}`}>{steward.name}（负责人）</option>}
           {others.map((a) => <option key={a.id} value={`dm:${a.id}`}>{a.name}</option>)}
           <option value="ws">{ws.name}大群</option>
@@ -65,7 +67,7 @@ export function ChatRail({ ws, projectId, names, root, meta, hint, placeholder, 
             </optgroup>
           )}
         </Select>
-        <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: ws.id }} search={{ panel: '_talk' }} className="shrink-0 rounded-chip px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="chat-rail-open-agent">Agent 页</Link>
+        <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: ws.id }} search={{ panel: '_talk' }} className={buttonClass('quiet', 'sm')} data-testid="chat-rail-open-agent">Agent 页</Link>
       </div>
       {body}
     </div>

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Agent Workstation：多 Agent 协作工作台（Vite + Hono + SQLite）。打开即控制台（跨项目），顶栏标签切工作台，左侧栏切台内功能（DECISIONS D25）。designs/aw-workbench/ 是当前原型，其余 designs/ 只作历史参考。
+Agent Workstation：多 Agent 协作工作台（Vite + Hono + SQLite）。打开即控制台（跨项目），顶栏标签切工作台，左侧栏切台内功能（DECISIONS D25）。designs/aw-workbench/ 是当前交互原型，designs/aw-redesign/ 是当前视觉规范（信号风格），其余 designs/ 只作历史参考。
 本机 shell 用 **PowerShell 7**（`pwsh`，在 PATH 上；`shell_flavor: "powershell"`），没有 bash。
 
 ## 目录结构
@@ -21,7 +21,7 @@ apps/
 │     │  ├ timeline/ 协作时间线、交接与结论卡
 │     │  ├ team/     团队脉搏
 │     │  ├ task/     任务头、右栏
-│     │  ├ inbox/ chat/ run/  收件箱 / 会话 / 实时命令输出（LiveOutput，走 /api/live/:channel）
+│     │  ├ inbox/ chat/ run/  收件箱 / 会话 / 实时命令输出（LiveOutput，走 /api/live/:channel）与嵌入终端（Terminal，xterm.js 走 /api/terminals/:id/ws）
 │     │  ├ layout/   外壳（顶栏标签 + 上下文侧栏）、页面骨架 Page、命令面板、挂载与新建项目对话框、项目设置页（改名 / 目标 / 文件夹 / 预算 / 导出 / 归档 / 删除）
 │     │  └ ui/       基础组件（button / badge / card / input / dialog / feedback / icons）
 │     ├ lib/api.ts      Hono RPC 类型化客户端 + unwrap
@@ -32,7 +32,7 @@ apps/
       ├ db/         schema / client / migrate / seed（AW_DB_PATH 可改，默认可 :memory:）
       ├ repositories/  仓储层（读）
       ├ usecases/   用例（写）：core / flow / tasks / workstations / threads / proposals / inbox / entities / knowledge / projects / backup / repo / designs / qa / docs / repo_source
-      ├ runtime/    Agent 运行时：调度、发言调度、协调、循环、工具、dev 工作流、预算、模型路由
+      ├ runtime/    Agent 运行时：调度、发言调度、协调、循环、工具、dev 工作流、预算、模型路由、外部 harness（harness/ + MCP 桥）、pty 终端（terminal.ts）
       └ app.ts      路由（/api 前缀）+ AppType 导出
 packages/
 ├ domain/         纯函数领域层：task-state 状态机、权限、@ 解析、三级预算
@@ -55,7 +55,7 @@ packages/
 - `apps/server/src/repositories/` 所有函数第一个参数必须是 `actor: Actor`，不得缺省；M0.1 不做权限过滤，M0.2 接 `can()`。
 - 代码注释默认不写；保持现有中文注释风格（只在结构需要处写）。
 - 路由文件改动后 `routeTree.gen.ts` 由插件自动重新生成，不要手改。
-- 颜色语义：accent（橙）= 等人，cool（蓝）= 仪器 / 机器在动，bad = 出问题，ok = 收口；主按钮用 primary（墨色）。样式用 index.css 的令牌（深色在同文件的 prefers-color-scheme 里），不写裸色值。
+- 颜色语义：accent（橙）= 等人，cool（蓝）= 仪器 / 机器在动，bad = 出问题，ok = 收口；主按钮用 primary（墨色）。样式用 index.css 的令牌（深色在同文件的 `html[data-mode="dark"]` 里，lib/theme.ts 管「跟随系统 / 浅 / 深」切换），不写裸色值。视觉规范是信号风格：designs/aw-redesign/（迁移配方见其中 MIGRATION.md）。
 - usecases 与 runtime 互相引用：`usecases/index.ts` 用具名导出，不要用 `export *`；runtime 从具体模块导入。
 - 新增 Agent 工具要在 `plugin-spec/src/validate.ts` 的 `BUILTIN_TOOLS` 登记；模板工具变更要升 manifest version，启动时才会同步到已挂载的工作台。
 - 设计稿是模型写的代码，按不可信处理：只在 `sandbox="allow-scripts"` 的 iframe 里渲染（不加 allow-same-origin），postMessage 要过 `parseFrameEvent`。
@@ -63,6 +63,7 @@ packages/
 - 文档台每项目一个（manifest `singleton`），不写仓库，入库交接给开发台；引用由平台在写入时解析，核对结论绑定内容哈希（docs/PLUGINS/DOCS.md）。markdown 只用 react-markdown 渲染，不开 raw HTML。
 - 路由失败统一 `fail(c, r)`，返回 `{ error: string }`；前端 mutation 的错误默认走全局 toast，对话框内自己展示的用 `meta: { silent: true }`。
 - `live_*` 事件（命令实时输出）不进 /api/stream 的 `LIVE_PREFIXES`，客户端走 /api/live/:channel。
+- 外部 harness 引擎（D33）：`runtime/harness/` 按 Agent 的 `engine` 经 `node-pty` 驱动外部 CLI（Claude Code / Codex），`/api/mcp` 只暴露平台协作工具，回合结束由 hook / notify 报 `/api/harness/turn`；取消与超时按进程树强杀，终端 WS 只接受本机 Origin，上下文简报放 `AW_HARNESS_DIR`（默认临时目录）。
 
 ## Git 流程
 

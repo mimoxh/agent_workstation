@@ -19,7 +19,6 @@ import { WsProposalsPanel } from '@/components/panels/ProposalReview';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { QualityPanel } from '@/components/qa/QualityPanel';
 import { WsThread } from '@/components/chat/Thread';
-import { PageHeader } from '@/components/layout/Page';
 import { AgentTalk } from './AgentTalk';
 import { TeamPulse } from '@/components/team/TeamPulse';
 import { Button } from '@/components/ui/button';
@@ -71,15 +70,15 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
     case 'knowledge':
       return <KnowledgePanel projectId={project.id} />;
     case 'tokens':
-      return <Empty title="这个板块已从插件中移除" />;
+      return <Empty title="这个板块已从插件中移除" icon="info" />;
     case 'doc':
-      return parseJson<{ view?: string }>(block.configJson, {}).view === 'style' ? <StyleGuidePanel ws={ws} /> : <Empty title="文档台请在工作台主视图打开" />;
+      return parseJson<{ view?: string }>(block.configJson, {}).view === 'style' ? <StyleGuidePanel ws={ws} /> : <Empty title="文档台请在工作台主视图打开" icon="doc" />;
     case 'quality':
       return <QualityPanel block={block} ws={ws} project={project} />;
     case 'preview':
       return <PreviewPanel wsId={ws.id} config={{ ...parseJson<{ urlField?: string; baselineField?: string }>(block.configJson, {}), ...(block.entityType ? { entity: block.entityType } : {}) }} />;
     default:
-      return <Empty title={`${block.name}板块未装载`}>{ws.manifest?.name} 还没有这个板块的渲染器。</Empty>;
+      return <Empty title={`${block.name}板块未装载`} icon="plug">{ws.manifest?.name} 还没有这个板块的渲染器。</Empty>;
   }
 }
 
@@ -92,12 +91,24 @@ const readMembers = () => {
   }
 };
 
+// 全宽板块的页内顶条：标题 + 副文，右侧动作
+function PanelBar({ icon, title, desc, actions }: { icon: IconName; title: string; desc?: string | null | undefined; actions?: ReactNode }) {
+  return (
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-rule px-5 py-2.5">
+      <Icon name={icon} className="size-[18px] shrink-0 text-muted" />
+      <div className="grid min-w-0 flex-[1_1_16rem] gap-0.5">
+        <h1 className="truncate text-title font-bold text-ink">{title}</h1>
+        {desc && <p className="text-xs text-muted">{desc}</p>}
+      </div>
+      {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
+    </header>
+  );
+}
+
 function PanelFrame({ icon, title, desc, actions, children }: { icon: IconName; title: string; desc?: string | null | undefined; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-5 pb-2 md:px-8">
-        <PageHeader compact icon={icon} title={title} {...(desc ? { desc } : {})} actions={actions} />
-      </div>
+      <PanelBar icon={icon} title={title} desc={desc} actions={actions} />
       <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
@@ -121,21 +132,16 @@ function WsChat({ ws, project }: { ws: WorkstationDetail; project: ProjectDetail
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="shrink-0 px-5 md:px-10 lg:px-14">
-          <div className="mx-auto max-w-[54rem]">
-            <PageHeader
-              compact
-              icon="hash"
-              title={`${ws.name}大群`}
-              desc={root ? '和项目经理说目标，它起草任务，确认后派发' : (ws.manifest?.description ?? '工作台级讨论，任务细节进各自的任务页')}
-              actions={<Button variant="quiet" aria-pressed={members} onClick={toggle} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="rail-toggle"><Icon name="people" className="size-3.5" />成员</Button>}
-            />
-          </div>
-        </div>
+        <PanelBar
+          icon="hash"
+          title={`${ws.name}大群`}
+          desc={root ? '和项目经理说目标，它起草任务，确认后派发' : (ws.manifest?.description ?? '工作台级讨论，任务细节进各自的任务页')}
+          actions={<Button size="sm" variant="quiet" aria-pressed={members} onClick={toggle} className="aria-pressed:bg-paper-3 aria-pressed:text-ink" data-testid="rail-toggle"><Icon name="people" />成员</Button>}
+        />
         <WsThread wsId={ws.id} projectId={project.id} names={names} root={root} wide />
       </div>
       {members && (
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-rule max-lg:hidden" aria-label="成员">
+        <aside className="w-72 shrink-0 overflow-y-auto border-l border-rule bg-paper max-lg:hidden" aria-label="成员">
           <TeamPulse projectId={project.id} names={names} only={(a) => a.workstationId === ws.id || (root && a.isSteward === 1 && children.includes(a.workstationId))} />
         </aside>
       )}

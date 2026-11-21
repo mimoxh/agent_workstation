@@ -1,88 +1,128 @@
 @import "tailwindcss";
 
-/* 文档式风格：浅色为主、暖灰侧栏，跟随系统切深色。
-   语义：accent（橙）= 等人，cool（蓝）= 机器在动，bad = 出问题，ok = 收口；主按钮用墨色 */
-@theme {
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", Helvetica, Arial, sans-serif;
-  --font-mono: "SFMono-Regular", Menlo, Consolas, "Cascadia Mono", "Microsoft YaHei UI", ui-monospace, monospace;
+/* 信号（C）：中性白纸 + 墨色侧栏；深色是重推的一套，不是反相。
+   语义：accent（橙）= 等人，cool（蓝）= 机器在动，bad = 出问题，ok = 收口；主按钮用 primary（墨色）。
+   深浅由 html[data-mode] 决定，index.html 在首帧前按「跟随系统 / 浅 / 深」写入（lib/theme.ts） */
+@theme static {
+  --font-sans: "Geist Variable", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono Variable", "Cascadia Mono", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace;
 
-  --color-paper: #ffffff;
-  --color-paper-2: #f7f7f5;
-  --color-paper-3: #efeeec;
-  --color-ink: #37352f;
-  --color-ink-2: #4f4d48;
-  --color-muted: #787774;
-  --color-faint: #a5a29d;
-  --color-rule: #ebebe9;
-  --color-rule-2: #dcdbd8;
-  --color-hover: rgb(55 53 47 / 0.06);
-  --color-focus: rgb(35 131 226 / 0.57);
-  --color-primary: #37352f;
-  --color-primary-hover: #4a4842;
-  --color-primary-ink: #ffffff;
-  --color-accent: #c2620c;
-  --color-accent-ink: #ffffff;
-  --color-accent-soft: #fbecdd;
-  --color-accent-tag: #fadec9;
-  --color-accent-tag-ink: #49290e;
-  --color-cool: #2f78a8;
-  --color-cool-soft: #e7f3f8;
-  --color-cool-tag: #d3e5ef;
-  --color-cool-tag-ink: #183347;
-  --color-ok: #448361;
-  --color-ok-soft: #edf3ec;
-  --color-ok-tag: #dbeddb;
-  --color-ok-tag-ink: #1c3829;
-  --color-bad: #c9403b;
-  --color-bad-soft: #fdebec;
-  --color-bad-tag: #ffe2dd;
-  --color-bad-tag-ink: #5d1715;
-  --color-tag: #e9e8e6;
-  --color-tag-ink: #32302c;
-  --color-scrim: rgb(15 15 15 / 0.35);
-  --shadow-card: 0 0 0 1px rgb(15 15 15 / 0.07), 0 2px 4px rgb(15 15 15 / 0.07);
-  --shadow-pop: 0 0 0 1px rgb(15 15 15 / 0.05), 0 3px 6px rgb(15 15 15 / 0.1), 0 9px 24px rgb(15 15 15 / 0.2);
+  --color-paper: #fdfdfc;
+  --color-paper-2: #f4f4f2;
+  --color-paper-3: #e8e8e5;
+  --color-ink: #121214;
+  --color-ink-2: #36363c;
+  --color-muted: #64646c;
+  --color-faint: #a0a0a7;
+  --color-rule: #e7e7e4;
+  --color-rule-2: #cfcfcb;
+  --color-field-line: #8f8f96;
+  --color-hover: rgb(18 18 20 / 0.05);
+  --color-press: rgb(18 18 20 / 0.1);
+  --color-focus: #1f6fd1;
+  --color-primary: #121214;
+  --color-primary-hover: #2c2c31;
+  --color-primary-ink: #fdfdfc;
+  --color-accent: #c4560a;
+  --color-accent-ink: #fdfdfc;
+  --color-accent-soft: #fdefe3;
+  --color-accent-tag: #c4560a;
+  --color-accent-tag-ink: #fdfdfc;
+  --color-cool: #1f6acb;
+  --color-cool-ink: #fdfdfc;
+  --color-cool-soft: #e8f0fb;
+  --color-cool-tag: #dce8f8;
+  --color-cool-tag-ink: #123f78;
+  --color-ok: #187a44;
+  --color-ok-ink: #fdfdfc;
+  --color-ok-soft: #e6f4ec;
+  --color-ok-tag: #d3ecdd;
+  --color-ok-tag-ink: #0f4a2a;
+  --color-bad: #c3362b;
+  --color-bad-ink: #fdfdfc;
+  --color-bad-soft: #fdecea;
+  --color-bad-tag: #c3362b;
+  --color-bad-tag-ink: #fdfdfc;
+  --color-tag: #ebebe8;
+  --color-tag-ink: #36363c;
+  --color-scrim: rgb(12 12 14 / 0.45);
+  /* 侧栏在浅色下也是墨色 */
+  --color-side: #17171a;
+  --color-side-ink: #d9d9de;
+  --color-side-muted: #9a9aa3;
+  --color-side-hover: rgb(240 240 245 / 0.07);
+  --color-side-active: #2c2c32;
+  --color-side-active-ink: #f4f4f6;
+  --color-side-rule: #26262b;
+  /* 终端与代码块 */
+  --color-code: #17171a;
+  --color-code-ink: #d9d9de;
+  --color-code-ok: #6fd39b;
+  --color-code-bad: #ff8a80;
+  --color-code-dim: #9a9aa3;
+  --color-diff-add: #e3f3e9;
+  --color-diff-add-ink: #0f4a2a;
+  --color-diff-del: #fbe7e5;
+  --color-diff-del-ink: #7a1d16;
+  --color-chart-1: #121214;
+  --color-chart-2: #1f6acb;
+  --color-chart-3: #187a44;
+  --color-chart-4: #c4560a;
+  --color-chart-5: #a0a0a7;
 
-  /* 圆角四档：chip 标签与菜单项，pill 控件，card 卡片，pop 浮层 */
-  --radius-chip: 6px;
-  --radius-pill: 9px;
-  --radius-card: 12px;
-  --radius-pop: 16px;
+  --shadow-knob: 0 1px 2px rgb(18 18 20 / 0.22);
+  --shadow-card: 0 0 0 1px rgb(18 18 20 / 0.07), 0 1px 0 rgb(18 18 20 / 0.04);
+  --shadow-pop: 0 0 0 1px rgb(18 18 20 / 0.06), 0 12px 32px rgb(18 18 20 / 0.16);
+
+  /* 圆角：chip 小标签与代码片，ctl 输入框 / 菜单项 / 导航项（pill 是它的旧名），btn 按钮与筛选片全圆，card 卡片，pop 浮层 */
+  --radius-chip: 8px;
+  --radius-ctl: 10px;
+  --radius-pill: 10px;
+  --radius-btn: 999px;
+  --radius-card: 16px;
+  --radius-pop: 18px;
 
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
 
-  --text-xs: 0.78rem;
+  --text-xs: 0.8rem;
   --text-xs--line-height: 1.45;
-  --text-sm: 0.86rem;
+  --text-sm: 0.88rem;
   --text-sm--line-height: 1.5;
   --text-md: 0.95rem;
   --text-md--line-height: 1.5;
-  --text-title: 1.05rem;
+  --text-title: 1.1rem;
   --text-title--line-height: 1.35;
-  --text-display: 1.6rem;
-  --text-display--line-height: 1.2;
-  --text-h2: 1.375rem;
-  --text-h2--line-height: 1.3;
-  --text-page: 2.25rem;
-  --text-page--line-height: 1.2;
+  --text-h2: 1.45rem;
+  --text-h2--line-height: 1.25;
+  --text-display: 1.9rem;
+  --text-display--line-height: 1.15;
+  --text-page: 1.45rem;
+  --text-page--line-height: 1.25;
 
-  --animate-rise: rise 240ms var(--ease-soft) both;
-  --animate-pop: pop 200ms var(--ease-soft) both;
-  --animate-fade: fade 200ms ease-out both;
+  --animate-rise: rise 420ms var(--ease-soft) both;
+  --animate-pop: pop 300ms var(--ease-soft) both;
+  --animate-fade: fade 220ms ease-out both;
   --animate-pulse-soft: pulse-soft 1.8s ease-in-out infinite;
+  --animate-slide-in: slide-in 220ms var(--ease-soft) both;
+  --animate-slide-l: slide-l 220ms var(--ease-soft) both;
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
   }
   @keyframes pop {
-    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    from { opacity: 0; transform: scale(0.97); }
     to { opacity: 1; transform: none; }
   }
-  --animate-slide-in: slide-in 240ms var(--ease-soft) both;
   @keyframes slide-in {
     from { transform: translateX(-100%); }
     to { transform: none; }
+  }
+  @keyframes slide-l {
+    from { opacity: 0; transform: translateX(12px); }
+    to { opacity: 1; transform: none; }
   }
   @keyframes fade {
     from { opacity: 0; }
@@ -96,46 +136,74 @@
 @layer base {
   html {
     color-scheme: light;
+    scrollbar-color: var(--color-rule-2) transparent;
+    /* 下拉框右侧的箭头；颜色跟 muted 走，深色下另给一份 */
+    --select-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364646c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --color-paper: #191919;
-      --color-paper-2: #202020;
-      --color-paper-3: #2a2a2a;
-      --color-ink: #e6e6e5;
-      --color-ink-2: #c8c7c4;
-      --color-muted: #9b9a97;
-      --color-faint: #6f6e6b;
-      --color-rule: #2e2e2e;
-      --color-rule-2: #3a3a3a;
-      --color-hover: rgb(255 255 255 / 0.055);
-      --color-primary: #e6e6e5;
-      --color-primary-hover: #ffffff;
-      --color-primary-ink: #191919;
-      --color-accent: #d98a4a;
-      --color-accent-ink: #191919;
-      --color-accent-soft: #36291f;
-      --color-accent-tag: #854c1d;
-      --color-accent-tag-ink: #f3ece6;
-      --color-cool: #5aa0cf;
-      --color-cool-soft: #1f2a33;
-      --color-cool-tag: #28456c;
-      --color-cool-tag-ink: #e8eef5;
-      --color-ok: #5fa57c;
-      --color-ok-soft: #222b26;
-      --color-ok-tag: #2b593f;
-      --color-ok-tag-ink: #e6f0ea;
-      --color-bad: #e06a62;
-      --color-bad-soft: #362422;
-      --color-bad-tag: #6e3630;
-      --color-bad-tag-ink: #f6e6e4;
-      --color-tag: #373737;
-      --color-tag-ink: #e2e2e0;
-      --color-scrim: rgb(0 0 0 / 0.5);
-      --shadow-card: 0 0 0 1px rgb(0 0 0 / 0.3), 0 2px 4px rgb(0 0 0 / 0.25);
-      --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.09), 0 3px 6px rgb(0 0 0 / 0.3), 0 9px 24px rgb(0 0 0 / 0.4);
-    }
+  html[data-mode="dark"] {
+    color-scheme: dark;
+    --select-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2398989f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    --color-paper: #141416;
+    --color-paper-2: #1b1b1e;
+    --color-paper-3: #252529;
+    --color-ink: #ededf0;
+    --color-ink-2: #c8c8ce;
+    --color-muted: #98989f;
+    --color-faint: #64646b;
+    --color-rule: #2a2a2e;
+    --color-rule-2: #38383e;
+    --color-field-line: #66666d;
+    --color-hover: rgb(240 240 245 / 0.06);
+    --color-press: rgb(240 240 245 / 0.1);
+    --color-focus: #5b9cf0;
+    --color-primary: #ededf0;
+    --color-primary-hover: #fafafb;
+    --color-primary-ink: #141416;
+    --color-accent: #e8803a;
+    --color-accent-ink: #141416;
+    --color-accent-soft: #2d2017;
+    --color-accent-tag: #e8803a;
+    --color-accent-tag-ink: #141416;
+    --color-cool: #5b9cf0;
+    --color-cool-ink: #141416;
+    --color-cool-soft: #17223a;
+    --color-cool-tag: #1c3157;
+    --color-cool-tag-ink: #cfe0fb;
+    --color-ok: #4fbb7f;
+    --color-ok-ink: #141416;
+    --color-ok-soft: #14261c;
+    --color-ok-tag: #1a3a28;
+    --color-ok-tag-ink: #c9eed8;
+    --color-bad: #f0675f;
+    --color-bad-ink: #141416;
+    --color-bad-soft: #2e1716;
+    --color-bad-tag: #f0675f;
+    --color-bad-tag-ink: #141416;
+    --color-tag: #2a2a2f;
+    --color-tag-ink: #c8c8ce;
+    --color-scrim: rgb(0 0 0 / 0.6);
+    --color-side: #0d0d0f;
+    --color-side-ink: #c8c8ce;
+    --color-side-muted: #8a8a92;
+    --color-side-hover: rgb(240 240 245 / 0.05);
+    --color-side-active: #232327;
+    --color-side-active-ink: #f2f2f4;
+    --color-side-rule: #1f1f23;
+    --color-code: #0d0d0f;
+    --color-code-ink: #c8c8ce;
+    --color-code-dim: #8a8a92;
+    --color-diff-add: #142a1d;
+    --color-diff-add-ink: #c9eed8;
+    --color-diff-del: #2e1716;
+    --color-diff-del-ink: #ffd2ce;
+    --color-chart-1: #ededf0;
+    --color-chart-2: #5b9cf0;
+    --color-chart-3: #4fbb7f;
+    --color-chart-4: #e8803a;
+    --color-chart-5: #64646b;
+    --shadow-knob: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-card: 0 0 0 1px rgb(240 240 245 / 0.07);
+    --shadow-pop: 0 0 0 1px rgb(240 240 245 / 0.1), 0 12px 32px rgb(0 0 0 / 0.5);
   }
   html, body, #root {
     height: 100%;
@@ -146,16 +214,18 @@
     font-family: var(--font-sans);
     font-size: var(--text-md);
     line-height: 1.5;
+    caret-color: var(--color-focus);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
   h1, h2, h3, h4 {
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    text-wrap: balance;
+    overflow-wrap: break-word;
   }
-  /* 可交互元素默认带过渡，悬停与选中不再跳变；组件里写了 transition-* 的以组件为准 */
+  /* 可交互元素默认带过渡；焦点环不过渡，键盘移动时立刻出现 */
   a, button, summary, input, select, textarea, [role="tab"], [role="menuitem"], [role="option"] {
-    transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, opacity 160ms ease-out;
+    transition: color 220ms var(--ease-out), background-color 220ms var(--ease-out), border-color 220ms var(--ease-out), opacity 220ms var(--ease-out);
   }
   button {
     cursor: pointer;
@@ -166,16 +236,32 @@
   code, pre, kbd {
     font-family: var(--font-mono);
   }
-  code {
-    font-size: 0.92em;
+  :not(pre) > code {
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: var(--color-paper-3);
+    color: var(--color-ink-2);
+    font-size: 0.86em;
+  }
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--color-rule-2);
+    border-radius: 6px;
+    background: var(--color-paper-2);
+    color: var(--color-muted);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
   }
   ::selection {
-    background: color-mix(in oklab, var(--color-cool) 22%, transparent);
+    background: color-mix(in oklab, var(--color-cool) 24%, transparent);
   }
   :focus-visible {
     outline: 2px solid var(--color-focus);
-    outline-offset: 1px;
-    border-radius: var(--radius-pill);
+    outline-offset: 2px;
   }
   ::-webkit-scrollbar {
     width: 10px;
@@ -199,14 +285,21 @@
   }
 }
 
+/* 机器值：id、路径、哈希、token 数——等宽 */
 @utility measured {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* 人读的数字：比例字体里的等宽数字 */
+@utility num {
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

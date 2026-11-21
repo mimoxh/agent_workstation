@@ -21,7 +21,10 @@ import { runCommand } from './exec.js';
 import { startLive } from './live_output.js';
 import { createTaskWorktree, devSettings, ensureTargetBranch, git, removeTaskWorktree, type DevSettings } from './git.js';
 import { stopPreview } from './preview.js';
-import { runAgent } from './loop.js';
+import { isRunActive, runAgent } from './loop.js';
+import { harnessModelOf, harnessOf } from './harness/index.js';
+import { runHarness } from './harness/run.js';
+import { killTerminalsWhere, reapIdleTerminals } from './terminal.js';
 import { parseScope, readSpecs } from './scope.js';
 import { describeModules, registeredModules, relatedModules, uncoveredPaths } from './modules.js';
 import { budgetBreach, describeBreach } from './budget.js';
@@ -39,6 +42,7 @@ const now = () => new Date().toISOString();
 const MODULE_FILES_LIMIT = 200;
 const FAILED_OUTPUT_TAIL = 800;
 const THREAD_CONTEXT_MESSAGES = 30;
+const TERMINAL_IDLE_MS = 30 * 60_000;
 // 回话不是开工：这些回合不准备 worktree
 const CONVERSATION_TRIGGERS = new Set(['mentioned', 'moderated', 'conclude', 'human_reply']);
 
@@ -307,9 +311,10 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
   const ws = (await db.select().from(workstation).where(eq(workstation.id, a.workstationId)))[0];
   const manifest = ws ? manifestOf(ws) : null;
   const tpl = manifest?.agents.find((x) => x.id === a.templateId);
-  const route = resolveModel(a.modelJson, tpl?.model);
-  const providerName = route?.id.split(':')[0] ?? 'none';
-  const modelName = route?.id.split(':').slice(1).join(':') ?? 'none';
+  const harness = harnessOf(a.engine);
+  const route = harness ? null : resolveModel(a.modelJson, tpl?.model);
+  const providerName = harness?.id ?? route?.id.split(':')[0] ?? 'none';
+  const modelName = harness ? (harnessModelOf(a.modelJson, a.engine) ?? 'harness') : route?.id.split(':').slice(1).join(':') ?? 'none';
 
   // 排队期间任务可能已推进（stage / worktree），以最新行为准
   let fresh = (await db.select().from(task).where(eq(task.id, t.id)))[0] ?? t;
@@ -335,7 +340,7 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
   });
   const runRow = (await db.select().from(run).where(eq(run.id, runId)))[0]!;
 
-  if (!route) {
+  if (!route && !harness) {
     await abortRun(db, runId, a, fresh, 'run_failed', '没有可用的模型 provider');
     return;
   }
@@ -356,6 +361,18 @@ async function executeRun(db: DB, runId: string, a: AgentRow, t: TaskRow, trigge
   const ctx: RunCtx = { db, actor, permCtx: await buildPermCtx(actor, db), agent: a, task: fresh, thread: th ?? null, run: runRow };
   const { system, messages } = await buildRunContext(db, a, fresh, manifest, trigger);
 
+  if (harness) {
+    const ref = fresh.codeRefJson ? (JSON.parse(fresh.codeRefJson) as { worktree?: string }) : null;
+    await runHarness({
+      db, ctx, adapter: harness, system, userContent: messages.map((m) => m.content).join('\n\n'),
+      agentRow: a, taskRow: fresh, worktree: ref?.worktree ?? null,
+      pluginDefaultTokens: manifest?.defaults?.taskBudget?.tokens,
+      pluginDefaultMinutes: manifest?.defaults?.taskBudget?.minutes,
+    });
+    return;
+  }
+  if (!route) return;
+
   const source = opts.resume ? (await db.select().from(run).where(eq(run.id, opts.resume.runId)))[0] : undefined;
   const replay = source && opts.resume ? replayMessages(JSON.parse(source.traceJson ?? '[]') as TraceEntry[], opts.resume.step) : [];
   await runAgent({
@@ -371,13 +388,14 @@ async function executeThreadRun(db: DB, runId: string, a: AgentRow, th: ThreadRo
   await loadModels();
   const ws = (await db.select().from(workstation).where(eq(workstation.id, a.workstationId)))[0];
   const manifest = ws ? manifestOf(ws) : null;
-  const route = resolveModel(a.modelJson, manifest?.agents.find((x) => x.id === a.templateId)?.model);
+  const harness = harnessOf(a.engine);
+  const route = harness ? null : resolveModel(a.modelJson, manifest?.agents.find((x) => x.id === a.templateId)?.model);
   await db.insert(run).values({
     id: runId, agentId: a.id, threadId: th.id, status: 'running',
-    provider: route?.id.split(':')[0] ?? 'none', model: route?.id.split(':').slice(1).join(':') ?? 'none', startedAt: now(), trigger,
+    provider: harness?.id ?? route?.id.split(':')[0] ?? 'none', model: harness ? (harnessModelOf(a.modelJson, a.engine) ?? 'harness') : route?.id.split(':').slice(1).join(':') ?? 'none', startedAt: now(), trigger,
     tokensIn: 0, tokensOut: 0, traceJson: '[]',
   });
-  if (!route) {
+  if (!route && !harness) {
     await abortRun(db, runId, a, null, 'run_failed', '没有可用的模型 provider', th.id);
     return;
   }
@@ -385,6 +403,16 @@ async function executeThreadRun(db: DB, runId: string, a: AgentRow, th: ThreadRo
   const actor: Actor = { type: 'agent', id: a.id };
   const ctx: RunCtx = { db, actor, permCtx: await buildPermCtx(actor, db), agent: a, task: null, thread: th, run: runRow };
   const { system, messages } = await buildThreadContext(db, a, th, manifest, trigger);
+  if (harness) {
+    await runHarness({
+      db, ctx, adapter: harness, system, userContent: messages.map((m) => m.content).join('\n\n'),
+      agentRow: a, taskRow: null, projectId: ws?.projectId,
+      pluginDefaultTokens: manifest?.defaults?.taskBudget?.tokens,
+      pluginDefaultMinutes: manifest?.defaults?.taskBudget?.minutes,
+    });
+    return;
+  }
+  if (!route) return;
   await runAgent({
     db, ctx, route, fallbacks: fallbackRoutes(route), system,
     messages: messages.map((m) => ({ role: 'user' as const, content: m.content })),
@@ -460,6 +488,8 @@ export function startScheduler(db: DB): () => void {
     if (!['done', 'cancelled'].includes(to)) return;
     const t = (await db.select().from(task).where(eq(task.id, String(p.targetId))))[0];
     if (!t) return;
+    // worktree 要删了：还开着的 harness 终端先关掉，免得占着目录
+    killTerminalsWhere((x) => x.taskId === t.id);
     const ws = (await db.select().from(workstation).where(eq(workstation.id, t.workstationId)))[0];
     if (t.codeRefJson && ws) {
       stopPreview(t.id);
@@ -470,6 +500,11 @@ export function startScheduler(db: DB): () => void {
     if (to === 'done') await releaseDependents(db, t.id);
     if (to === 'cancelled') await notifyDependentsOfCancel(db, t.id);
   });
+
+  // 回合已结束、半小时没人动的 harness 终端回收掉；进程不常驻，下次唤醒按会话 id 续跑
+  const reaper = setInterval(() => reapIdleTerminals(TERMINAL_IDLE_MS, (t) => !isRunActive(t.runId)), 5 * 60_000);
+  reaper.unref?.();
+  offs.push(() => clearInterval(reaper));
 
   return () => { for (const off of offs) off(); };
 }

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/feedback';
+import { Icon, type IconName } from '@/components/ui/icons';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import type { ProjectDetail, WorkstationDetail } from '@/lib/queries';
 import { api, unwrap } from '@/lib/api';
@@ -11,10 +12,53 @@ import { cn } from '@/lib/utils';
 import type { WsSearch } from '@/components/workstation/WorkstationScreen';
 import { VERDICT_LABEL, VERDICT_TONE } from './model';
 
-export const TH = 'px-3 py-2.5 text-left text-sm font-normal text-muted whitespace-nowrap';
-export const TD = 'px-3 py-2.5 text-sm text-ink-2';
-export const TABLE = 'w-full min-w-[40rem] border-collapse';
-export const ROW = 'cursor-pointer border-b border-rule transition-colors duration-150 hover:bg-hover';
+export const TABLE_WRAP = 'overflow-x-auto rounded-card bg-paper shadow-[var(--shadow-card)]';
+export const TH = 'whitespace-nowrap border-b border-rule bg-paper-2 px-3.5 py-2.5 text-left text-xs font-semibold text-muted';
+export const TD = 'border-b border-rule px-3.5 py-3 text-sm text-ink-2';
+export const TABLE = 'w-full min-w-[40rem] border-collapse [&_tbody_tr:last-child>td]:border-b-0';
+export const ROW = 'cursor-pointer transition-colors duration-150 hover:bg-hover';
+export const HOVER_ROW = 'transition-colors duration-150 hover:bg-hover';
+export const STATS = 'grid grid-cols-2 gap-3 lg:grid-cols-4';
+export const LIST_ROW = 'grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-rule px-4 py-3 last:border-b-0';
+
+export type Tone = 'bad' | 'accent' | 'cool' | 'ok';
+const TONE_TEXT: Record<Tone, string> = { bad: 'text-bad', accent: 'text-accent', cool: 'text-cool', ok: 'text-ok' };
+const TONE_BLOCK: Record<Tone, string> = { bad: 'bg-bad-soft text-bad', accent: 'bg-accent text-accent-ink', cool: 'bg-cool-soft text-cool', ok: 'bg-ok-soft text-ok' };
+
+export function IconBlock({ icon, tone, small }: { icon: IconName; tone?: Tone | undefined; small?: boolean }) {
+  return (
+    <span aria-hidden className={cn('grid shrink-0 place-items-center', small ? 'size-7 rounded-chip [&_svg]:size-3.5' : 'size-8 rounded-ctl', tone ? TONE_BLOCK[tone] : 'bg-paper-2 text-ink-2')}>
+      <Icon name={icon} />
+    </span>
+  );
+}
+
+// 统计块：人读的数值；末尾的 % 缩小显示，文本内容不变
+export function Stat({ icon, label, value, note, tone, onClick }: { icon?: IconName | undefined; label: string; value: string; note?: ReactNode; tone?: Tone | undefined; onClick?: (() => void) | undefined }) {
+  const unit = value.length > 1 && value.endsWith('%');
+  const body = (
+    <>
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted">{icon && <Icon name={icon} className="size-3.5" />}{label}</span>
+      <span className={cn('text-display font-bold tabular-nums', tone ? TONE_TEXT[tone] : 'text-ink')}>
+        {unit ? <>{value.slice(0, -1)}<small className="ml-1 text-sm font-medium text-muted">%</small></> : value}
+      </span>
+      {note && <span className="text-xs text-muted">{note}</span>}
+    </>
+  );
+  const cls = 'grid min-w-0 content-start gap-1 rounded-card bg-paper-2 p-4 text-left text-ink';
+  return onClick
+    ? <button type="button" onClick={onClick} className={cn(cls, 'transition-[background-color,translate] duration-150 hover:bg-paper-3 active:translate-y-px')}>{body}</button>
+    : <div className={cls}>{body}</div>;
+}
+
+export function SectionHead({ title, children, as: H = 'h2', className }: { title: ReactNode; children?: ReactNode; as?: 'h2' | 'h3'; className?: string }) {
+  return (
+    <div className={cn('mb-3 flex flex-wrap items-center gap-x-3 gap-y-1', className)}>
+      <H className={cn('font-bold text-ink', H === 'h2' ? 'text-title' : 'text-sm')}>{title}</H>
+      {children}
+    </div>
+  );
+}
 
 export interface QaProps { ws: WorkstationDetail; project: ProjectDetail; item: string | undefined; go: (panel: string, item?: string) => void }
 
@@ -36,13 +80,13 @@ export function useAskAgent(wsId: string) {
 export function Scroll({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
     <div className="h-full overflow-y-auto" data-testid={testId}>
-      <div className="px-5 pb-16 pt-3 md:px-8">{children}</div>
+      <div className="px-5 pb-14 pt-4 md:px-8">{children}</div>
     </div>
   );
 }
 
 export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('mb-3 flex flex-wrap items-center gap-2', className)}>{children}</div>;
+  return <div className={cn('mb-4 flex flex-wrap items-center gap-2', className)}>{children}</div>;
 }
 
 export const VerdictBadge = ({ level }: { level: string }) => <Badge tone={VERDICT_TONE[level] ?? 'neutral'}>{VERDICT_LABEL[level] ?? level}</Badge>;
@@ -101,7 +145,7 @@ export function NewBugDialog({ wsId, draft, onClose, onDone }: { wsId: string; d
           </Field>
           <Field label="模块"><Input value={module} onChange={(e) => setModule(e.target.value)} /></Field>
         </div>
-        {draft.case_name && <p className="text-xs text-muted">关联用例：<span className="measured">{draft.case_name}</span>。修复后回归通过会自动验证。</p>}
+        {draft.case_name && <p className="rounded-ctl bg-paper-2 px-3.5 py-2.5 text-xs text-muted">关联用例：<span className="measured">{draft.case_name}</span>。修复后回归通过会自动验证。</p>}
         <Field label="复现步骤"><Textarea rows={3} value={steps} onChange={(e) => setSteps(e.target.value)} /></Field>
         <Field label="期望"><Textarea rows={2} value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
         <Field label="实际"><Textarea className="measured" rows={3} value={actual} onChange={(e) => setActual(e.target.value)} /></Field>

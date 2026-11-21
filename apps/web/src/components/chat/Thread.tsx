@@ -4,7 +4,8 @@ import { DecisionCard, MessageItem, type MessageLike } from '@/components/timeli
 import { foldByDecision } from '@/components/timeline/fold';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { toast } from '@/components/ui/feedback';
+import { Empty, Loading, toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { api, unwrap } from '@/lib/api';
 import { useThreadActive, useThreadMessages } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -41,9 +42,9 @@ export function ThreadView({ thread, projectId, names, hint, placeholder, wide, 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="thread-view">
-      <div ref={logRef} className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', wide ? 'px-5 py-6 md:px-10 lg:px-14' : 'px-3.5 py-3')}>
-        <div className={cn('flex flex-col', wide ? 'mx-auto w-full max-w-[54rem] gap-5' : 'gap-4')}>
-        {messages.length === 0 && <p className="text-sm text-muted">还没有消息</p>}
+      <div ref={logRef} className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', wide ? 'px-5 py-5 md:px-10 lg:px-14' : 'px-3.5 py-4')}>
+        <div className={cn('flex flex-col gap-4', wide && 'mx-auto w-full max-w-[54rem]')}>
+        {messages.length === 0 && <Empty title="还没有消息" icon="chat" className="min-h-32 py-6" />}
         {rows.map(({ item, folded }) =>
           item.kind === 'decision' ? (
             <DecisionCard key={item.id} m={item} foldedCount={folded.length}>
@@ -64,9 +65,14 @@ export function ThreadView({ thread, projectId, names, hint, placeholder, wide, 
         meta={meta}
         onSent={onSent}
         actions={<>
-          {busy && <span className="shrink-0 animate-pulse-soft text-xs text-cool" data-testid="thread-busy">{speaker} 正在回复…</span>}
-          {busy && <Button size="sm" variant="danger" disabled={stop.isPending} onClick={() => stop.mutate()} data-testid="thread-stop">停止</Button>}
-          <Button size="sm" variant="quiet" aria-pressed={silenced} disabled={toggle.isPending} onClick={() => toggle.mutate()} data-testid="thread-silence">{silenced ? '恢复' : '静默'}</Button>
+          {busy && (
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-cool" data-testid="thread-busy">
+              <span aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />
+              {speaker} 正在回复…
+            </span>
+          )}
+          {busy && <Button size="sm" variant="danger" disabled={stop.isPending} onClick={() => stop.mutate()} data-testid="thread-stop"><Icon name="stop" />停止</Button>}
+          <Button size="sm" variant="quiet" aria-pressed={silenced} disabled={toggle.isPending} onClick={() => toggle.mutate()} data-testid="thread-silence" className="aria-pressed:bg-paper-3 aria-pressed:text-ink">{silenced ? '恢复' : '静默'}</Button>
         </>}
       />
     </div>
@@ -75,7 +81,7 @@ export function ThreadView({ thread, projectId, names, hint, placeholder, wide, 
 
 export function WsThread({ wsId, projectId, names, root, wide, meta, hint, placeholder }: { wsId: string; projectId: string; names: Record<string, string>; root: boolean; wide?: boolean | undefined; meta?: MessageMeta | undefined; hint?: string | undefined; placeholder?: string | undefined }) {
   const th = useQuery({ queryKey: ['thread', 'ws', wsId], queryFn: async () => unwrap(await api.workstations[':id'].thread.$get({ param: { id: wsId } })) });
-  if (!th.data) return <p className="p-3 text-sm text-muted">加载会话…</p>;
+  if (!th.data) return <Loading label="加载会话…" />;
   return root
     ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint="项目经理会起草任务，确认后派发" placeholder="说目标，比如：给任务看板加状态筛选" />
     : <ThreadView thread={th.data.thread} projectId={projectId} names={names} wide={wide} hint={hint ?? 'steward 主持讨论，@ 可以直接点名成员'} placeholder={placeholder} meta={meta} />;
@@ -86,7 +92,7 @@ export function DmDialog({ agentId, agentName, projectId, names, onClose }: { ag
   return (
     <Dialog title={`私聊 ${agentName}`} onClose={onClose} testId="dm-dialog" className="w-[34rem]">
       <div className="flex h-[60dvh] min-h-0 flex-col">
-        {th.data ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} hint="只有你和它能看到" /> : <p className="text-sm text-muted">加载会话…</p>}
+        {th.data ? <ThreadView thread={th.data.thread} projectId={projectId} names={names} hint="只有你和它能看到" /> : <Loading label="加载会话…" />}
       </div>
     </Dialog>
   );

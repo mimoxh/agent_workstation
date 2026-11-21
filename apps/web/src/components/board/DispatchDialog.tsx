@@ -99,10 +99,10 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
         </Field>
         {gates.length > 0 && (
           <Field label="质量套件" hint="验收时在任务分支上运行目标台的测试套件">
-            <div className="space-y-1">
+            <div className="grid gap-1.5 rounded-ctl bg-paper-2 px-3 py-2.5">
               {gates.map((s) => (
                 <label key={s.id} className="flex items-center gap-2 text-sm text-ink-2">
-                  <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="dispatch-gate-suite" />
+                  <input type="checkbox" checked={suites.includes(s.id)} onChange={(e) => setSuites(e.target.checked ? [...suites, s.id] : suites.filter((x) => x !== s.id))} data-testid="dispatch-gate-suite" className="size-4 shrink-0 accent-ink" />
                   <span className="truncate">{s.name}</span>
                 </label>
               ))}
@@ -117,7 +117,7 @@ export function DispatchDialog({ task, targets, onClose }: { task: BoardTask; ta
             <Input className="measured" type="number" min={1} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="不限" data-testid="dispatch-budget" />
           </Field>
         </div>
-        {cloud.length > 0 && <p className="text-xs text-muted" data-testid="cloud-notice">任务内容和相关代码片段会发送给云端模型：{cloud.join('、')}</p>}
+        {cloud.length > 0 && <p className="rounded-ctl bg-cool-soft px-3.5 py-2.5 text-xs text-ink-2" data-testid="cloud-notice">任务内容和相关代码片段会发送给云端模型：{cloud.join('、')}</p>}
       </DialogForm>
     </Dialog>
   );

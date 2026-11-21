@@ -10,29 +10,35 @@ import { isDockBlock } from '@/components/workstation/home';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
+import { chipClass } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson } from '@/lib/format';
 import { useTaskQuality, type TaskDetail, type WorkstationDetail } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
+const SECTION = 'grid gap-2.5 border-t border-rule px-4 py-4';
+const HEAD = 'flex items-center gap-2 text-sm font-bold text-ink';
+const KV = 'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm';
+
 function Lanes({ detail, projectId }: { detail: TaskDetail; projectId: string }) {
   const stages = detail.flow.stages;
   return (
-    <section className="border-t border-rule" aria-label="子任务">
-      <h2 className="px-3.5 pb-1.5 pt-3.5 text-xs font-semibold text-faint">子任务 <span className="measured text-xs">{detail.children.length}</span></h2>
-      <ul data-testid="subtask-lanes">
+    <section className={SECTION} aria-label="子任务">
+      <h2 className={HEAD}>子任务 <span className="font-medium tabular-nums text-muted">{detail.children.length}</span></h2>
+      <ul className="grid gap-1.5" data-testid="subtask-lanes">
         {detail.children.map((c) => {
           const at = stages.findIndex((s) => s.id === c.stage);
           const finished = c.status === 'done';
           return (
-            <li key={c.id} className="space-y-1 border-t border-rule px-3 py-1.5">
+            <li key={c.id} className="grid gap-1.5 rounded-chip bg-paper-2 px-2.5 py-2 transition-colors duration-150 hover:bg-paper-3">
               <div className="flex items-center gap-2">
-                <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: c.id }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline">{c.title}</Link>
+                <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: c.id }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:text-ink hover:underline">{c.title}</Link>
                 <Badge tone={STATUS_TONE[c.status as TaskStatus] ?? 'neutral'}>{STATUS_LABEL[c.status as TaskStatus] ?? c.status}</Badge>
               </div>
               {stages.length > 0 && (
-                <span className="flex gap-1" aria-label={`阶段 ${at + 1}/${stages.length}`}>
-                  {stages.map((s, i) => <i key={s.id} className={cn('h-[3px] w-4 rounded-full', finished || i < at ? 'bg-cool' : i === at ? 'bg-accent' : 'bg-rule')} />)}
+                <span className="flex gap-[3px]" aria-label={`阶段 ${at + 1}/${stages.length}`}>
+                  {stages.map((s, i) => <i key={s.id} className={cn('h-[3px] w-4 rounded-[2px]', finished || i < at ? 'bg-cool' : i === at ? 'bg-accent' : 'bg-rule-2')} />)}
                 </span>
               )}
             </li>
@@ -55,11 +61,11 @@ function Contract({ detail }: { detail: TaskDetail }) {
     ...(ref?.merge_sha ? ([['合并提交', ref.merge_sha.slice(0, 10)]] as [string, string][]) : []),
   ];
   return (
-    <section className="border-t border-rule px-3 py-2.5" aria-label="契约与代码">
-      <h2 className="pb-1.5 text-xs font-semibold text-faint">契约与代码</h2>
-      <dl className="space-y-1">
+    <section className={SECTION} aria-label="契约与代码">
+      <h2 className={HEAD}>契约与代码</h2>
+      <dl className={KV}>
         {rows.map(([k, v]) => (
-          <div key={k} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-xs">
+          <div key={k} className="contents">
             <dt className="text-muted">{k}</dt>
             <dd className="min-w-0 break-words"><code className="text-ink-2">{v}</code></dd>
           </div>
@@ -74,17 +80,17 @@ function RelatedPanels({ detail, ws, projectId }: { detail: TaskDetail; ws: Work
   const panels = (stage?.activePanels ?? []).flatMap((id) => ws?.blocks.filter((b) => b.panelId === id) ?? []);
   if (panels.length === 0) return null;
   return (
-    <section className="border-t border-rule px-3 py-2.5" aria-label="本阶段相关板块">
-      <h2 className="pb-1.5 text-xs font-semibold text-faint">本阶段相关板块</h2>
+    <section className={SECTION} aria-label="本阶段相关板块">
+      <h2 className={HEAD}>本阶段相关板块</h2>
       <div className="flex flex-wrap gap-1.5">
         {panels.map((b) =>
           // 右侧栏的板块就地打开，不离开任务页
           isDockBlock(b) ? (
-            <button key={b.id} type="button" onClick={() => setDock(b.panelId)} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3" data-testid={`related-dock-${b.panelId}`}>
+            <button key={b.id} type="button" onClick={() => setDock(b.panelId)} className={chipClass(false)} data-testid={`related-dock-${b.panelId}`}>
               {b.name}
             </button>
           ) : (
-            <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className="rounded-chip bg-tag px-1.5 py-0.5 text-xs text-tag-ink hover:bg-paper-3">
+            <Link key={b.id} to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: detail.flow.workstationId }} search={{ panel: b.panelId ?? '' }} className={chipClass(false)}>
               {b.name}
             </Link>
           ),
@@ -97,12 +103,12 @@ function RelatedPanels({ detail, ws, projectId }: { detail: TaskDetail; ws: Work
 function DepList({ label, rows, projectId }: { label: string; rows: { id: string; title: string; status: string }[]; projectId: string }) {
   if (rows.length === 0) return null;
   return (
-    <div>
-      <p className="pt-1.5 text-xs text-muted">{label}</p>
-      <ul className="space-y-1 pt-1">
+    <div className="grid gap-1.5">
+      <p className="text-xs text-muted">{label}</p>
+      <ul className="grid gap-1.5">
         {rows.map((d) => (
-          <li key={d.id} className="flex items-center gap-2">
-            <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: d.id }} className="min-w-0 flex-1 truncate text-xs text-ink-2 hover:underline">{d.title}</Link>
+          <li key={d.id} className="flex items-center gap-2 rounded-chip bg-paper-2 px-2.5 py-[7px] transition-colors duration-150 hover:bg-paper-3">
+            <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: d.id }} className="min-w-0 flex-1 truncate text-sm text-ink-2 hover:text-ink hover:underline">{d.title}</Link>
             <Badge tone={STATUS_TONE[d.status as TaskStatus] ?? 'neutral'}>{STATUS_LABEL[d.status as TaskStatus] ?? d.status}</Badge>
           </li>
         ))}
@@ -116,20 +122,20 @@ function Plan({ detail, projectId }: { detail: TaskDetail; projectId: string }) 
   const [edit, setEdit] = useState(false);
   const terminal = task.status === 'done' || task.status === 'cancelled';
   return (
-    <section className="border-t border-rule px-3 py-2.5" aria-label="计划">
-      <div className="flex items-center justify-between pb-1.5">
-        <h2 className="text-xs font-semibold text-faint">计划</h2>
-        {!terminal && <Button size="sm" variant="quiet" onClick={() => setEdit(true)} data-testid="plan-edit">编辑</Button>}
+    <section className={SECTION} aria-label="计划">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className={HEAD}>计划</h2>
+        {!terminal && <Button size="sm" variant="quiet" className="-my-1" onClick={() => setEdit(true)} data-testid="plan-edit"><Icon name="edit" />编辑</Button>}
       </div>
-      <dl className="space-y-1">
+      <dl className={KV}>
         {([
           ['开始', task.startAt],
           ['截止', task.dueAt],
           ['里程碑', detail.milestone?.name],
         ] as [string, string | null | undefined][]).map(([k, v]) => (
-          <div key={k} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-xs">
+          <div key={k} className="contents">
             <dt className="text-muted">{k}</dt>
-            <dd className="min-w-0 break-words"><code className="text-ink-2">{v || '—'}</code></dd>
+            <dd className="min-w-0 break-words">{v ? <span className="tabular-nums">{v}</span> : <span className="text-faint">—</span>}</dd>
           </div>
         ))}
       </dl>
@@ -163,20 +169,20 @@ function PostMerge({ detail, projectId }: { detail: TaskDetail; projectId: strin
     if (reason !== null) revert.mutate(reason.trim());
   };
   return (
-    <section className="border-t border-rule px-3 py-2.5" aria-label="合并后回归">
-      <div className="flex items-center justify-between pb-1.5">
-        <h2 className="text-xs font-semibold text-faint">合并后回归</h2>
-        {anyFailed && !data.reverted && <Button size="sm" variant="quiet" disabled={revert.isPending} onClick={askRevert} data-testid="postmerge-revert">{revert.isPending ? '回滚中…' : '回滚此合并'}</Button>}
+    <section className={SECTION} aria-label="合并后回归">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className={HEAD}>合并后回归</h2>
+        {anyFailed && !data.reverted && <Button size="sm" variant="danger" className="-my-1" disabled={revert.isPending} onClick={askRevert} data-testid="postmerge-revert">{revert.isPending ? '回滚中…' : '回滚此合并'}</Button>}
       </div>
-      {data.reverted && <p className="pb-1 text-xs text-muted">这次合并已回滚</p>}
+      {data.reverted && <p className="text-xs text-muted">这次合并已回滚</p>}
       {data.sources.map((src) => (
-        <div key={src.qaWorkstationId} className="pb-1.5">
-          <ul className="space-y-1">
+        <div key={src.qaWorkstationId}>
+          <ul className="grid gap-1.5">
             {src.suites.map((s) => (
               <li key={s.suiteId} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-2">{s.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-ink-2">{s.name}</span>
                 {s.run && (
-                  <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: src.qaWorkstationId }} search={{ panel: 'runs', item: s.run.id }} className="measured shrink-0 text-xs text-cool hover:underline">
+                  <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: src.qaWorkstationId }} search={{ panel: 'runs', item: s.run.id }} className="measured shrink-0 text-xs font-medium text-cool hover:underline">
                     {s.run.passed}/{s.run.total}
                   </Link>
                 )}
@@ -203,7 +209,7 @@ export function TaskSide({ detail, ws, projectId, names }: { detail: TaskDetail;
   const stage = detail.flow.stages.find((s) => s.id === detail.task.stage);
   const home = new Set([detail.flow.workstationId, detail.task.workstationId]);
   return (
-    <aside className="flex h-full min-h-0 w-[19rem] shrink-0 flex-col overflow-y-auto border-l border-rule bg-paper max-lg:hidden" aria-label="参与者与子任务">
+    <aside className="flex h-full min-h-0 w-[19rem] shrink-0 flex-col overflow-y-auto border-l border-rule bg-paper pb-4 max-lg:hidden" aria-label="参与者与子任务">
       <TeamPulse projectId={projectId} names={names} only={(a) => home.has(a.workstationId)} {...(stage ? { highlightTemplates: stage.activeAgents } : {})} />
       {detail.children.length > 0 && <Lanes detail={detail} projectId={projectId} />}
       <Plan detail={detail} projectId={projectId} />

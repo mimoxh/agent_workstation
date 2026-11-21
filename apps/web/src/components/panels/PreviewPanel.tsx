@@ -1,8 +1,9 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
 import { Empty } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Field, Input } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import { parseJson } from '@/lib/format';
@@ -46,44 +47,45 @@ export function PreviewPanel({ wsId, config }: { wsId: string; config?: PreviewC
     <div className="@container h-full min-h-0" data-testid="preview-panel">
     <div className={cn('grid h-full min-h-0', pages.length > 0 ? 'grid-rows-[auto_minmax(0,1fr)] @2xl:grid-cols-[15rem_minmax(0,1fr)] @2xl:grid-rows-1' : 'grid-cols-1')}>
       {pages.length > 0 && (
-        <div className="flex max-h-40 min-h-0 flex-col gap-1 overflow-y-auto border-b border-rule p-2 @2xl:max-h-none @2xl:border-b-0 @2xl:border-r" data-testid="preview-pages">
-          <p className="px-1 pb-1 text-xs text-muted">页面 {pages.length}</p>
+        <div className="flex max-h-40 min-h-0 flex-col gap-0.5 overflow-y-auto border-b border-rule p-2 @2xl:max-h-none @2xl:border-b-0 @2xl:border-r" data-testid="preview-pages">
+          <p className="px-2 pb-1 pt-0.5 text-xs font-semibold text-muted">页面 {pages.length}</p>
           {pages.map((p) => (
             <button
               key={p.id}
               type="button"
               aria-current={picked === p.id}
               onClick={() => pick(p)}
-              className={cn('rounded-pill border p-2 text-left transition-colors duration-150', picked === p.id ? 'border-rule bg-paper-2' : 'border-transparent hover:bg-paper-2')}
+              className={cn('grid gap-0.5 rounded-ctl border px-3 py-2 text-left transition-colors duration-100', picked === p.id ? 'border-rule-2 bg-paper-2' : 'border-transparent hover:bg-hover')}
             >
-              <span className="block truncate text-sm text-ink-2">{String(p.data.name ?? p.data[urlField])}</span>
+              <span className="block truncate text-sm font-semibold text-ink">{String(p.data.name ?? p.data[urlField])}</span>
               <span className="measured block truncate text-xs text-muted">{String(p.data[urlField])}</span>
             </button>
           ))}
         </div>
       )}
       <div className="flex min-h-0 flex-col">
-        <div className="flex flex-wrap items-end gap-2 border-b border-rule px-4 py-2">
+        <div className="flex shrink-0 flex-wrap items-end gap-2.5 border-b border-rule px-4 py-3">
           {pages.length > 0 && (
             <Field label="本地地址" className="w-52">
-              <Input className="measured h-8" aria-label="本地地址" value={origin} onChange={(e) => setOrigin(e.target.value)} />
+              <Input className="measured" aria-label="本地地址" value={origin} onChange={(e) => setOrigin(e.target.value)} />
             </Field>
           )}
-          <Field label="页面地址" className="min-w-64 flex-1">
-            <Input className="measured h-8" aria-label="页面地址" value={url} onChange={(e) => setUrl(e.target.value)} data-testid="preview-url" />
+          <Field label="页面地址" className="min-w-56 flex-1">
+            <Input className="measured" aria-label="页面地址" value={url} onChange={(e) => setUrl(e.target.value)} data-testid="preview-url" />
           </Field>
-          <Field label="基线（仓库内路径，可选）" className="w-64">
-            <Input className="measured h-8" aria-label="基线路径" value={baseline} placeholder="shots/home.png" onChange={(e) => setBaseline(e.target.value)} data-testid="preview-baseline" />
+          <Field label="基线（仓库内路径，可选）" className="w-64 max-sm:w-full">
+            <Input className="measured" aria-label="基线路径" value={baseline} placeholder="shots/home.png" onChange={(e) => setBaseline(e.target.value)} data-testid="preview-baseline" />
           </Field>
-          <Button disabled={shot.isPending || !url.trim()} onClick={() => shot.mutate()} data-testid="preview-shot">
+          <Button variant="primary" disabled={shot.isPending || !url.trim()} aria-busy={shot.isPending || undefined} onClick={() => shot.mutate()} data-testid="preview-shot">
+            {shot.isPending ? <Spinner /> : <Icon name="eye" />}
             {shot.isPending ? '截图中…' : baseline.trim() ? '截图并对比' : '截图'}
           </Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="min-h-0 flex-1 overflow-auto bg-paper-2 p-4">
           {shot.data ? (
             <div className="space-y-3">
               {compare && (
-                <p className="flex items-center gap-2 text-sm text-ink-2" data-testid="preview-compare">
+                <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2" data-testid="preview-compare">
                   {'ratio' in compare && typeof compare.ratio === 'number' ? (
                     <>
                       <Badge tone={compare.ratio <= 0.02 ? 'ok' : 'bad'}>差异 {pct(compare.ratio)}</Badge>
@@ -97,18 +99,18 @@ export function PreviewPanel({ wsId, config }: { wsId: string; config?: PreviewC
               <div className={cn('grid gap-3', compare && 'baselineId' in compare && compare.baselineId ? 'lg:grid-cols-2' : 'grid-cols-1')}>
                 {compare && 'baselineId' in compare && compare.baselineId && (
                   <figure className="space-y-1">
-                    <figcaption className="text-xs text-muted">基线</figcaption>
-                    <img src={`/api/artifacts/${compare.baselineId}/image`} alt={`${baseline} 基线截图`} className="max-w-full rounded-card border border-rule" data-testid="preview-baseline-image" />
+                    <figcaption className="text-xs font-medium text-muted">基线</figcaption>
+                    <img src={`/api/artifacts/${compare.baselineId}/image`} alt={`${baseline} 基线截图`} className="max-w-full rounded-ctl bg-paper shadow-[var(--shadow-card)]" data-testid="preview-baseline-image" />
                   </figure>
                 )}
                 <figure className="space-y-1">
-                  {compare && <figcaption className="text-xs text-muted">当前</figcaption>}
-                  <img src={`/api/artifacts/${shot.data.artifactId}/image`} alt={`${url} 的截图`} className="max-w-full rounded-card border border-rule" data-testid="preview-image" />
+                  {compare && <figcaption className="text-xs font-medium text-muted">当前</figcaption>}
+                  <img src={`/api/artifacts/${shot.data.artifactId}/image`} alt={`${url} 的截图`} className="max-w-full rounded-ctl bg-paper shadow-[var(--shadow-card)]" data-testid="preview-image" />
                 </figure>
               </div>
             </div>
           ) : (
-            <Empty title="还没有截图">输入本地页面地址截一张图；填了基线路径会和仓库里的基线做像素对比。要做回归验收，在任务验收里加 visual 断言。</Empty>
+            <Empty title="还没有截图" icon="eye">输入本地页面地址截一张图；填了基线路径会和仓库里的基线做像素对比。要做回归验收，在任务验收里加 visual 断言。</Empty>
           )}
         </div>
       </div>

@@ -2,9 +2,10 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { Field, Input, Select, Textarea } from '@/components/ui/input';
 import { api, unwrap } from '@/lib/api';
 import type { DocDetail, DocRepo, ProjectDetail } from '@/lib/queries';
@@ -50,43 +51,44 @@ export function DocHandoffDialog({ doc, repos, project, onClose, onEditMeta }: {
   return (
     <Dialog title="交给开发" onClose={onClose} testId="doc-handoff-dialog">
       {taskId ? (
-        <div className="space-y-3">
-          <p className="text-sm text-ink-2">已在开发台起草任务，确认派发后实现者会按成品逐字写入。</p>
-          <div className="flex gap-2">
-            <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId }} data-testid="doc-handoff-task-link" className="text-sm text-primary underline">
+        <div className="grid gap-4">
+          <p className="flex items-start gap-2.5 rounded-ctl bg-ok-soft px-3.5 py-2.5 text-sm text-ink-2"><Icon name="check" className="mt-0.5 text-ok" />已在开发台起草任务，确认派发后实现者会按成品逐字写入。</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="quiet" onClick={onClose}>完成</Button>
+            <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId: project.id, taskId }} data-testid="doc-handoff-task-link" className={buttonClass('primary')}>
               查看开发任务
             </Link>
-            <Button variant="quiet" size="sm" className="ml-auto" onClick={onClose}>完成</Button>
           </div>
         </div>
       ) : (
         <DialogForm error={error} submitting={send.isPending} submitLabel="创建开发任务" canSubmit={canSubmit} onSubmit={() => send.mutate()} onCancel={onClose}>
           <p className="text-sm text-muted">冻结「{doc.title}」v{doc.version} 的成品文本，在开发台起草一个写入任务。</p>
           {targetOk ? (
-            <div className="rounded-card border border-rule bg-canvas px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card bg-paper-2 px-3.5 py-3 text-sm">
               <span className="text-ink-2">写入 {targetRepo?.name ?? doc.target_repo}</span>
-              <span className="ml-1 font-mono text-xs text-muted">{doc.target_path}</span>
-              {!targetRepo?.bound ? <Badge tone="amber" className="ml-2">仓库未绑定</Badge> : null}
+              <span className="measured text-xs text-muted">{doc.target_path}</span>
+              {!targetRepo?.bound ? <Badge tone="amber">仓库未绑定</Badge> : null}
             </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-card border border-rule bg-canvas px-3 py-2 text-sm" data-testid="doc-handoff-missing-target">
-              <span className="text-muted">还没有设置目标仓库或目标路径</span>
-              <Button variant="quiet" size="sm" className="ml-auto" onClick={onEditMeta} data-testid="doc-handoff-edit-meta">去填文档信息</Button>
+            <div className="flex flex-wrap items-center gap-2 rounded-ctl bg-accent-soft px-3.5 py-2.5 text-sm" data-testid="doc-handoff-missing-target">
+              <Icon name="alert" className="text-accent" />
+              <span className="text-ink-2">还没有设置目标仓库或目标路径</span>
+              <Button size="sm" className="ml-auto" onClick={onEditMeta} data-testid="doc-handoff-edit-meta">去填文档信息</Button>
             </div>
           )}
           {gate && !gate.ok && targetOk ? (
-            <div className="space-y-2 rounded-card border border-rule px-3 py-2">
-              <p className="text-xs font-medium text-muted">交接条件未满足</p>
-              <ul className="space-y-1">
+            <div className="grid gap-2.5 rounded-card bg-bad-soft px-3.5 py-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-ink"><Icon name="alert" className="text-bad" />交接条件未满足</p>
+              <ul className="grid gap-1">
                 {gate.reasons.map((r, i) => (
-                  <li key={i} className="text-sm text-bad" data-testid="doc-handoff-gate-reason">• {r}</li>
+                  <li key={i} className="flex gap-2 text-sm text-ink-2" data-testid="doc-handoff-gate-reason"><span className="text-bad">•</span><span>{r}</span></li>
                 ))}
               </ul>
-              <label className="flex items-center gap-2 text-sm text-ink-2">
-                <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} data-testid="doc-handoff-override" />
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+                <input type="checkbox" className="size-4 accent-primary" checked={override} onChange={(e) => setOverride(e.target.checked)} data-testid="doc-handoff-override" />
                 人工放行（理由会记录在交接里）
               </label>
-              {override ? <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="为什么现在放行" data-testid="doc-handoff-reason" /> : null}
+              {override ? <Textarea rows={2} className="bg-paper" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="为什么现在放行" data-testid="doc-handoff-reason" /> : null}
             </div>
           ) : null}
           <Field label="改动范围" required hint="仓库内路径，多个用逗号分隔">

@@ -47,18 +47,18 @@ export function TrendChart({ points, label, testId }: { points: TrendPoint[]; la
               <text x={PAD.left - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--color-muted)">{t}</text>
             </g>
           ))}
-          <path d={path} fill="none" stroke="var(--color-cool)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <path d={path} fill="none" stroke="var(--color-chart-2)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           {points.map((p, i) => p.failing && <circle key={i} cx={x(i)} cy={y(p.value)} r={4} fill="var(--color-bad)" stroke="var(--color-paper)" strokeWidth={2} />)}
           {last && (
             <>
-              {!last.failing && <circle cx={x(points.length - 1)} cy={y(last.value)} r={4} fill="var(--color-cool)" stroke="var(--color-paper)" strokeWidth={2} />}
-              <text x={x(points.length - 1) + 9} y={y(last.value) + 4} fontSize="12" fontWeight={600} fill="var(--color-ink)">{Math.round(last.value)}%</text>
+              {!last.failing && <circle cx={x(points.length - 1)} cy={y(last.value)} r={4} fill="var(--color-chart-2)" stroke="var(--color-paper)" strokeWidth={2} />}
+              <text x={x(points.length - 1) + 9} y={y(last.value) + 4} fontSize="12" fontWeight={700} fill="var(--color-ink)">{Math.round(last.value)}%</text>
             </>
           )}
           {active && hover !== null && (
             <>
               <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={HEIGHT - PAD.bottom} stroke="var(--color-rule-2)" />
-              <circle cx={x(hover)} cy={y(active.value)} r={5} fill={active.failing ? 'var(--color-bad)' : 'var(--color-cool)'} stroke="var(--color-paper)" strokeWidth={2} />
+              <circle cx={x(hover)} cy={y(active.value)} r={5} fill={active.failing ? 'var(--color-bad)' : 'var(--color-chart-2)'} stroke="var(--color-paper)" strokeWidth={2} />
             </>
           )}
           <rect
@@ -70,10 +70,10 @@ export function TrendChart({ points, label, testId }: { points: TrendPoint[]; la
       )}
       {active && hover !== null && (
         <div
-          className="pointer-events-none absolute z-10 w-max max-w-64 rounded-pill bg-paper px-2.5 py-1.5 text-xs shadow-[var(--shadow-pop)]"
+          className="pointer-events-none absolute z-10 w-max max-w-64 rounded-ctl bg-paper px-3 py-2 text-xs shadow-[var(--shadow-pop)]"
           style={{ top: 4, ...(x(hover) > width / 2 ? { right: width - x(hover) + 12 } : { left: x(hover) + 12 }) }}
         >
-          <p className="font-medium text-ink">{active.title}</p>
+          <p className="font-semibold text-ink tabular-nums">{active.title}</p>
           <p className="text-muted">{active.detail}</p>
         </div>
       )}
@@ -92,7 +92,7 @@ export function StatusStrip({ items, onPick }: { items: { status: string; runId?
         <button
           key={i} type="button" title={it.title ?? CELL_TEXT[it.status] ?? it.status} disabled={!onPick || !it.runId}
           onClick={(e) => { e.stopPropagation(); if (it.runId) onPick?.(it.runId); }}
-          className={cn('h-4 w-2 rounded-[2px] transition-opacity duration-150 hover:opacity-70 disabled:hover:opacity-100', CELL[it.status] ?? 'bg-rule-2')}
+          className={cn('h-4 w-2.5 rounded-[2px] transition-opacity duration-150 hover:opacity-70 disabled:hover:opacity-100', CELL[it.status] ?? 'bg-rule-2')}
         />
       ))}
     </span>
@@ -100,22 +100,21 @@ export function StatusStrip({ items, onPick }: { items: { status: string; runId?
 }
 
 // 通过 / 失败 / 跳过的占比条，颜色之外有文字计数并排显示
-export function PassBar({ passed, failed, skipped }: { passed: number; failed: number; skipped: number }) {
+export function PassBar({ passed, failed, skipped, className }: { passed: number; failed: number; skipped: number; className?: string }) {
   const total = passed + failed + skipped;
-  if (total === 0) return <span className="block h-1.5 w-24 rounded-full bg-paper-3" />;
-  const part = (n: number) => `${(n / total) * 100}%`;
+  if (total === 0) return <span className={cn('block h-2 w-24 shrink-0 rounded-full bg-paper-3', className)} />;
   return (
-    <span className="flex h-1.5 w-24 gap-px overflow-hidden rounded-full" aria-hidden>
-      {passed > 0 && <i className="bg-ok" style={{ width: part(passed) }} />}
-      {failed > 0 && <i className="bg-bad" style={{ width: part(failed) }} />}
-      {skipped > 0 && <i className="bg-rule-2" style={{ width: part(skipped) }} />}
+    <span className={cn('flex h-2 w-24 shrink-0 gap-0.5 overflow-hidden rounded-full', className)} aria-hidden>
+      {passed > 0 && <i style={{ flex: `${passed} 1 0` }} className="bg-ok" />}
+      {failed > 0 && <i style={{ flex: `${failed} 1 0` }} className="bg-bad" />}
+      {skipped > 0 && <i style={{ flex: `${skipped} 1 0` }} className="bg-rule-2" />}
     </span>
   );
 }
 
 export function CoverageBar({ value, threshold }: { value: number | null; threshold: number }) {
   return (
-    <span className="block h-1.5 w-full max-w-40 overflow-hidden rounded-full bg-paper-3" aria-hidden>
+    <span className="block h-2 w-full max-w-40 overflow-hidden rounded-full bg-paper-3" aria-hidden>
       {value !== null && <i className={cn('block h-full rounded-full', value < threshold ? 'bg-bad' : 'bg-cool')} style={{ width: `${Math.max(1, value)}%` }} />}
     </span>
   );

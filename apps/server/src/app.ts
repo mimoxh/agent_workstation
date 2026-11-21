@@ -7,7 +7,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { z } from 'zod';
 import type { DB } from './db/client.js';
-import { agent, run, task, thread } from './db/schema.js';
+import { agent, artifact, run, task, thread } from './db/schema.js';
 import { events } from './events.js';
 import {
   agentStatus,
@@ -35,7 +35,12 @@ import { getProjectStatus } from './repositories/plan.js';
 import { mergeProviders, publicModelConfig, readModelConfig, writeModelConfig } from './runtime/config.js';
 import { listFolder, projectFolderRoot, readFolderFile } from './runtime/folder.js';
 import { liveSnapshot } from './runtime/live_output.js';
+import { upgradeWebSocket } from '@hono/node-server';
+import { detectHarnesses } from './runtime/harness/index.js';
+import { bearerOf, handleMcp } from './runtime/harness/mcp.js';
+import { handleTurn } from './runtime/harness/run.js';
 import { cancelRun } from './runtime/loop.js';
+import { listTerminals, resizeTerminal, subscribeTerminal, terminalBuffer, terminalInfo, writeTerminal } from './runtime/terminal.js';
 import { buildRoute, defaultModelRef, loadModels, modelRegistry, reloadModels, sanitizeError } from './runtime/models.js';
 import { probeModel } from './runtime/probe.js';
 import { scheduler, triggerRun } from './runtime/scheduler.js';
@@ -143,7 +148,15 @@ async function holdSSE(stream: SSEStreamingApi, subscribe: (close: () => void) =
   for (const off of offs) off();
 }
 
-const LIVE_PREFIXES = ['qa_', 'task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_'];
+// 终端 WebSocket 能往 Agent 的 shell 里打字：只接受本机页面发起的连接，挡住别的网站借浏览器连过来
+const localOrigin = (origin: string | undefined) => !origin || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
+
+const terminalMessage = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('input'), data: z.string().max(64 * 1024) }),
+  z.object({ type: z.literal('resize'), cols: z.number().int(), rows: z.number().int() }),
+]);
+
+const LIVE_PREFIXES = ['qa_', 'task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_', 'terminal_'];
 
 export function createApp(db: DB) {
   const app = new Hono<Env>();
@@ -926,6 +939,7 @@ export function createApp(db: DB) {
           model: z.object({ provider: z.string().min(1), name: z.string().min(1) }).nullable().optional(),
           prompt: z.string().nullable().optional(),
           tools: z.array(z.string()).optional(),
+          engine: z.string().min(1).nullable().optional(),
         }),
       ),
       async (c) => {
@@ -992,7 +1006,49 @@ export function createApp(db: DB) {
     .get('/artifacts/:id', async (c) => {
       const a = await getArtifact(c.get('actor'), c.get('db'), c.req.param('id'));
       return a ? c.json({ id: a.id, type: a.type, name: a.name, content: a.ref, meta: a.metaJson ? JSON.parse(a.metaJson) : null, createdAt: a.createdAt }) : fail(c, { status: 404, error: '产物不存在' });
-    });
+    })
+
+    // ---- 外部 harness：引擎探测、MCP 工具桥、回合结束上报、终端 ----
+    .get('/harnesses', async (c) => c.json(await detectHarnesses(c.req.query('refresh') === '1')))
+    .all('/mcp', async (c) => handleMcp(c.get('db'), c.req.raw))
+    .post('/harness/turn', body(z.object({ source: z.string(), payload: jsonRecord })), async (c) => {
+      const ok = await handleTurn(c.get('db'), bearerOf(c.req.raw), c.req.valid('json').payload);
+      return ok ? c.json({ ok: true }) : fail(c, { status: 401, error: 'run token 无效或会话已结束' });
+    })
+    .get('/terminals', (c) => c.json(listTerminals({ taskId: c.req.query('taskId'), threadId: c.req.query('threadId'), agentId: c.req.query('agentId') })))
+    .get('/terminals/:id', async (c) => {
+      const id = c.req.param('id');
+      const info = terminalInfo(id);
+      if (info) return c.json({ info, log: info.alive ? null : terminalBuffer(id) });
+      // 服务重启后内存里的会话没了，回放落盘的终端记录
+      const rows = await c.get('db').select().from(artifact).where(eq(artifact.type, 'terminal_log'));
+      const saved = rows.find((a) => (JSON.parse(a.metaJson ?? '{}') as { runId?: string }).runId === id);
+      return saved ? c.json({ info: null, log: saved.ref }) : fail(c, { status: 404, error: '终端不存在' });
+    })
+    .get(
+      '/terminals/:id/ws',
+      async (c, next) => (localOrigin(c.req.header('origin')) ? next() : c.json({ error: '只接受本机页面的连接' }, 403)),
+      upgradeWebSocket((c) => {
+        const id = c.req.param('id') ?? '';
+        let off = () => {};
+        return {
+          onOpen(_e, ws) {
+            const info = terminalInfo(id);
+            ws.send(JSON.stringify({ type: 'snapshot', data: terminalBuffer(id) ?? '', alive: info?.alive ?? false, exitCode: info?.exitCode ?? null }));
+            off = subscribeTerminal(id, (e) => ws.send(JSON.stringify(e)));
+          },
+          onMessage(e) {
+            let parsed: unknown;
+            try { parsed = JSON.parse(String(e.data)); } catch { return; }
+            const m = terminalMessage.safeParse(parsed);
+            if (!m.success) return;
+            if (m.data.type === 'input') writeTerminal(id, m.data.data);
+            else resizeTerminal(id, m.data.cols, m.data.rows);
+          },
+          onClose() { off(); },
+        };
+      }),
+    );
 
   return { app, routes };
 }

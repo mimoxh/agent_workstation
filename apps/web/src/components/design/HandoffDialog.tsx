@@ -27,12 +27,12 @@ export function HandoffDialog({ design, ws, project, openComments, onClose }: { 
   return (
     <Dialog title="生成实现任务" onClose={onClose} testId="handoff-dialog">
       {targets.length === 0 ? (
-        <p className="text-sm text-muted">这个项目还没有开发工作台。先用顶栏的 + 挂载一个，绑定代码仓库后再交接。</p>
+        <p className="rounded-ctl bg-paper-2 px-3.5 py-3 text-sm text-muted">这个项目还没有开发工作台。先用顶栏的 + 挂载一个，绑定代码仓库后再交接。</p>
       ) : (
         <DialogForm error={send.error?.message} submitting={send.isPending} submitLabel="创建开发任务" canSubmit={!!target && !!module.trim()} onSubmit={() => send.mutate()} onCancel={onClose}>
           <p className="text-sm text-muted">
             冻结「{design.data.title}」v{design.version} 的快照，在开发台起草一个任务，确认后由你派发。
-            {openComments > 0 && <span className="text-accent"> 还有 {openComments} 条未解决的评论，它们不会带过去。</span>}
+            {openComments > 0 && <span className="font-medium text-accent"> 还有 {openComments} 条未解决的评论，它们不会带过去。</span>}
           </p>
           <Field label="开发工作台" hint={target === ws.id ? '默认本台，也可以交给项目里其他开发台' : undefined}>
             <Select value={target} onChange={(e) => setTarget(e.target.value)} data-testid="handoff-target">
@@ -55,8 +55,8 @@ export function HandoffDialog({ design, ws, project, openComments, onClose }: { 
           <Field label="页面地址" hint="填了就在验收里加一条设计稿对比：平台起「视觉验收服务」后截图，与设计稿差异超过 25% 判失败">
             <Input className="measured" value={pageUrl} placeholder="http://localhost:{port}/" onChange={(e) => setPageUrl(e.target.value)} data-testid="handoff-page-url" />
           </Field>
-          <label className="flex items-center gap-2 text-sm text-ink-2">
-            <input type="checkbox" checked={qaCases} onChange={(e) => setQaCases(e.target.checked)} data-testid="handoff-qa-cases" />同时请目标台的用例设计起草验收用例
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-ctl bg-paper-2 px-3.5 py-2.5 text-sm text-ink-2">
+            <input type="checkbox" className="size-4 shrink-0 accent-[var(--color-primary)]" checked={qaCases} onChange={(e) => setQaCases(e.target.checked)} data-testid="handoff-qa-cases" />同时请目标台的用例设计起草验收用例
           </label>
         </DialogForm>
       )}

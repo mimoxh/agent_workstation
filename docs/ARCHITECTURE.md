@@ -412,6 +412,24 @@ Agent → 独立 worktree → 独立分支 → Proposal → 串行 merge
 
 代码库不能整体入上下文。装配顺序：`Module` 边界 → 改动相关文件 → 依赖声明 → 测试结果，按 token 预算裁剪。
 
+### 6.6 外部 harness 引擎（D33）
+
+Agent 的 `engine` 不是 `builtin` 时，`scheduler` 不进 `loop.ts`，改由 `runtime/harness/run.ts` 执行：
+
+```
+组装简报 context.md（run 目录，AW_HARNESS_DIR 可改）→ 发 run token
+  → adapter.launch()：拼 CLI 参数（MCP 配置、权限、可写目录、回合 hook）
+  → terminal.ts：node-pty 起进程，cwd = 任务 worktree
+  → harness 通过 /api/mcp 调平台工具（trace 记 tool 步骤）
+  → Stop hook / notify → POST /api/harness/turn：记用量、写 session_id
+  → 第一回合结束：run 收口（completed），最后一条回复发到任务线程
+```
+
+- 适配器在 `runtime/harness/`：`claude_code.ts`、`codex.ts`、`fake.ts`（仅测试 / mock），实现 `HarnessAdapter`（`resolveBin` / `launch` / `parseTurn`）；`GET /api/harnesses` 探测本机安装和版本（缓存 60 秒）。
+- MCP 只暴露 Agent 工具里 harness 没有的部分：`read_file` / `list_files` / `search_code` / `git_diff` / `apply_patch` / `run_command` 由 harness 自带。
+- 续跑：同一 Agent 同一任务（或会话）再次唤醒时，先关掉上一次的终端，再按 `session_id` resume。
+- 熔断：取消、时间预算到期、回合结束前进程退出都会杀进程树并把 run 标成 `cancelled` / `timeout` / `failed`（失败进收件箱）；工具轮次与 `no_progress` 由 harness 自己管。
+- 终端：`GET /api/terminals?taskId=` 列会话，`/api/terminals/:id/ws` 推快照 + 增量并接收 `input` / `resize`；会话 id 就是 run id，结束后内容存 `terminal_log` 产物供回放。
 ## 7. 上下文装配
 
 五层，按预算分配：

@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
+import { Badge, Count } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogForm } from '@/components/ui/dialog';
 import { ErrorState, Loading, MenuItem, Popover, toast } from '@/components/ui/feedback';
@@ -49,13 +49,13 @@ function DesignCard({ d, onOpen, onDelete, deleting }: { d: DesignDoc & { open: 
   const status = d.data.status ?? 'draft';
   return (
     <div className="group relative">
-      <button type="button" onClick={onOpen} data-testid="design-card" className="block w-full overflow-hidden rounded-card bg-paper text-left shadow-[var(--shadow-card)] transition-shadow duration-150 hover:shadow-[var(--shadow-pop)]">
+      <button type="button" onClick={onOpen} data-testid="design-card" className="block w-full overflow-hidden rounded-card bg-paper text-left shadow-[var(--shadow-card)] transition-[box-shadow,translate] duration-150 hover:shadow-[var(--shadow-card),0_0_0_1px_var(--color-rule-2)] active:translate-y-px">
         <DesignThumb doc={doc} title={d.data.title} />
-        <span className="block border-t border-rule px-3 py-2">
+        <span className="block border-t border-rule px-3.5 py-2.5">
           <span className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{d.data.title}</span>
-            {d.open > 0 && <span className="rounded-full bg-accent-tag px-1.5 text-[11px] font-semibold text-accent-tag-ink">{d.open}</span>}
-            <span className="measured text-xs text-faint">v{d.version}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{d.data.title}</span>
+            {d.open > 0 && <Count>{d.open}</Count>}
+            <span className="text-xs tabular-nums text-muted">v{d.version}</span>
             {status !== 'draft' && <Badge tone="ok">{STATUS_LABEL[status]}</Badge>}
           </span>
           {d.data.direction && <span className="mt-0.5 block truncate text-xs text-muted">{d.data.direction}</span>}
@@ -65,10 +65,10 @@ function DesignCard({ d, onOpen, onDelete, deleting }: { d: DesignDoc & { open: 
         <Popover
           className="w-32"
           trigger={(on, toggle) => (
-            <button type="button" aria-label={`${d.data.title} 的更多操作`} aria-expanded={on} onClick={toggle} data-testid="design-card-more"
-              className={cn('grid size-7 place-items-center rounded-pill bg-paper text-muted shadow-[var(--shadow-card)] transition-opacity duration-150 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100', on ? 'opacity-100' : 'opacity-0 max-md:opacity-100')}>
-              <Icon name="menu" className="size-3.5" />
-            </button>
+            <Button size="icon-sm" aria-label={`${d.data.title} 的更多操作`} aria-expanded={on} onClick={toggle} data-testid="design-card-more"
+              className={cn('text-muted shadow-[var(--shadow-card)] transition-[opacity,color,background-color] hover:text-ink focus-visible:opacity-100 group-hover:opacity-100', on ? 'opacity-100' : 'opacity-0 max-md:opacity-100')}>
+              <Icon name="more" />
+            </Button>
           )}
         >
           {(close) => <MenuItem danger disabled={deleting} onClick={() => { close(); onDelete(); }} data-testid="design-card-delete">删除</MenuItem>}
@@ -101,37 +101,45 @@ function Gallery({ designs, ws, project, running, designer, chatThread, onChatTh
 
   return (
     <div className="relative flex min-h-0 flex-1" data-testid="design-gallery">
-      <aside className="relative flex w-[22rem] shrink-0 flex-col border-r border-rule max-md:hidden" style={{ width: railWidth }} aria-label="和设计师对话">
+      <aside className="relative flex w-[22rem] shrink-0 flex-col border-r border-rule bg-paper max-md:hidden" style={{ width: railWidth }} aria-label="和设计师对话">
         <ResizeHandle {...railResize} />
-        {designer ? <DesignChat ws={ws} project={project} designer={designer} threadId={chatThread} onThread={onChatThread} hint="说想要什么，设计师直接出稿" placeholder="想做个什么？页面、受众、气质都可以说" /> : <p className="p-3.5 text-sm text-muted">本台没有设计师，到「成员」里添加</p>}
+        {designer ? <DesignChat ws={ws} project={project} designer={designer} threadId={chatThread} onThread={onChatThread} hint="说想要什么，设计师直接出稿" placeholder="想做个什么？页面、受众、气质都可以说" /> : <p className="m-3 rounded-ctl bg-paper-2 px-3.5 py-3 text-sm text-muted">本台没有设计师，到「成员」里添加</p>}
       </aside>
-      <section className="min-w-0 flex-1 overflow-y-auto bg-paper-2 p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <h2 className="text-title font-semibold text-ink">设计稿</h2>
-          {running && <span className="animate-pulse-soft text-xs text-cool" data-testid="gallery-running">设计师工作中…</span>}
+      <section className="flex min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule bg-paper px-5 py-2.5">
+          <h2 className="text-title font-bold text-ink">设计稿</h2>
+          {running && <span className="flex items-center gap-1.5 text-xs text-cool" data-testid="gallery-running"><i aria-hidden className="size-[7px] animate-pulse-soft rounded-full bg-cool" />设计师工作中…</span>}
           <span className="flex-1" />
-          <Button onClick={() => setImporting(true)} data-testid="import-open">导入 HTML</Button>
+          <Button size="sm" onClick={() => setImporting(true)} data-testid="import-open"><Icon name="upload" />导入 HTML</Button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-paper-2 p-5">
         {designs.length === 0 ? (
-          <div className="mx-auto mt-16 max-w-md space-y-2" data-testid="design-empty">
-            <p className="text-title font-medium text-ink-2">从一句话开始</p>
+          <div className="mx-auto mt-16 grid max-w-md gap-2" data-testid="design-empty">
+            <span aria-hidden className="grid size-10 place-items-center rounded-ctl bg-paper text-ink-2 shadow-[var(--shadow-card)]"><Icon name="palette" /></span>
+            <p className="mt-1 text-title font-semibold text-ink">从一句话开始</p>
             <p className="pb-2 text-sm text-muted">在左边告诉设计师你想要什么，稿子会出现在这里。也可以试试这些：</p>
-            {STARTERS.map((s) => (
-              <Button key={s} className="block w-full whitespace-normal py-1.5 text-left" disabled={!designer || !thread.data || start.isPending} onClick={() => start.mutate(s)} data-testid="design-starter">{s}</Button>
-            ))}
+            <div className="overflow-hidden rounded-card bg-paper shadow-[var(--shadow-card)]">
+              {STARTERS.map((s) => (
+                <button key={s} type="button" className="flex w-full items-center gap-3 border-b border-rule px-4 py-3 text-left text-sm text-ink transition-colors duration-150 last:border-b-0 hover:bg-hover focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:opacity-50" disabled={!designer || !thread.data || start.isPending} onClick={() => start.mutate(s)} data-testid="design-starter">
+                  <Icon name="send" className="size-3.5 text-muted" />
+                  <span className="min-w-0 flex-1">{s}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="grid gap-7">
             {groups.map(([name, items]) => (
               <section key={name || '_'} aria-label={name || '其他设计稿'}>
-                {(name || groups.length > 1) && <h3 className="mb-2 text-sm font-medium text-ink-2">{name || '其他'}</h3>}
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
+                {(name || groups.length > 1) && <h3 className="mb-2.5 text-sm font-bold text-ink">{name || '其他'}</h3>}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
                   {items.map((d) => <DesignCard key={d.id} d={d} onOpen={() => onOpen(d.id)} onDelete={() => remove.confirmDelete(d)} deleting={remove.pending} />)}
                 </div>
               </section>
             ))}
           </div>
         )}
+        </div>
       </section>
       {importing && <ImportDialog wsId={ws.id} onClose={() => setImporting(false)} onDone={(id) => { setImporting(false); onOpen(id); }} />}
     </div>

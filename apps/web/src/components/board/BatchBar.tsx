@@ -50,6 +50,8 @@ export function useBatch(wsId: string, tasks: BoardTask[]) {
   return { active, setActive, exit, picked, toggle, selectable, selected, busy, run };
 }
 
+const ON_INK = 'text-primary-ink hover:bg-[color-mix(in_oklab,var(--color-primary-ink)_14%,transparent)] hover:text-primary-ink active:bg-[color-mix(in_oklab,var(--color-primary-ink)_20%,transparent)]';
+
 export function BatchBar({ batch }: { batch: ReturnType<typeof useBatch> }) {
   const [due, setDue] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -60,17 +62,17 @@ export function BatchBar({ batch }: { batch: ReturnType<typeof useBatch> }) {
     batch.run('取消任务', async (t) => unwrap(await api.tasks[':id'].transition.$post({ param: { id: t.id }, json: { event: 'cancel' } })));
 
   return (
-    <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center" data-testid="batch-bar">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-pill border border-rule-2 bg-paper px-4 py-2 shadow-[var(--shadow-pop)]">
-        <span className="measured text-sm text-ink-2">已选 {batch.selected.length}</span>
-        <Input type="date" className="h-8 w-36" value={due} onChange={(e) => setDue(e.target.value)} aria-label="截止日期" data-testid="batch-due" />
-        <Button size="sm" variant="quiet" disabled={batch.selected.length === 0 || !due || batch.busy} onClick={applyDue} data-testid="batch-set-due">
+    <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center px-4" data-testid="batch-bar">
+      <div className="pointer-events-auto flex w-fit max-w-full animate-rise flex-wrap items-center gap-2 rounded-btn bg-primary py-1.5 pl-[18px] pr-1.5 text-sm text-primary-ink shadow-[var(--shadow-pop)]">
+        <span className="mr-2 font-semibold tabular-nums">已选 {batch.selected.length}</span>
+        <Input type="date" className="h-7 w-36 rounded-btn" value={due} onChange={(e) => setDue(e.target.value)} aria-label="截止日期" data-testid="batch-due" />
+        <Button size="sm" variant="quiet" className={ON_INK} disabled={batch.selected.length === 0 || !due || batch.busy} onClick={applyDue} data-testid="batch-set-due">
           设截止日期
         </Button>
-        <Button size="sm" variant="quiet" disabled={batch.selected.length === 0 || batch.busy} onClick={() => setConfirm(true)} data-testid="batch-cancel">
+        <Button size="sm" variant="quiet" className={ON_INK} disabled={batch.selected.length === 0 || batch.busy} onClick={() => setConfirm(true)} data-testid="batch-cancel">
           取消任务
         </Button>
-        <Button size="sm" variant="primary" onClick={batch.exit} data-testid="batch-exit">
+        <Button size="sm" onClick={batch.exit} data-testid="batch-exit">
           退出多选
         </Button>
       </div>

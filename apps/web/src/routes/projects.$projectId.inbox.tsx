@@ -2,8 +2,10 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { InboxEntry } from '@/components/inbox/InboxEntry';
 import { notifySupported, notifyPermission, requestNotify } from '@/components/inbox/notify';
+import { Page, PageHeader } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { Empty, ErrorState, Loading } from '@/components/ui/feedback';
+import { Icon } from '@/components/ui/icons';
 import { useInbox, type InboxRow } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -41,12 +43,9 @@ function InboxPage() {
 
   return (
     <div className="h-full overflow-y-auto" data-testid="inbox-page">
-      <div className="mx-auto max-w-[54rem] px-5 pb-16 pt-10 md:px-10">
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-page font-bold tracking-tight text-ink">收件箱</h1>
-          <NotifyToggle />
-        </div>
-        <div className="mb-3 mt-3 flex gap-1 border-b border-rule" role="tablist">
+      <Page narrow>
+        <PageHeader icon="inbox" title="收件箱" actions={<NotifyToggle />} compact />
+        <div className="mb-4 flex gap-1" role="tablist">
           {tabs.map((t) => (
             <button
               key={t.label}
@@ -54,7 +53,7 @@ function InboxPage() {
               role="tab"
               aria-selected={status === t.id}
               onClick={() => void navigate({ search: t.id ? { status: t.id } : {} })}
-              className={cn('-mb-px border-b-2 px-3 py-2 text-sm', status === t.id ? 'border-cool text-ink' : 'border-transparent text-muted hover:text-ink-2')}
+              className={cn('h-8 rounded-btn px-3.5 text-sm transition-colors', status === t.id ? 'bg-primary font-semibold text-primary-ink' : 'text-muted hover:bg-hover hover:text-ink')}
             >
               {t.label}
             </button>
@@ -62,20 +61,21 @@ function InboxPage() {
         </div>
         {inbox.isLoading && <Loading />}
         {inbox.isError && <ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />}
-        {inbox.data?.length === 0 && <Empty title={status ? '还没有处理过的条目' : '没有待处理项'}>阻塞、命令确认、运行失败和待决定的提案都会进到这里。</Empty>}
-        <div className="space-y-4">
+        {inbox.data?.length === 0 && <Empty icon="inbox" title={status ? '还没有处理过的条目' : '没有待处理项'}>阻塞、命令确认、运行失败和待决定的提案都会进到这里。</Empty>}
+        <div className="grid gap-6">
           {groups.map(([key, g]) => (
-            <section key={key} aria-label={g.title ?? '待处理项'} data-testid="inbox-group">
+            <section key={key} aria-label={g.title ?? '待处理项'} className="grid gap-3" data-testid="inbox-group">
               {g.id && g.items.length > 1 && (
-                <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: g.id }} className="px-2 text-sm text-ink-2 hover:underline">{g.title}</Link>
+                <Link to="/projects/$projectId/tasks/$taskId" params={{ projectId, taskId: g.id }} className="flex w-fit items-center gap-1.5 px-1 text-sm font-bold text-ink hover:underline">
+                  <Icon name="board" className="size-3.5 text-muted" />
+                  {g.title}
+                </Link>
               )}
-              <div className="divide-y divide-rule">
-                {g.items.map((i) => <div key={i.id} className="py-1"><InboxEntry item={i} projectId={projectId} /></div>)}
-              </div>
+              {g.items.map((i) => <InboxEntry key={i.id} item={i} projectId={projectId} />)}
             </section>
           ))}
         </div>
-      </div>
+      </Page>
     </div>
   );
 }

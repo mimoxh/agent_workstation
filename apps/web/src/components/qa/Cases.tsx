@@ -11,22 +11,22 @@ import { api, unwrap } from '@/lib/api';
 import { useQaAutomated, useQaHandoffs, type QaAutomatedCase } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { CASE_LABEL, CASE_STATUS_LABEL, CASE_STATUS_TONE, CASE_TONE, SEVERITY_TONE, useDocs, type CaseData, type Doc, type Step } from './model';
-import { HandoffDialog, ROW, Scroll, TABLE, TD, Toolbar, useAskAgent, type QaProps } from './shared';
+import { HandoffDialog, ROW, Scroll, TABLE, TABLE_WRAP, TD, Toolbar, useAskAgent, type QaProps } from './shared';
 
 function StepsEditor({ steps, onChange }: { steps: Step[]; onChange: (s: Step[]) => void }) {
   const set = (i: number, patch: Partial<Step>) => onChange(steps.map((s, n) => (n === i ? { ...s, ...patch } : s)));
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs text-muted">步骤</p>
+    <div className="grid gap-1.5">
+      <p className="text-sm font-medium text-ink-2">步骤</p>
       {steps.map((s, i) => (
         <div key={i} className="flex items-start gap-1.5">
-          <span className="measured w-4 shrink-0 pt-2 text-right text-xs text-faint">{i + 1}</span>
+          <span className="w-4 shrink-0 pt-2 text-right text-xs tabular-nums text-muted">{i + 1}</span>
           <Textarea className="min-h-8" rows={1} placeholder="操作" aria-label={`步骤 ${i + 1} 操作`} value={s.action} onChange={(e) => set(i, { action: e.target.value })} />
           <Textarea className="min-h-8" rows={1} placeholder="期望看到什么" aria-label={`步骤 ${i + 1} 期望`} value={s.expected} onChange={(e) => set(i, { expected: e.target.value })} />
           <Button variant="quiet" size="sm" aria-label={`删除步骤 ${i + 1}`} onClick={() => onChange(steps.filter((_, n) => n !== i))}>删除</Button>
         </div>
       ))}
-      <Button size="sm" onClick={() => onChange([...steps, { action: '', expected: '' }])} data-testid="qa-step-add">加一步</Button>
+      <Button size="sm" className="justify-self-start" onClick={() => onChange([...steps, { action: '', expected: '' }])} data-testid="qa-step-add"><Icon name="plus" />加一步</Button>
     </div>
   );
 }
@@ -77,12 +77,12 @@ function CaseEditor({ wsId, doc, automated, devStations, onClose }: { wsId: stri
           </Select>
         </Field>
         {doc && (
-          <div className="flex flex-wrap gap-2 border-t border-rule pt-3">
+          <div className="flex flex-wrap items-center gap-2 border-t border-rule pt-3">
             {status === 'draft' && <Button size="sm" onClick={() => save.mutate('deprecated')}>驳回</Button>}
             {status === 'active' && <Button size="sm" onClick={() => save.mutate('deprecated')}>废弃</Button>}
             {status === 'deprecated' && <Button size="sm" onClick={() => save.mutate('active')}>恢复</Button>}
             {!automation && !d?.handoff && status === 'active' && <Button size="sm" onClick={() => setHanding(true)} data-testid="qa-case-handoff">生成自动化任务</Button>}
-            {d?.handoff && <span className="self-center text-xs text-muted">已生成补自动化的开发任务</span>}
+            {d?.handoff && <span className="text-xs text-muted">已生成补自动化的开发任务</span>}
           </div>
         )}
       </DialogForm>
@@ -136,16 +136,16 @@ export function Cases({ ws, project }: QaProps) {
   return (
     <Scroll testId="qa-cases">
       <Toolbar>
-        <Segmented label="用例筛选" value={filter} onChange={setFilter} options={[{ id: 'all', label: `全部 ${docs.length}` }, { id: 'draft', label: `待审核 ${drafts}` }, { id: 'manual', label: '手工' }, { id: 'automated', label: '自动化' }]} />
+        <Segmented size="default" label="用例筛选" value={filter} onChange={setFilter} options={[{ id: 'all', label: `全部 ${docs.length}` }, { id: 'draft', label: `待审核 ${drafts}` }, { id: 'manual', label: '手工' }, { id: 'automated', label: '自动化' }]} />
         <Input className="w-56" placeholder="搜索标题或模块" aria-label="搜索用例" value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="flex-1" />
-        <Button onClick={() => setGenerating(true)} data-testid="qa-generate">AI 生成</Button>
-        <Button variant="primary" onClick={() => setEditing('new')} data-testid="qa-tc-new"><Icon name="plus" className="size-3.5" />新建用例</Button>
+        <Button onClick={() => setGenerating(true)} data-testid="qa-generate"><Icon name="robot" />AI 生成</Button>
+        <Button variant="primary" onClick={() => setEditing('new')} data-testid="qa-tc-new"><Icon name="plus" />新建用例</Button>
       </Toolbar>
-      {docs.length === 0 ? <Empty title="用例库是空的">手工写一条，或者让用例设计从需求生成草稿。</Empty> : groups.length === 0 ? <p className="py-2 text-sm text-muted">没有符合条件的用例。</p> : groups.map(([name, rows]) => (
-        <section key={name} className="mb-5">
-          <h2 className="mb-1 text-sm font-medium text-ink">{name} <span className="text-xs font-normal text-faint">{rows.length}</span></h2>
-          <div className="overflow-x-auto">
+      {docs.length === 0 ? <Empty title="用例库是空的" icon="list">手工写一条，或者让用例设计从需求生成草稿。</Empty> : groups.length === 0 ? <p className="py-2 text-sm text-muted">没有符合条件的用例。</p> : groups.map(([name, rows]) => (
+        <section key={name} className="mb-6">
+          <h2 className="mb-2 px-1 text-sm font-bold text-ink">{name} <span className="font-medium tabular-nums text-muted">{rows.length}</span></h2>
+          <div className={TABLE_WRAP}>
             <table className={TABLE}>
               <thead className="sr-only"><tr><th>优先级</th><th>标题</th><th>执行方式</th><th>最新结果</th><th>状态</th></tr></thead>
               <tbody>
@@ -156,9 +156,9 @@ export function Cases({ ws, project }: QaProps) {
                   return (
                     <tr key={c.id} className={ROW} onClick={() => setEditing(c)} data-testid="qa-tc-row">
                       <td className={cn(TD, 'w-12')}><Badge tone={SEVERITY_TONE[c.data.priority ?? ''] ?? 'neutral'}>{(c.data.priority ?? '—').toUpperCase()}</Badge></td>
-                      <td className={cn(TD, 'text-ink')}>{c.data.title}</td>
+                      <td className={cn(TD, 'font-semibold text-ink')}>{c.data.title}</td>
                       <td className={cn(TD, 'w-28 whitespace-nowrap text-xs')}>{c.data.automation_key ? '自动化' : task ? '补自动化中' : '手工'}</td>
-                      <td className={cn(TD, 'w-20')}>{last ? <Badge tone={CASE_TONE[last.status] ?? 'neutral'}>{CASE_LABEL[last.status] ?? last.status}</Badge> : <span className="text-xs text-faint">—</span>}</td>
+                      <td className={cn(TD, 'w-20')}>{last ? <Badge tone={CASE_TONE[last.status] ?? 'neutral'}>{CASE_LABEL[last.status] ?? last.status}</Badge> : <span className="text-xs text-muted">—</span>}</td>
                       <td className={cn(TD, 'w-20')}><Badge tone={CASE_STATUS_TONE[status] ?? 'neutral'}>{CASE_STATUS_LABEL[status] ?? status}</Badge></td>
                     </tr>
                   );
