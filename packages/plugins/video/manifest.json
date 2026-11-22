@@ -1,0 +1,289 @@
+{
+  "id": "video",
+  "name": "视频工作台",
+  "version": "0.4.0",
+  "description": "用对话做讲解视频：人和 Agent 一起写讲解稿、拆分镜，镜头画面可以是模型写的 HTML/CSS 动画，也可以是生成或上传的素材（图片 / 片段，可用推拉摇移和透明叠加层）；生成片段要人批预算，审片结论钉在内容哈希上，过了出片门禁才出片",
+  "singleton": true,
+  "steward": "video-director",
+  "entities": {
+    "Video": {
+      "label": "视频",
+      "description": "一支讲解视频：需求、画幅、讲解稿和分镜。每次修改都是一个新版本，可回滚",
+      "titleField": "title",
+      "fields": {
+        "title": { "type": "string", "label": "标题", "required": true },
+        "brief": { "type": "text", "label": "需求" },
+        "audience": { "type": "string", "label": "受众" },
+        "aspect": { "type": "enum", "label": "画幅", "enum": ["16:9", "9:16", "1:1"] },
+        "resolution": { "type": "enum", "label": "分辨率", "enum": ["720p", "1080p"] },
+        "fps": { "type": "number", "label": "帧率" },
+        "script": { "type": "markdown", "label": "讲解稿" },
+        "status": { "type": "enum", "label": "状态", "description": "由平台维护", "enum": ["draft", "storyboarded", "reviewing", "approved", "rendered"] },
+        "review": { "type": "json", "label": "审片结论", "description": "verdict / summary / contentHash，由平台写入" },
+        "reviewRequestHash": { "type": "string", "label": "请求审片时的内容哈希", "description": "由平台维护" },
+        "render": { "type": "json", "label": "成片记录" },
+        "renderHash": { "type": "string", "label": "出片时的内容哈希", "description": "由平台维护" },
+        "notes": { "type": "text", "label": "备注" },
+        "voice": { "type": "json", "label": "配音设置", "description": "provider / voice / speed / off，留空用本台风格里的配音" },
+        "subtitles": { "type": "enum", "label": "字幕", "enum": ["burn", "srt", "off"] }
+      }
+    },
+    "Shot": {
+      "label": "镜头",
+      "description": "分镜里的一个镜头：旁白 + 画面。画面是 HTML/CSS 动画（以后也可以是生成的片段或上传的素材）",
+      "titleField": "title",
+      "fields": {
+        "video": { "type": "ref", "label": "视频", "refTo": "Video", "required": true },
+        "order": { "type": "number", "label": "顺序" },
+        "title": { "type": "string", "label": "标题" },
+        "narration": { "type": "text", "label": "旁白" },
+        "visual": { "type": "enum", "label": "画面类型", "enum": ["html", "generated", "asset"] },
+        "html": { "type": "text", "label": "画面 HTML" },
+        "prompt": { "type": "text", "label": "生成提示词" },
+        "asset": { "type": "string", "label": "素材" },
+        "duration": { "type": "number", "label": "时长（秒）", "description": "留空按旁白估算" },
+        "transition": { "type": "enum", "label": "转场", "enum": ["cut", "fade", "slide"] },
+        "motion": { "type": "json", "label": "画面运动", "description": "素材镜头的推拉摇移：{ kind: none | zoom-in | zoom-out | pan-left | pan-right }" },
+        "keepAudio": { "type": "boolean", "label": "保留原声", "description": "素材片段自带的音频是否进成片，默认丢掉" },
+        "audio": { "type": "json", "label": "配音" },
+        "status": { "type": "enum", "label": "状态", "enum": ["draft", "ready"] },
+        "issues": { "type": "json", "label": "画面问题", "description": "渲染 / 预览时抽查到的溢出、脚本报错、外部资源被拦，按镜头版本记，由平台写入" }
+      }
+    },
+    "ShotComment": {
+      "label": "镜头评论",
+      "description": "钉在镜头某个版本、某个时间点（可选画面里的某个元素）上的审片意见；block 级没解决前不能出片",
+      "titleField": "body",
+      "fields": {
+        "video": { "type": "ref", "label": "视频", "refTo": "Video", "required": true },
+        "shot": { "type": "ref", "label": "镜头", "refTo": "Shot", "required": true },
+        "version": { "type": "number", "label": "镜头版本" },
+        "time": { "type": "number", "label": "镜头内时间（秒）" },
+        "selector": { "type": "string", "label": "元素" },
+        "anchor": { "type": "string", "label": "元素文字" },
+        "body": { "type": "text", "label": "内容", "required": true },
+        "severity": { "type": "enum", "label": "级别", "enum": ["block", "note"] },
+        "status": { "type": "enum", "label": "状态", "enum": ["open", "resolved"] },
+        "note": { "type": "text", "label": "处理说明" }
+      }
+    },
+    "VideoStyle": {
+      "label": "视频风格",
+      "description": "本台统一风格（一台一份）：调色板和字体注入成镜头的 CSS 变量，配音、背景音乐和字幕样式用于出片",
+      "titleField": "name",
+      "fields": {
+        "name": { "type": "string", "label": "名称" },
+        "palette": { "type": "json", "label": "调色板" },
+        "fonts": { "type": "json", "label": "字体", "description": "heading / body，只能用本机字体（镜头断网）" },
+        "voice": { "type": "json", "label": "默认配音" },
+        "bgm": { "type": "string", "label": "背景音乐" },
+        "bgmVolume": { "type": "number", "label": "背景音乐音量" },
+        "ducking": { "type": "boolean", "label": "说话时压低音乐" },
+        "rules": { "type": "markdown", "label": "风格规则" },
+        "subtitle": { "type": "json", "label": "字幕样式", "description": "size s/m/l · position bottom/top · background box/shadow/none" }
+      }
+    },
+    "Asset": {
+      "label": "素材",
+      "description": "可以用在镜头上的素材：上传的图片 / 片段，或生成出来的片段。文件本身是平台里的媒体产物（artifact），这里记元数据和授权",
+      "titleField": "name",
+      "fields": {
+        "name": { "type": "string", "label": "名称", "required": true },
+        "kind": { "type": "enum", "label": "类型", "enum": ["image", "video", "audio"], "required": true },
+        "source": { "type": "enum", "label": "来源", "enum": ["upload", "generated"], "required": true },
+        "artifact": { "type": "string", "label": "文件", "description": "媒体产物 id，/api/media/:id 播放", "required": true },
+        "mime": { "type": "string", "label": "格式" },
+        "width": { "type": "number", "label": "宽" },
+        "height": { "type": "number", "label": "高" },
+        "duration": { "type": "number", "label": "时长（秒）" },
+        "poster": { "type": "string", "label": "封面", "description": "视频的首帧海报，也是媒体产物 id" },
+        "prompt": { "type": "text", "label": "生成提示词", "description": "生成出来的素材记下用的提示词和 provider，方便复现" },
+        "provider": { "type": "string", "label": "生成服务" },
+        "license": { "type": "string", "label": "授权 / 来源说明" },
+        "tags": { "type": "json", "label": "标签" },
+        "notes": { "type": "text", "label": "备注" }
+      }
+    },
+    "ClipRequest": {
+      "label": "片段申请",
+      "description": "让平台去生成一段素材的申请：Agent 只写申请不花钱，人批了才提交生成并记预算",
+      "titleField": "prompt",
+      "fields": {
+        "video": { "type": "ref", "label": "视频", "refTo": "Video", "required": true },
+        "shot": { "type": "ref", "label": "镜头", "refTo": "Shot", "required": true },
+        "prompt": { "type": "text", "label": "提示词", "required": true },
+        "negativePrompt": { "type": "text", "label": "反向提示词" },
+        "duration": { "type": "number", "label": "时长（秒）" },
+        "imageAsset": { "type": "string", "label": "首帧素材" },
+        "provider": { "type": "string", "label": "生成服务" },
+        "estimatedCostMicros": { "type": "number", "label": "预估花费（微美元）" },
+        "status": { "type": "enum", "label": "状态", "enum": ["pending", "approved", "rejected", "running", "succeeded", "failed", "cancelled"], "required": true },
+        "jobId": { "type": "string", "label": "生成任务" },
+        "error": { "type": "text", "label": "失败原因" },
+        "asset": { "type": "string", "label": "生成的素材", "description": "成功后的素材 id，由平台写入" },
+        "requestedBy": { "type": "string", "label": "申请方" },
+        "decidedBy": { "type": "string", "label": "审批方" },
+        "reason": { "type": "text", "label": "审批意见" }
+      }
+    }
+  },
+  "panels": [
+    {
+      "id": "studio",
+      "type": "video",
+      "entity": "Video",
+      "title": "工作室",
+      "editableBy": ["human", "agent"],
+      "config": { "view": "studio", "home": true }
+    },
+    {
+      "id": "renders",
+      "type": "video",
+      "entity": "Video",
+      "title": "成片",
+      "editableBy": ["human", "agent"],
+      "config": { "view": "renders" }
+    },
+    {
+      "id": "style",
+      "type": "video",
+      "entity": "VideoStyle",
+      "title": "风格",
+      "editableBy": ["human", "agent"],
+      "config": { "view": "style" }
+    },
+    {
+      "id": "assets",
+      "type": "video",
+      "entity": "Asset",
+      "title": "素材",
+      "editableBy": ["human", "agent"],
+      "config": { "view": "assets" }
+    },
+    {
+      "id": "knowledge",
+      "type": "knowledge",
+      "entity": "system:knowledge",
+      "title": "知识库",
+      "editableBy": ["human"]
+    }
+  ],
+  "agents": [
+    {
+      "id": "video-director",
+      "promptFile": "director.md",
+      "name": "编导",
+      "role": "写讲解稿、拆分镜、安排镜头，统筹本台，对外代表",
+      "tools": [
+        "list_videos",
+        "read_video",
+        "write_video_script",
+        "write_storyboard",
+        "update_shot",
+        "view_shot",
+        "list_assets",
+        "read_asset",
+        "generate_clip",
+        "read_clip_request",
+        "voice_shots",
+        "render_video",
+        "read_render",
+        "comment_shot",
+        "resolve_shot_comments",
+        "read_video_style",
+        "update_video_style",
+        "search_knowledge",
+        "list_repos",
+        "read_repo_file",
+        "search_repo",
+        "list_folder",
+        "read_folder_file",
+        "search_folder",
+        "send_message",
+        "record_decision",
+        "request_human"
+      ],
+      "triggers": ["mentioned"]
+    },
+    {
+      "id": "motion-designer",
+      "promptFile": "motion-designer.md",
+      "name": "动画师",
+      "role": "按分镜把每个镜头做成 HTML/CSS 动画画面，渲染出来自检",
+      "tools": [
+        "list_videos",
+        "read_video",
+        "write_shot_html",
+        "edit_shot_html",
+        "view_shot",
+        "list_assets",
+        "read_asset",
+        "comment_shot",
+        "resolve_shot_comments",
+        "read_video_style",
+        "list_folder",
+        "read_folder_file",
+        "search_folder",
+        "send_message"
+      ],
+      "triggers": ["mentioned"]
+    },
+    {
+      "id": "video-reviewer",
+      "promptFile": "reviewer.md",
+      "name": "审片",
+      "role": "逐个镜头看画面和旁白，把问题钉在镜头和时间点上，给出审片结论",
+      "tools": [
+        "list_videos",
+        "read_video",
+        "view_shot",
+        "list_assets",
+        "read_asset",
+        "read_render",
+        "comment_shot",
+        "save_video_review",
+        "read_video_style",
+        "send_message",
+        "search_knowledge"
+      ],
+      "triggers": ["mentioned"]
+    },
+    {
+      "id": "asset-producer",
+      "promptFile": "asset-producer.md",
+      "name": "素材制作",
+      "role": "给镜头找或做素材：挑上传的图片 / 片段，写生成提示词提片段申请（要人等批预算），把素材接到镜头上",
+      "tools": [
+        "list_videos",
+        "read_video",
+        "list_assets",
+        "read_asset",
+        "generate_clip",
+        "read_clip_request",
+        "update_shot",
+        "view_shot",
+        "search_knowledge",
+        "send_message"
+      ],
+      "triggers": ["mentioned"]
+    }
+  ],
+  "tasks": [],
+  "modules": {
+    "conversation": {
+      "defaultMode": "moderated",
+      "maxTurns": 8,
+      "summaryEvery": 100
+    },
+    "knowledge": {
+      "scope": "project",
+      "acceptedTypes": ["md", "txt"],
+      "retrieval": { "strategy": "fts", "topK": 5, "maxTokens": 3000 },
+      "citation": "preferred"
+    }
+  },
+  "defaults": {
+    "writeMode": "direct",
+    "taskBudget": { "tokens": 300000, "minutes": 20 }
+  }
+}

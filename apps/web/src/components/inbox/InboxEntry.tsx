@@ -23,6 +23,7 @@ const TONE: Record<string, BadgeTone> = {
   budget: 'bad',
   task_rejected: 'bad',
   docs_drift: 'bad',
+  clip_request: 'amber',
 };
 
 type Resolve = { decision?: 'approve' | 'deny'; action?: 'retry' | 'unblock'; answer?: string };
@@ -80,6 +81,14 @@ function Actions({ item, projectId }: { item: InboxRow; projectId: string }) {
       </div>
     );
   }
+  if (item.kind === 'clip_request') {
+    return (
+      <>
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve.mutate({ decision: 'approve' })} data-testid="clip-request-approve">批准生成</Button>
+        <Button size="sm" disabled={busy} onClick={() => resolve.mutate({ decision: 'deny' })} data-testid="clip-request-deny">拒绝</Button>
+      </>
+    );
+  }
   if (item.kind === 'run_failed') {
     return (
       <>
@@ -123,6 +132,7 @@ const KIND_ICON: Record<string, IconName> = {
   gate_confirm: 'stage',
   qa_regression: 'bug',
   task_rejected: 'x',
+  clip_request: 'film',
 };
 
 const ICON_TONE: Record<BadgeTone, string> = {
@@ -138,6 +148,7 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
   const open = item.status === 'open';
   const suspects = item.kind === 'qa_regression' ? (JSON.parse(item.payloadJson ?? '{}') as { suspects?: { taskId: string; title: string }[] }).suspects ?? [] : [];
   const docDrift = item.kind === 'docs_drift' ? (JSON.parse(item.payloadJson ?? '{}') as { wsId?: string; docTitle?: string }) : null;
+  const clip = item.kind === 'clip_request' ? (JSON.parse(item.payloadJson ?? '{}') as { wsId?: string; videoTitle?: string; shotTitle?: string; duration?: number; estimatedCostMicros?: number }) : null;
   const filePatch = item.proposalTarget === 'file' ? parseJson<{ path?: string; diff?: string }>(item.proposalPatch, {}) : null;
   const tone = TONE[item.kind] ?? 'neutral';
   const titleClass = compact ? 'min-w-0 flex-1 truncate text-sm text-ink-2 hover:underline' : 'min-w-0 break-words text-sm font-bold text-ink hover:underline';
@@ -148,6 +159,10 @@ export function InboxEntry({ item, projectId, compact }: { item: InboxRow; proje
   ) : docDrift?.wsId ? (
     <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: docDrift.wsId }} search={{ panel: 'health' }} className={titleClass} data-testid="inbox-doc-drift">
       {docDrift.docTitle ?? '文档健康'}
+    </Link>
+  ) : clip?.wsId ? (
+    <Link to="/projects/$projectId/ws/$wsId" params={{ projectId, wsId: clip.wsId }} search={{ panel: 'assets' }} className={titleClass} data-testid="inbox-clip-request">
+      {clip.videoTitle ? `${clip.videoTitle} · ` : ''}{clip.shotTitle || '镜头'} 的片段申请（{clip.duration} 秒，预估 ${((clip.estimatedCostMicros ?? 0) / 1e6).toFixed(3)}）
     </Link>
   ) : (
     <span className={cn(titleClass, 'font-normal text-muted hover:no-underline')}>无关联任务</span>

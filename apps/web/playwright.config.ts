@@ -50,6 +50,7 @@ export default defineConfig({
         AW_DB_PATH: e2eDbPath,
         AW_SEED_REPO_PATH: e2eRepo,
         AW_WORKTREE_ROOT: path.join(e2eDir, 'worktrees'),
+        AW_MEDIA_DIR: path.join(e2eDir, 'media'),
       },
     },
     {

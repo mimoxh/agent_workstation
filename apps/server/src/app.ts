@@ -1,6 +1,8 @@
 import type { Actor } from '@aw/domain';
 import { renderForRepo, TASK_EVENTS } from '@aw/domain';
 import fs from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
 import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
@@ -87,6 +89,16 @@ import { previewStatus, startPreview, stopPreview } from './runtime/preview.js';
 import { deleteDesign, handoffDesign, listDesigns, readHandoffFor, renderableDesign, saveDesign } from './usecases/designs.js';
 import { ackDocReverse, addDocComment, citationLabelsOf, docGate, docHealth, docRow, docsSettingsOf, draftReleaseNotes, editDoc, handoffDoc, importDocReverse, listDocComments, listDocs, readDoc, repointDocDrift, requestReview, resolveDocComments, saveDoc, saveDocsSettings, saveStyleGuide, styleGuideOf } from './usecases/docs.js';
 import { listRepoSources } from './usecases/repo_source.js';
+import { askVideoAgent, createVideo, deleteVideo, entityRowOf, getVideo, listShotComments, listVideos, renderableShot, reorderShots, replaceStoryboard, saveScript, saveShotIssues, shotRow, updateShot, updateVideo, videoRow, videoStyleOf } from './usecases/videos.js';
+import { addShotComment, requestVideoReview, resolveShotComments } from './usecases/video_review.js';
+import { BGM_MAX_BYTES, listVideoMedia, saveVideoStyle, uploadBgm } from './usecases/video_style.js';
+import { renderShotFrames } from './runtime/video_frame.js';
+import { insideMedia, MEDIA_TYPES, mimeOf, parseRange, safeFileName } from './runtime/media/storage.js';
+import { probeTts, publicTtsProviders, sampleVoice } from './runtime/media/tts.js';
+import { voiceShots } from './usecases/video_voice.js';
+import { cancelVideoRender, compareVideoRenders, createVideoRender, getVideoRender, listVideoRenders } from './usecases/video_renders.js';
+import { ASSET_VIDEO_MAX, deleteAsset, getAsset, listAssets, updateAsset, uploadAsset } from './usecases/video_assets.js';
+import { decideClipRequest, listClipRequests, readClipRequest, requestClip } from './usecases/video_clips.js';
 import { docToHtml } from './runtime/doc_render.js';
 import { BROWSER_MISSING, renderDesign, VIEWPORTS, type ViewportName } from './runtime/design_render.js';
 import { cancelQaRun, handoffBug, handoffCase, recordManualResult, requestTriage, retryRun, saveSuite, signPlan, startPlan, startRun, taskQuality, transitionBug } from './usecases/qa.js';
@@ -108,11 +120,82 @@ const providerBody = z.object({
   maxOutputTokens: z.number().int().min(256).optional(),
 }).refine((p) => !(p.contextWindow && p.maxOutputTokens) || p.maxOutputTokens < p.contextWindow, { message: '最大输出要小于上下文窗口', path: ['maxOutputTokens'] });
 
+const mediaProviderBody = z.object({
+  name: z.string().trim().min(1, 'provider 名称不能为空'),
+  kind: z.enum(['tts', 'video']),
+  protocol: z.enum(['openai-speech', 'mock']),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+  voice: z.string().optional(),
+  format: z.enum(['mp3', 'wav']).optional(),
+  price: z.object({ perMillionChars: z.number().min(0).optional(), perSecond: z.number().min(0).optional() }).optional(),
+});
+
 const modelConfigBody = z.object({
   providers: z.array(providerBody),
   defaultModel: z.string().optional(),
   chain: z.array(z.string()),
   prices: z.record(z.string(), z.object({ input: z.number().min(0), output: z.number().min(0) })),
+  media: z.array(mediaProviderBody).optional(),
+  defaultTts: z.string().optional(),
+  defaultVideo: z.string().optional(),
+});
+
+const voiceBody = z.object({ provider: z.string().optional(), voice: z.string().max(100).optional(), speed: z.number().min(0.25, '语速要在 0.25 到 4 之间').max(4, '语速要在 0.25 到 4 之间').optional(), off: z.boolean().optional() });
+
+const renderBody = z.object({
+  fps: z.number().int().optional(),
+  subtitles: z.enum(['burn', 'srt', 'off']).optional(),
+  allowPlaceholders: z.boolean().optional(),
+  override: z.string().trim().max(500).optional(),
+});
+
+const styleBody = z.object({
+  name: z.string().trim().max(40).optional(),
+  palette: z.record(z.string(), z.string().max(80)).optional(),
+  fonts: z.object({ heading: z.string().max(200).optional(), body: z.string().max(200).optional() }).optional(),
+  voice: voiceBody.nullable().optional(),
+  bgm: z.string().nullable().optional(),
+  bgmVolume: z.number().min(0).max(1).optional(),
+  ducking: z.boolean().optional(),
+  rules: z.string().max(20000).optional(),
+  subtitle: z.object({ size: z.enum(['s', 'm', 'l']).optional(), position: z.enum(['bottom', 'top']).optional(), background: z.enum(['box', 'shadow', 'none']).optional() }).optional(),
+  baseVersion: z.number().int().optional(),
+  reason: z.string().optional(),
+});
+
+const commentBody = z.object({
+  shot: z.string().min(1),
+  time: z.number().min(0).max(3600).optional(),
+  selector: z.string().max(500).optional(),
+  anchor: z.string().max(80).optional(),
+  body: z.string().trim().min(1, '评论内容不能为空').max(4000),
+  severity: z.enum(['block', 'note']).optional(),
+});
+const videoBody = z.object({
+  title: z.string().trim().min(1, '标题不能为空').optional(),
+  brief: z.string().optional(),
+  audience: z.string().optional(),
+  aspect: z.enum(['16:9', '9:16', '1:1']).optional(),
+  resolution: z.enum(['720p', '1080p']).optional(),
+  fps: z.number().int().min(12).max(60).optional(),
+  script: z.string().optional(),
+  notes: z.string().optional(),
+  voice: voiceBody.optional(),
+  subtitles: z.enum(['burn', 'srt', 'off']).optional(),
+});
+
+const shotBody = z.object({
+  title: z.string().optional(),
+  narration: z.string().optional(),
+  visual: z.enum(['html', 'generated', 'asset']).optional(),
+  prompt: z.string().optional(),
+  asset: z.string().optional(),
+  duration: z.number().positive().max(120).nullable().optional(),
+  transition: z.enum(['cut', 'fade', 'slide']).optional(),
+  motion: z.enum(['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right']).nullable().optional(),
+  keepAudio: z.boolean().optional(),
 });
 
 const qaHandoffBody = z.object({ targetWorkstationId: z.string().optional(), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional() });
@@ -156,7 +239,7 @@ const terminalMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int(), rows: z.number().int() }),
 ]);
 
-const LIVE_PREFIXES = ['qa_', 'task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_', 'terminal_'];
+const LIVE_PREFIXES = ['qa_', 'task_', 'proposal_', 'inbox_', 'run_started', 'run_finished', 'run_step', 'message_', 'thread_', 'entity_', 'agent_', 'workstation_', 'project_', 'terminal_', 'video_'];
 
 export function createApp(db: DB) {
   const app = new Hono<Env>();
@@ -192,7 +275,7 @@ export function createApp(db: DB) {
     // ---- 命令实时输出：先给快照，再推本 channel 的 start / chunk / end ----
     .get('/live/:channel', (c) => {
       const channel = c.req.param('channel');
-      if (!/^(task|qa):[\w-]+$/.test(channel)) return c.json({ error: 'channel 不合法' }, 400);
+      if (!/^(task|qa|video):[\w-]+$/.test(channel)) return c.json({ error: 'channel 不合法' }, 400);
       return streamSSE(c, async (stream) => {
         // 先挂监听再发快照，中间的 start/chunk/end 不会漏
         const match = (p: Record<string, unknown>) => p.channel === channel;
@@ -220,13 +303,29 @@ export function createApp(db: DB) {
     })
     .get('/settings/models', (c) => c.json(publicModelConfig(readModelConfig())))
     .put('/settings/models', body(modelConfigBody), async (c) => {
-      const next = c.req.valid('json');
+      const { media, defaultTts, defaultVideo, ...next } = c.req.valid('json');
       const prev = readModelConfig();
-      writeModelConfig({ ...next, providers: mergeProviders(next.providers, prev.providers) });
+      const nextMedia = media ? mergeProviders(media, prev.media) : prev.media;
+      const tts = defaultTts === undefined ? prev.defaultTts : defaultTts.trim() || undefined;
+      const video = defaultVideo === undefined ? prev.defaultVideo : defaultVideo.trim() || undefined;
+      writeModelConfig({ ...next, providers: mergeProviders(next.providers, prev.providers), media: nextMedia, ...(tts ? { defaultTts: tts } : {}), ...(video ? { defaultVideo: video } : {}) });
       await reloadModels();
       return c.json({ ok: true });
     })
-    // 设置页「测试」：用表单里的当前值（可未保存）探测模型，不写配置、不进注册表
+    .get('/settings/media', (c) => c.json(publicTtsProviders()))
+    // 设置页「试听」：用表单里的当前值合成一句样例，直接回音频
+    .post('/settings/media/test', body(mediaProviderBody.extend({ sampleVoice: z.string().optional() })), async (c) => {
+      const { sampleVoice, ...input } = c.req.valid('json');
+      const p = mergeProviders([input], readModelConfig().media)[0]!;
+      if (p.kind !== 'tts') return fail(c, { error: '目前只能试听配音（tts）' });
+      if (p.protocol === 'openai-speech' && !p.baseUrl) return fail(c, { error: '请填地址' });
+      try {
+        const r = await probeTts(p, sampleVoice);
+        return c.body(new Uint8Array(r.audio), 200, { 'content-type': r.format === 'wav' ? 'audio/wav' : 'audio/mpeg', 'x-aw-duration': String(r.duration), 'x-aw-ms': String(r.ms), 'cache-control': 'no-store' });
+      } catch (e) {
+        return fail(c, { status: 502, error: `试听失败：${sanitizeError(e instanceof Error ? e.message : String(e))}` });
+      }
+    })    // 设置页「测试」：用表单里的当前值（可未保存）探测模型，不写配置、不进注册表
     .post('/settings/models/test', body(providerBody), async (c) => {
       const p = mergeProviders([c.req.valid('json')], readModelConfig().providers)[0]!;
       if (p.kind === 'openai-compatible' && !p.baseUrl) return fail(c, { error: '请填地址' });
@@ -476,6 +575,257 @@ export function createApp(db: DB) {
     .post('/designs/:id/handoff', body(z.object({ targetWorkstationId: z.string().min(1), module: z.string().trim().min(1, '请填改动范围'), priority: z.enum(['p0', 'p1', 'p2']), note: z.string().optional(), qaCases: z.boolean().optional(), pageUrl: z.string().trim().min(1).optional() })), async (c) => {
       const r = await handoffDesign(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
       return r.kind === 'ok' ? c.json({ taskId: r.taskId }, 201) : fail(c, r);
+    })
+
+    // ---- 视频台 ----
+    .get('/workstations/:id/videos', async (c) => c.json({ videos: await listVideos(c.get('db'), c.req.param('id')) }))
+    .post('/workstations/:id/videos', body(videoBody.extend({ title: z.string().trim().min(1, '标题不能为空'), reason: z.string().optional() })), async (c) => {
+      const r = await createVideo(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version }, 201) : fail(c, r);
+    })
+    .get('/videos/:id', async (c) => {
+      const v = c.req.query('version');
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      const d = row ? await getVideo(c.get('db'), row.workstationId, row.id, { version: v ? Number(v) : undefined }) : null;
+      return d ? c.json(d) : fail(c, { status: 404, error: '视频不存在' });
+    })
+    .patch('/videos/:id', body(videoBody.extend({ baseVersion: z.number().int(), reason: z.string().optional() })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await updateVideo(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version }) : fail(c, r);
+    })
+    .delete('/videos/:id', async (c) => {
+      const r = await deleteVideo(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .put('/videos/:id/script', body(z.object({ script: z.string(), baseVersion: z.number().int(), reason: z.string().optional() })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await saveScript(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version, lint: r.lint }) : fail(c, r);
+    })
+    .put('/videos/:id/storyboard', body(z.object({ shots: z.array(shotBody.extend({ id: z.string().optional(), html: z.string().optional() })).max(200), reason: z.string().optional() })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await replaceStoryboard(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ shots: r.shots, removed: r.removed, total: r.total, lint: r.lint }) : fail(c, r);
+    })
+    .post('/videos/:id/reorder', body(z.object({ ids: z.array(z.string()).min(1) })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await reorderShots(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json').ids);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    .post('/videos/:id/ask', body(z.object({ who: z.enum(['director', 'motion']), shotIds: z.array(z.string()).optional(), note: z.string().max(2000).optional() })), async (c) => {
+      const r = await askVideoAgent(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ threadId: r.threadId }) : fail(c, r);
+    })
+    .post('/videos/:id/voice', body(z.object({ shotIds: z.array(z.string()).max(200).optional(), force: z.boolean().optional() })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await voiceShots(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ voiced: r.voiced, skipped: r.skipped, costMicros: r.costMicros, provider: r.provider, voice: r.voice, speed: r.speed }) : fail(c, r);
+    })
+    .get('/videos/:id/renders', async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      return c.json({ renders: await listVideoRenders(c.get('db'), row.workstationId, row.id) });
+    })
+    .post('/videos/:id/renders', body(renderBody), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const r = await createVideoRender(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, status: r.status, total: r.total, width: r.width, height: r.height, fps: r.fps, subtitles: r.subtitles, warnings: r.warnings, channel: r.channel, gate: r.gate, override: r.override }, 201) : fail(c, r);
+    })
+    .get('/workstations/:id/video-renders', async (c) => c.json({ renders: await listVideoRenders(c.get('db'), c.req.param('id')) }))
+    .get('/videos/:id/comments', async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      return c.json({ comments: await listShotComments(c.get('db'), row.workstationId, row.id) });
+    })
+    .post('/videos/:id/comments', body(commentBody), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const input = c.req.valid('json');
+      const shot = await shotRow(c.get('db'), input.shot);
+      if (!shot || shot.workstationId !== row.workstationId || (JSON.parse(shot.dataJson ?? '{}') as { video?: string }).video !== row.id) return fail(c, { status: 404, error: '镜头不属于这支视频' });
+      const r = await addShotComment(c.get('actor'), c.get('db'), row.workstationId, input);
+      return r.kind === 'ok' ? c.json({ id: r.id, shot: r.shot, version: r.version, time: r.time, severity: r.severity }, 201) : fail(c, r);
+    })
+    .post('/workstations/:id/video-comments/resolve', body(z.object({ ids: z.array(z.string()).min(1).max(100), note: z.string().max(2000).optional() })), async (c) => {
+      const { ids, note } = c.req.valid('json');
+      return c.json({ resolved: await resolveShotComments(c.get('actor'), c.get('db'), c.req.param('id'), ids, note) });
+    })
+    .post('/videos/:id/request-review', body(z.object({ note: z.string().max(2000).optional() })), async (c) => {
+      const r = await requestVideoReview(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json').note);
+      return r.kind === 'ok' ? c.json({ threadId: r.threadId, status: r.status, contentHash: r.contentHash }) : fail(c, r);
+    })
+    .get('/workstations/:id/video-style', async (c) => c.json(await videoStyleOf(c.get('db'), c.req.param('id'))))
+    .put('/workstations/:id/video-style', body(styleBody), async (c) => {
+      const r = await saveVideoStyle(c.get('actor'), c.get('db'), c.req.param('id'), c.req.valid('json'));
+      if (r.kind !== 'ok') return fail(c, r);
+      const { id, version, name, palette, fonts, voice, bgm, bgmVolume, ducking, rules, subtitle } = r;
+      return c.json({ id, version, name, palette, fonts, voice, bgm, bgmVolume, ducking, rules, subtitle });
+    })
+    .post('/workstations/:id/video-style/voice-test', body(voiceBody), async (c) => {
+      try {
+        const r = await sampleVoice(c.req.valid('json'));
+        if ('error' in r) return fail(c, { status: 400, error: r.error });
+        return c.body(new Uint8Array(r.audio), 200, { 'content-type': r.format === 'wav' ? 'audio/wav' : 'audio/mpeg', 'x-aw-duration': String(r.duration), 'cache-control': 'no-store' });
+      } catch (e) {
+        return fail(c, { status: 502, error: `试听失败：${sanitizeError(e instanceof Error ? e.message : String(e))}` });
+      }
+    })
+    .get('/workstations/:id/media', async (c) => c.json({ media: await listVideoMedia(c.get('db'), c.req.param('id'), c.req.query('kind') || undefined) }))
+    // 背景音乐上传：multipart 的 file 字段；大小先看 content-length 挡掉明显超限的，再按实际字节数校验
+    .post('/workstations/:id/media', async (c) => {
+      const len = Number(c.req.header('content-length') ?? 0);
+      if (len > BGM_MAX_BYTES + 1024 * 1024) return fail(c, { status: 413, error: '背景音乐最大 30MB' });
+      let form: Record<string, unknown>;
+      try {
+        form = await c.req.parseBody();
+      } catch {
+        return fail(c, { status: 400, error: '要用 multipart/form-data 上传，字段名 file' });
+      }
+      const file = form.file;
+      if (!(file instanceof File)) return fail(c, { status: 400, error: '没有收到文件（字段名 file）' });
+      if (file.size > BGM_MAX_BYTES) return fail(c, { status: 413, error: '背景音乐最大 30MB' });
+      const r = await uploadBgm(c.get('actor'), c.get('db'), c.req.param('id'), { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      return r.kind === 'ok' ? c.json({ id: r.id, name: r.name, duration: r.duration, format: r.format, size: r.size }, 201) : fail(c, r);
+    })
+    // 素材：上传走 multipart（字段名 file），元数据可在同一次请求里带 license / tags
+    .get('/workstations/:id/assets', async (c) => c.json({ assets: await listAssets(c.get('db'), c.req.param('id'), { kind: c.req.query('kind') || undefined }) }))
+    .post('/workstations/:id/assets', async (c) => {
+      const len = Number(c.req.header('content-length') ?? 0);
+      if (len > ASSET_VIDEO_MAX + 1024 * 1024) return fail(c, { status: 413, error: '单个素材最大 200MB' });
+      let form: Record<string, unknown>;
+      try {
+        form = await c.req.parseBody();
+      } catch {
+        return fail(c, { status: 400, error: '要用 multipart/form-data 上传，字段名 file' });
+      }
+      const file = form.file;
+      if (!(file instanceof File)) return fail(c, { status: 400, error: '没有收到文件（字段名 file）' });
+      if (file.size > ASSET_VIDEO_MAX) return fail(c, { status: 413, error: '单个素材最大 200MB' });
+      const tags = typeof form.tags === 'string' && form.tags.trim() ? form.tags.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20) : undefined;
+      const r = await uploadAsset(c.get('actor'), c.get('db'), c.req.param('id'), {
+        name: file.name, bytes: new Uint8Array(await file.arrayBuffer()),
+        license: typeof form.license === 'string' ? form.license : undefined, tags,
+        notes: typeof form.notes === 'string' ? form.notes : undefined,
+      });
+      return r.kind === 'ok' ? c.json({ id: r.id, kind: r.assetKind, width: r.width ?? null, height: r.height ?? null, duration: r.duration ?? null, poster: r.poster ?? null }, 201) : fail(c, r);
+    })
+    .get('/assets/:id', async (c) => {
+      const row = await entityRowOf(c.get('db'), c.req.param('id'));
+      const a = row ? await getAsset(c.get('db'), row.workstationId, row.id) : null;
+      return a ? c.json(a) : fail(c, { status: 404, error: '素材不存在' });
+    })
+    .patch('/assets/:id', body(z.object({ name: z.string().trim().max(60).optional(), license: z.string().max(500).optional(), tags: z.array(z.string().max(30)).max(20).optional(), notes: z.string().max(2000).optional(), baseVersion: z.number().int().optional() })), async (c) => {
+      const row = await entityRowOf(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '素材不存在' });
+      const r = await updateAsset(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version }) : fail(c, r);
+    })
+    .delete('/assets/:id', async (c) => {
+      const row = await entityRowOf(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '素材不存在' });
+      const r = await deleteAsset(c.get('actor'), c.get('db'), row.workstationId, row.id);
+      return r.kind === 'ok' ? c.json({ ok: true }) : fail(c, r);
+    })
+    // 片段申请：Agent 只写申请，人在这里批 / 拒（批准会记账、提交生成）
+    .get('/workstations/:id/clip-requests', async (c) => c.json({ requests: await listClipRequests(c.get('db'), c.req.param('id'), { videoId: c.req.query('videoId') || undefined, status: c.req.query('status') || undefined }) }))
+    .get('/clip-requests/:id', async (c) => {
+      const row = await entityRowOf(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '片段申请不存在' });
+      const r = await readClipRequest(c.get('db'), row.workstationId, row.id);
+      return r ? c.json(r) : fail(c, { status: 404, error: '片段申请不存在' });
+    })
+    .post('/clip-requests/:id/decide', body(z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().max(500).optional() })), async (c) => {
+      const row = await entityRowOf(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '片段申请不存在' });
+      const r = await decideClipRequest(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ status: r.status }) : fail(c, r);
+    })
+    .post('/videos/:id/clip-requests', body(z.object({ shotId: z.string().min(1), prompt: z.string().trim().min(1, '提示词不能为空').max(4000), negativePrompt: z.string().max(2000).optional(), duration: z.number().positive().max(20).optional(), image: z.string().optional() })), async (c) => {
+      const row = await videoRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '视频不存在' });
+      const input = c.req.valid('json');
+      const shot = await shotRow(c.get('db'), input.shotId);
+      if (!shot || shot.workstationId !== row.workstationId) return fail(c, { status: 404, error: '镜头不存在' });
+      const r = await requestClip(c.get('actor'), c.get('db'), row.workstationId, input);
+      return r.kind === 'ok' ? c.json({ id: r.id, status: r.status, estimatedCostMicros: r.estimatedCostMicros, duration: r.duration, provider: r.provider }, 201) : fail(c, r);
+    })
+    .get('/video-renders/compare', async (c) => {
+      const a = c.req.query('a');
+      const b = c.req.query('b');
+      if (!a || !b) return fail(c, { status: 400, error: '要给 a 和 b 两次出片的 id' });
+      const ra = await getVideoRender(c.get('db'), a);
+      if (!ra) return fail(c, { status: 404, error: '出片记录不存在' });
+      const r = await compareVideoRenders(c.get('db'), ra.workstationId, a, b);
+      return r.kind === 'ok' ? c.json(r.compare) : fail(c, r);
+    })
+    .get('/video-renders/:id', async (c) => {
+      const r = await getVideoRender(c.get('db'), c.req.param('id'));
+      return r ? c.json(r) : fail(c, { status: 404, error: '出片记录不存在' });
+    })
+    .post('/video-renders/:id/cancel', async (c) => {
+      const r = await cancelVideoRender(c.get('actor'), c.get('db'), c.req.param('id'));
+      return r.kind === 'ok' ? c.json({ status: r.status }) : fail(c, r);
+    })
+    // 媒体文件（配音 / 成片 / 字幕）：只认登记过的媒体产物，路径必须在媒体目录里；支持 Range 拖进度条
+    .get('/media/:artifactId', async (c) => {
+      const db = c.get('db');
+      const a = await getArtifact(c.get('actor'), db, c.req.param('artifactId'));
+      if (!a?.ref || !(MEDIA_TYPES as readonly string[]).includes(a.type ?? '') || !insideMedia(db, a.ref) || !fs.existsSync(a.ref)) return fail(c, { status: 404, error: '媒体文件不存在' });
+      const size = fs.statSync(a.ref).size;
+      const headers: Record<string, string> = { 'content-type': mimeOf(a.ref), 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' };
+      if (c.req.query('download') === '1') {
+        const meta = JSON.parse(a.metaJson ?? '{}') as { downloadName?: string };
+        const ext = path.extname(a.ref);
+        let name = safeFileName(meta.downloadName ?? a.name ?? 'media');
+        if (!name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;
+        headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(name)}`;
+      }
+      const range = parseRange(c.req.header('range'), size);
+      if (range === 'invalid') {
+        c.header('content-range', `bytes */${size}`);
+        return fail(c, { status: 416, error: '请求的范围不合法' });
+      }
+      if (size === 0) return c.body(new Uint8Array(), 200, headers);
+      const [start, end] = range ?? [0, size - 1];
+      headers['content-length'] = String(end - start + 1);
+      if (range) headers['content-range'] = `bytes ${start}-${end}/${size}`;
+      const stream = Readable.toWeb(fs.createReadStream(a.ref, { start, end })) as ReadableStream<Uint8Array>;
+      return c.body(stream, range ? 206 : 200, headers);
+    })
+    .patch('/shots/:id', body(shotBody.extend({ html: z.string().optional(), status: z.enum(['draft', 'ready']).optional(), baseVersion: z.number().int(), reason: z.string().optional() })), async (c) => {
+      const row = await shotRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '镜头不存在' });
+      const r = await updateShot(c.get('actor'), c.get('db'), row.workstationId, row.id, c.req.valid('json'));
+      return r.kind === 'ok' ? c.json({ id: r.id, version: r.version, duration: r.duration, lint: r.lint }) : fail(c, r);
+    })
+    // 前端播放器报上来的画面问题：来自沙箱里的代码，只当纯文本存
+    .post('/shots/:id/issues', body(z.object({ version: z.number().int().min(1), items: z.array(z.string().max(300)).max(20) })), async (c) => {
+      const row = await shotRow(c.get('db'), c.req.param('id'));
+      if (!row) return fail(c, { status: 404, error: '镜头不存在' });
+      const { version, items } = c.req.valid('json');
+      if (version > row.version) return fail(c, { status: 400, error: '镜头版本不存在' });
+      return c.json({ saved: await saveShotIssues(c.get('db'), row.id, version, items) });
+    })
+    .get('/shots/:id/frame', async (c) => {
+      const v = c.req.query('version');
+      const shot = await renderableShot(c.get('db'), c.req.param('id'), v ? Number(v) : undefined);
+      if (!shot) return fail(c, { status: 404, error: '镜头不存在' });
+      const t = Math.min(Math.max(0, Number(c.req.query('t') ?? 0) || 0), shot.duration);
+      let png: Buffer;
+      try {
+        png = (await renderShotFrames(shot.doc, { width: shot.width, height: shot.height, times: [t] })).frames[0]!.png;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split('\n')[0]! : String(e);
+        return fail(c, BROWSER_MISSING.test(msg) ? { status: 409, error: '本机没有可用的 Chromium，运行 pnpm exec playwright install chromium 后重试' } : { status: 502, error: `渲染失败：${msg}` });
+      }
+      return c.body(new Uint8Array(png), 200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
     })
 
     // ---- 文档台 ----

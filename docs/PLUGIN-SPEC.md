@@ -242,7 +242,7 @@ export interface RelationDef {
 ```ts
 export interface PanelDef {
   id: string;
-  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge' | 'canvas' | 'tokens' | 'quality' | 'gantt';
+  type: 'table' | 'board' | 'tree' | 'doc' | 'graph' | 'timeline' | 'form' | 'detail' | 'diff' | 'preview' | 'knowledge' | 'canvas' | 'tokens' | 'quality' | 'gantt' | 'video';
   entity: string;                 // 插件实体或系统实体（system:*）
   title: string;
   config?: Record<string, unknown>;
@@ -267,6 +267,7 @@ export interface PanelDef {
 | `tokens` | 设计令牌与规范 | — |
 | `quality` | 开发台的质量视图（原测试台） | `view`：`overview` / `runs` / `cases` / `plans` / `bugs` / `flaky` / `coverage`；`home`：作为工作台默认入口 |
 | `gantt` | 按日排布的任务甘特图（含里程碑与依赖） | — |
+| `video` | 视频台的各个视图（工作室：讲解稿 + 分镜 + 镜头沙箱预览 + 播放器；成片；风格；素材） | `view`：`studio` / `renders` / `style` / `assets`；`home`：作为工作台默认入口 |
 
 任何板块的 `config` 都可以带 `group`：侧栏按它把板块归到同名分组（如开发台的「测试」），缺省归「功能」，分组按首次出现的顺序排。插件升级时已有板块的 `config` 会按 manifest 刷新。
 

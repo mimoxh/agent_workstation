@@ -51,3 +51,16 @@ export function describeBreach(b: BudgetBreach) {
   const unit = b.metric === 'tokens' ? `${b.used} / ${b.limit} tok` : `$${(b.used / 1e6).toFixed(2)} / $${(b.limit / 1e6).toFixed(2)}`;
   return `${SCOPE_LABEL[b.scope]}预算已用完（${unit}）`;
 }
+
+// 配音 / 视频生成的花费记成一条 trigger=media 的 run（0 token），挂在发起的 Agent（人发起时挂本台 steward）名下：
+// 三级预算、项目账本都按 run 汇总，不用另开一套统计
+export async function recordMediaUsage(db: DB, input: { agentId: string | null; provider: string; model: string; costMicros: number; startedAt: string }) {
+  if (!input.agentId) return null;
+  const id = crypto.randomUUID();
+  await db.insert(run).values({
+    id, agentId: input.agentId, taskId: null, threadId: null, status: 'completed', trigger: 'media', provider: input.provider, model: input.model,
+    stopReason: 'completed', startedAt: input.startedAt, endedAt: new Date().toISOString(), tokensIn: 0, tokensOut: 0, cost: input.costMicros,
+    traceJson: '[]',
+  });
+  return id;
+}

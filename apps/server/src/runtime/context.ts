@@ -24,6 +24,8 @@ export interface ContextInput {
   lastTestRun?: string | undefined;
   openComments?: string | undefined;
   designs?: string | undefined;
+  videos?: string | undefined;
+  assets?: string | undefined;
   quality?: string | undefined;
 }
 
@@ -91,6 +93,8 @@ export function buildContext(input: ContextInput): { system: string; messages: {
       input.lastTestRun ? `最近验收：\n${input.lastTestRun}` : '',
       input.openComments ? `未解决审查意见：\n${input.openComments}` : '',
       input.designs ? `设计稿清单：\n${input.designs}` : '',
+      input.videos ? `视频清单：\n${input.videos}` : '',
+      input.assets ? `素材清单：\n${input.assets}` : '',
       input.quality ? `质量现状：\n${input.quality}` : '',
     ]
       .filter(Boolean)

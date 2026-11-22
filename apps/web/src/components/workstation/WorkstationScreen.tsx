@@ -18,6 +18,10 @@ import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import { WsProposalsPanel } from '@/components/panels/ProposalReview';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { QualityPanel } from '@/components/qa/QualityPanel';
+import { AssetPanel } from '@/components/video/AssetPanel';
+import { VideoRenders } from '@/components/video/VideoRenders';
+import { VideoStudio } from '@/components/video/VideoStudio';
+import { VideoStylePanel } from '@/components/video/VideoStylePanel';
 import { WsThread } from '@/components/chat/Thread';
 import { AgentTalk } from './AgentTalk';
 import { TeamPulse } from '@/components/team/TeamPulse';
@@ -29,7 +33,7 @@ import { Icon, panelIcon, type IconName } from '@/components/ui/icons';
 import { num, parseJson } from '@/lib/format';
 import { nameMaps, type Block, type ProjectDetail, type WorkstationDetail } from '@/lib/queries';
 
-export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; assignee?: string; flag?: FlagFilter; design?: string; item?: string; thread?: string }
+export interface WsSearch { panel?: string; q?: string; status?: StatusFilter; assignee?: string; flag?: FlagFilter; design?: string; item?: string; video?: string; thread?: string }
 
 const STATUSES: StatusFilter[] = ['open', 'attention', 'done'];
 const FLAG_IDS: FlagFilter[] = ['overdue', 'waiting'];
@@ -39,6 +43,7 @@ export const parseWsSearch = (s: Record<string, unknown>): WsSearch => ({
   ...(typeof s.q === 'string' && s.q ? { q: s.q } : {}),
   ...(typeof s.design === 'string' && s.design ? { design: s.design } : {}),
   ...(typeof s.item === 'string' && s.item ? { item: s.item } : {}),
+  ...(typeof s.video === 'string' && s.video ? { video: s.video } : {}),
   ...(typeof s.thread === 'string' && s.thread ? { thread: s.thread } : {}),
   ...(typeof s.assignee === 'string' && s.assignee ? { assignee: s.assignee } : {}),
   ...(FLAG_IDS.includes(s.flag as FlagFilter) ? { flag: s.flag as FlagFilter } : {}),
@@ -73,6 +78,13 @@ export function renderPanel(block: Block, ws: WorkstationDetail, project: Projec
       return <Empty title="这个板块已从插件中移除" icon="info" />;
     case 'doc':
       return parseJson<{ view?: string }>(block.configJson, {}).view === 'style' ? <StyleGuidePanel ws={ws} /> : <Empty title="文档台请在工作台主视图打开" icon="doc" />;
+    case 'video': {
+      const view = parseJson<{ view?: string }>(block.configJson, {}).view;
+      if (view === 'renders') return <VideoRenders ws={ws} />;
+      if (view === 'assets') return <AssetPanel ws={ws} />;
+      if (view === 'style') return <VideoStylePanel ws={ws} />;
+      return <Empty title="视频台请在工作台主视图打开" icon="film" />;
+    }
     case 'quality':
       return <QualityPanel block={block} ws={ws} project={project} />;
     case 'preview':
@@ -180,6 +192,10 @@ export function WorkstationScreen({ ws, project, search, onSearch }: { ws: Works
   else if (search.panel === '_talk') content = <PanelFrame icon="chat" title="Agent" desc="和成员私聊，或拉几位一起开群"><AgentTalk ws={ws} project={project} selected={search.thread} onSelect={(id) => onSearch({ panel: '_talk', ...(id ? { thread: id } : {}) })} /></PanelFrame>;
   else if (search.panel === '_settings') content = <PanelFrame icon="gear" title="工作台设置" desc={budgetNote}><SettingsPanel key={ws.id} ws={ws} project={project} /></PanelFrame>;
   else if (block?.panelType === 'canvas') content = <DesignStudio ws={ws} project={project} openId={search.design} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { design: id } : {}) })} />;
+  else if (block?.panelType === 'video' && parseJson<{ view?: string }>(block.configJson, {}).view === 'renders') content = <VideoRenders ws={ws} />;
+  else if (block?.panelType === 'video' && parseJson<{ view?: string }>(block.configJson, {}).view === 'style') content = <VideoStylePanel ws={ws} />;
+  else if (block?.panelType === 'video' && parseJson<{ view?: string }>(block.configJson, {}).view === 'assets') content = <AssetPanel ws={ws} />;
+  else if (block?.panelType === 'video') content = <VideoStudio ws={ws} project={project} openId={search.video} onOpen={(id) => onSearch({ ...(search.panel ? { panel: search.panel } : {}), ...(id ? { video: id } : {}) })} />;
   else if (block?.panelType === 'doc' && parseJson<{ view?: string }>(block.configJson, {}).view === 'health') {
     content = <HealthPanel ws={ws} project={project} onOpen={(id) => onSearch({ panel: 'studio', item: id })} />;
   } else if (block?.panelType === 'doc' && parseJson<{ view?: string }>(block.configJson, {}).view !== 'style') {

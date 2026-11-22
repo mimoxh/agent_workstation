@@ -88,6 +88,7 @@ const PATHS = {
   cursor: 'M5 3l14 7-6 2-2 6z',
   phone: 'M9 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-6a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2zM11 18h2',
   globe: 'M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0zM3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z',
+  film: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4',
   cpu: 'M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2zM10 10h4v4h-4zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3',
 } as const;
 
@@ -113,6 +114,7 @@ export const PANEL_ICON: Record<string, IconName> = {
   canvas: 'palette',
   tokens: 'sliders',
   gantt: 'gantt',
+  video: 'film',
 };
 
 const QUALITY_ICON: Record<string, IconName> = { overview: 'pulse', runs: 'play', cases: 'list', plans: 'flag', bugs: 'bug', flaky: 'wave', coverage: 'shield' };

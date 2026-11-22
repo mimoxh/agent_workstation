@@ -28,6 +28,11 @@ export function parseModelRef(ref: string): { provider: string; model: string } 
 
 const secrets = new Set<string>();
 
+// 媒体 provider 的密钥也要从报错里抹掉
+export function registerSecret(key: string | undefined) {
+  if (key) secrets.add(key);
+}
+
 export async function buildRoute(p: ProviderConfig): Promise<ModelRoute> {
   if (p.apiKey) secrets.add(p.apiKey);
   if (p.kind === 'anthropic') {
@@ -168,7 +173,7 @@ export const runCost = (routeId: string, tokensIn: number, tokensOut: number) =>
 // 错误信息脱敏：把已知 key 值替换为 ***
 export function sanitizeError(msg: string): string {
   let out = msg;
-  for (const key of [process.env.AW_ANTHROPIC_API_KEY, process.env.AW_OPENAI_COMPAT_API_KEY, ...secrets]) {
+  for (const key of [process.env.AW_ANTHROPIC_API_KEY, process.env.AW_OPENAI_COMPAT_API_KEY, process.env.AW_TTS_API_KEY, ...secrets]) {
     if (key && key.length > 3) out = out.split(key).join('***');
   }
   out = out.replace(/(api[_-]?key|token|authorization|bearer)[=: ]\s*[^\s"']+/gi, '$1=***');

@@ -21,6 +21,7 @@ import {
   qaRun,
   reviewComment,
   run,
+  videoRender,
   task,
   taskDependency,
   thread,
@@ -206,6 +207,8 @@ export async function deleteProject(actor: Actor, db: DB, projectId: string) {
   if (hasPendingRuns(agentIds)) return { kind: 'error' as const, status: 409 as const, error: '还有 Agent 运行在收尾，稍后再删' };
   const busyQa = wsIds.length ? await db.select({ id: qaRun.id }).from(qaRun).where(and(inArray(qaRun.workstationId, wsIds), inArray(qaRun.status, ['queued', 'running']))).limit(1) : [];
   if (busyQa.length > 0) return { kind: 'error' as const, status: 409 as const, error: '还有质量运行没结束，稍后再删' };
+  const busyRender = wsIds.length ? await db.select({ id: videoRender.id }).from(videoRender).where(and(inArray(videoRender.workstationId, wsIds), inArray(videoRender.status, ['queued', 'running']))).limit(1) : [];
+  if (busyRender.length > 0) return { kind: 'error' as const, status: 409 as const, error: '还有视频在渲染，稍后再删' };
 
   const stations = await db.select().from(workstation).where(eq(workstation.projectId, projectId));
   const tasks = await db.select({ id: task.id, workstationId: task.workstationId, codeRefJson: task.codeRefJson }).from(task).where(eq(task.projectId, projectId));
@@ -253,6 +256,7 @@ export async function deleteProject(actor: Actor, db: DB, projectId: string) {
     if (wsIds.length) {
       tx.delete(qaCaseResult).where(inArray(qaCaseResult.workstationId, wsIds)).run();
       tx.delete(qaRun).where(inArray(qaRun.workstationId, wsIds)).run();
+      tx.delete(videoRender).where(inArray(videoRender.workstationId, wsIds)).run();
     }
     const artifacts = or(any(wsIds, () => inArray(artifact.workstationId, wsIds)), any(taskIds, () => inArray(artifact.taskId, taskIds)));
     if (artifacts) tx.delete(artifact).where(artifacts).run();

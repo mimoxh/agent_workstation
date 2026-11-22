@@ -50,3 +50,35 @@ export {
 } from './docs.js';
 export type { CitationInput, CommentData as DocCommentData, DocCitation, DocData, DocDrift, DocHandoff, DocReview, DriftItem, KnowledgeCitation, KnowledgeCitationInput, RepoCitation, RepoCitationInput, ReverseDrift, ReviewFinding, StyleGuideData } from './docs.js';
 export { listRepoSources, repoSourceOf } from './repo_source.js';
+export {
+  askVideoAgent,
+  createVideo,
+  deleteVideo,
+  editShotHtml,
+  getVideo,
+  listVideos,
+  renderableShot,
+  reorderShots,
+  replaceStoryboard,
+  saveScript,
+  saveShotHtml,
+  shotRow,
+  updateShot,
+  updateVideo,
+  videoContextOf,
+  videoContentHashOf,
+  videoRow,
+  videoStyleOf,
+  listShotComments,
+  refreshVideoStatus,
+  saveShotIssues,
+} from './videos.js';
+export type { ReadVideoOpts, ShotAudio, ShotCommentData, ShotData, ShotInput, ShotIssues, ShotStatus, SubtitleMode, VideoData, VideoPatch, VideoReview, VideoStyle, VideoStyleData } from './videos.js';
+export { addShotComment, requestVideoReview, resolveShotComments, saveVideoReview } from './video_review.js';
+export type { ShotCommentInput } from './video_review.js';
+export { listVideoMedia, saveVideoStyle, sniffAudio, uploadBgm, BGM_MAX_BYTES } from './video_style.js';
+export type { VideoStylePatch } from './video_style.js';
+export { voiceShots } from './video_voice.js';
+export type { VoiceShotsOpts } from './video_voice.js';
+export { cancelVideoRender, createVideoRender, getVideoRender, listVideoRenders, planVideoRender, CHROMIUM_MISSING } from './video_renders.js';
+export type { RenderInput } from './video_renders.js';

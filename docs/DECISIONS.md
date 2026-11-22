@@ -204,6 +204,12 @@
 - **理由**：成熟的 coding harness（上下文管理、编辑、自测）比平台自研循环强得多，平台的价值在协作、审查、合并与预算；让 harness 干活、平台只通过 MCP 提供协作工具，两边各取所长。终端是 harness 的原生界面，嵌进应用而不是另开窗口，人插手不用切换上下文。
 - **影响**：迁移 `0013_agent-engine`（`agent.engine`、`run.engine`、`run.session_id`）；外部引擎 run 的 `provider` 记引擎 id、`model` 记 `harness`，模型门禁跳过；用量取 harness 自己的会话记录（Claude transcript / Codex rollout），读不到就按回复长度估算并标「估」。取消、时间预算、提前退出都按进程树杀终端（Windows 用 `taskkill /T`，ConPTY 的 kill 只结束根进程）；会话结束后终端内容存为 `terminal_log` 产物，服务重启后仍可回放；闲置 30 分钟的已收口会话自动回收。终端 WebSocket 只接受本机页面的 Origin。测试与 `AW_ENABLE_MOCK=1` 下另有 `fake` 引擎，走真实的 PTY / MCP / 回合上报路径。
 - **复核点**：Phase 2 用 Electron 打包桌面应用后，终端与服务同进程，WebSocket 的 Origin 校验改为应用自身来源；接入更多 harness 时只加 `runtime/harness/` 下的适配器（`HarnessAdapter`）。node-pty 1.1 在 Windows 上 kill 时会打印 `AttachConsole failed`（上游 microsoft/node-pty#952 / #1007，未修），无害。
+
+### D34 · 视频工作台：HTML 动画镜头 + 平台配音与逐帧出片，生成片段必须人批
+- **决策**：新增内置插件 `video`（每项目一个，manifest `singleton`，0.4.0），成员编导（steward）、动画师、审片、素材制作，板块工作室 / 成片 / 风格 / 素材 / 知识库。讲解视频以模型写的 HTML/CSS 动画为主：镜头文档只经 `composeShotDoc` 合成（断网 CSP + 虚拟时钟 + 风格 CSS 变量），预览在 `sandbox="allow-scripts"` 的 iframe 里播，出片在隔离 Chromium 里逐帧推时钟截图、ffmpeg 拼成 mp4，两边是同一份文档、同一条时间线（`renderTimeline`，转场交叠按整帧扣）。镜头也可以用上传的图片 / 片段，或经人批准后调用视频生成服务生成片段；素材镜头上的 HTML 是透明叠加层。配音走 OpenAI 兼容 `/audio/speech`，媒体 provider（TTS / 视频生成）放在模型配置的 `media` 里，不进对话模型路由。审片结论和出片门禁绑定内容哈希；门禁没过时只有人能填原因越过，Agent 不能。生成片段的申请（`ClipRequest`）只建待审批条目和收件箱，人批准、预估花费过三级预算后平台才提交。
+- **理由**：讲解视频要的是可控、可逐镜头改、可复现，HTML 动画 + 虚拟时钟让任意时刻的画面逐字节确定，审片、缓存和对比都建立在这上面；外部文生视频画面写实但不好精修、按秒计费，适合补实拍类镜头，所以做成按镜头可选、默认要人批。把媒体花费记成 `trigger=media`、0 token 的 run，三级预算和账本不用另开一套。
+- **影响**：迁移 `0014_video-render`（`video_render` 表：快照、进度、产物）；媒体文件放数据库旁的 `media/`（`AW_MEDIA_DIR` 可改），`GET /api/media/:artifactId` 支持 Range，只认媒体类产物且路径必须在媒体目录内。渲染出片之间串行、镜头内并行（`AW_RENDER_CONCURRENCY`），片段按内容哈希缓存；服务重启时把中断的出片标失败，真实厂商的生成中申请标失败以免重复扣费，mock 的重新提交。视频生成只实现了适配器接口和 `mock`（`runtime/media/video_gen.ts`），接厂商只需加一个 `VideoGenAdapter`。本机需要 ffmpeg / ffprobe 和 playwright Chromium，缺了出片回 409。详见 docs/PLUGINS/VIDEO.md。
+- **复核点**：真实 TTS 和真实对话模型都还没跑过冒烟（`smoke:media` / `smoke:model`），mock 不看工具 schema；接第一家视频厂商时复核计费口径和重启恢复策略。预览播放器里的「说话时压低背景音乐」只是近似，准确混音只在成片里。
 ## 二、待定（按重要性排序）
 
 ### Q1 · 群聊的发言调度机制 【✅ 已收敛】

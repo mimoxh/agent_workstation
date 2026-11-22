@@ -4,6 +4,10 @@ import { useEffect, useSyncExternalStore } from 'react';
 // 按顺序取第一个匹配：run_step 很频繁，只刷新脉搏和时间线
 const RULES: [prefix: string, keys: string[]][] = [
   ['doc_', ['docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide', 'entities', 'entity-versions', 'timeline', 'thread-messages', 'inbox']],
+  // 出片进度最多每 500ms 一条，只刷新成片列表
+  ['video_render_progress', ['video-renders']],
+  ['video_render_', ['video-renders', 'videos', 'video', 'entities', 'timeline']],
+  ['video_', ['videos', 'video', 'video-comments', 'video-style', 'video-media', 'video-assets', 'asset', 'video-clips', 'entities', 'entity-versions', 'timeline', 'inbox']],
   ['qa_', ['qa', 'task-quality', 'project-status', 'entities']],
   ['task_', ['tasks', 'task', 'project-tasks', 'project-status', 'overview', 'projects', 'inbox', 'proposals', 'timeline', 'pulse', 'task-branch', 'task-quality', 'files', 'file', 'qa']],
   ['proposal_', ['proposals', 'task', 'overview', 'inbox', 'timeline', 'task-branch', 'remote', 'files', 'file', 'folder']],
@@ -13,7 +17,7 @@ const RULES: [prefix: string, keys: string[]][] = [
   ['run_step', ['pulse', 'timeline']],
   ['terminal_', ['terminals', 'run']],
   ['run_', ['runs', 'run', 'agent-status', 'overview', 'task', 'testruns', 'pulse', 'timeline', 'ledger', 'thread-active']],
-  ['entity_', ['entities', 'entity-versions', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status', 'docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide']],
+  ['entity_', ['entities', 'entity-versions', 'testruns', 'timeline', 'knowledge', 'qa', 'project-status', 'docs', 'doc', 'doc-gate', 'doc-health', 'doc-settings', 'style-guide', 'videos', 'video', 'video-comments', 'video-style']],
   ['agent_', ['ws', 'project', 'agent-status', 'pulse']],
   ['workstation_', ['ws', 'project', 'overview', 'projects', 'repo', 'files', 'remote', 'tasks']],
   ['project_', ['projects', 'project', 'overview', 'ledger', 'plugins', 'folder', 'inbox']],

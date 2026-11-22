@@ -2,6 +2,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   type AnySQLiteColumn,
@@ -337,6 +338,30 @@ export const qaCaseResult = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('idx_qa_case_key').on(t.workstationId, t.caseKey, t.createdAt), index('idx_qa_case_run').on(t.runId)],
+);
+
+// 一次出片：settings_json 是发起时的快照（尺寸、帧率、字幕方式、每个镜头的版本 / 时长 / 配音 / 片段缓存键），
+// 镜头之后再改，这次渲染的仍是当时的版本
+export const videoRender = sqliteTable(
+  'video_render',
+  {
+    id: text('id').primaryKey(),
+    workstationId: text('workstation_id').notNull().references(() => workstation.id),
+    videoId: text('video_id').notNull(),
+    videoVersion: integer('video_version').notNull(),
+    status: text('status').notNull().default('queued'),
+    progress: real('progress').notNull().default(0),
+    settingsJson: text('settings_json').notNull(),
+    outputArtifactId: text('output_artifact_id'),
+    srtArtifactId: text('srt_artifact_id'),
+    error: text('error'),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    createdByType: text('created_by_type'),
+    createdById: text('created_by_id'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('idx_video_render_video').on(t.videoId, t.createdAt), index('idx_video_render_ws').on(t.workstationId, t.createdAt)],
 );
 
 // kind：command_confirm / blocked / proposal_review / run_failed / task_rejected / task_countered / human_request / qa_regression / docs_drift / gate_confirm / budget

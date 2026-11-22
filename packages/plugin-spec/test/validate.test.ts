@@ -11,7 +11,7 @@ const pm = load('pm');
 const dev = load('dev');
 
 describe('validateManifest', () => {
-  it.each(['pm', 'dev'])('%s manifest 通过', (name) => {
+  it.each(['pm', 'dev', 'docs', 'video'])('%s manifest 通过', (name) => {
     const r = validateManifest(load(name));
     expect(r.ok, r.ok ? '' : r.errors.join('; ')).toBe(true);
   });

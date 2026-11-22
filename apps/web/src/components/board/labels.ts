@@ -114,6 +114,7 @@ export const INBOX_LABEL: Record<string, string> = {
   gate_confirm: '阶段确认',
   qa_regression: '回归失败',
   docs_drift: '文档引用漂移',
+  clip_request: '片段申请',
 };
 
 export const TRIGGER_LABEL: Record<string, string> = {

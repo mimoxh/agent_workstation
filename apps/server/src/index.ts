@@ -12,6 +12,8 @@ import { startRepoWatch } from './runtime/repo_watch.js';
 import { startQaSchedule } from './runtime/qa/schedule.js';
 import { recoverMergeQueue } from './runtime/dev_workflow.js';
 import { recoverQaRuns } from './usecases/qa.js';
+import { recoverVideoRenders } from './runtime/video_render.js';
+import { recoverClipRequests, startClipPoller } from './usecases/video_clips.js';
 import { killAllTerminals } from './runtime/terminal.js';
 import { migrateDesignWorkstations, migrateQaWorkstations, syncWorkstations } from './usecases/workstations.js';
 import { freezeDesignTokens } from './usecases/design_tokens.js';
@@ -48,8 +50,12 @@ for (const r of stale) {
 await db.update(inboxItem).set({ status: 'resolved', resolutionJson: JSON.stringify({ resolution: 'interrupted' }) }).where(and(eq(inboxItem.kind, 'command_confirm'), eq(inboxItem.status, 'open')));
 await recoverMergeQueue(db);
 await recoverQaRuns(db);
+await recoverVideoRenders(db);
+await recoverClipRequests(db);
 
 startScheduler(db);
+// 片段生成的轮询：批过的提交、在跑的查结果（mock 的重启后会重新提交）
+startClipPoller(db);
 startRepoWatch(db);
 startQaSchedule(db);
 

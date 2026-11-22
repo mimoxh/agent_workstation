@@ -19,8 +19,28 @@ export interface ProviderConfig {
   maxOutputTokens?: number | undefined;
 }
 
+// 媒体 provider（配音 / 视频生成）不进聊天模型注册表：协议和计价都不一样
+export type MediaKind = 'tts' | 'video';
+export type MediaProtocol = 'openai-speech' | 'mock';
+
+export interface MediaProviderConfig {
+  name: string;
+  kind: MediaKind;
+  protocol: MediaProtocol;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  model?: string | undefined;
+  voice?: string | undefined;
+  format?: 'mp3' | 'wav' | undefined;
+  // 配音按字符计价（美元 / 百万字符），视频生成按秒计价（美元 / 秒）
+  price?: { perMillionChars?: number | undefined; perSecond?: number | undefined } | undefined;
+}
+
 export interface ModelConfig {
   providers: ProviderConfig[];
+  media: MediaProviderConfig[];
+  defaultTts?: string | undefined;
+  defaultVideo?: string | undefined;
   defaultModel?: string | undefined;
   // 降级链：provider:model，主模型不可用时按序尝试
   chain: string[];
@@ -28,7 +48,7 @@ export interface ModelConfig {
   prices: Record<string, { input: number; output: number }>;
 }
 
-const EMPTY: ModelConfig = { providers: [], chain: [], prices: {} };
+const EMPTY: ModelConfig = { providers: [], media: [], chain: [], prices: {} };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const configPath = () => process.env.AW_MODEL_CONFIG ?? path.join(repoRoot, 'data', 'models.enc');
@@ -59,7 +79,8 @@ export function readModelConfig(): ModelConfig {
   return { ...EMPTY, ...(JSON.parse(text) as Partial<ModelConfig>) };
 }
 
-export function writeModelConfig(config: ModelConfig) {
+export function writeModelConfig(input: Omit<ModelConfig, 'media'> & { media?: MediaProviderConfig[] | undefined }) {
+  const config: ModelConfig = { ...input, media: input.media ?? [] };
   if (inMemory()) {
     memory = config;
     return;
@@ -73,10 +94,12 @@ export function writeModelConfig(config: ModelConfig) {
 
 // 对外展示时密钥只给「有没有」
 export function publicModelConfig(c: ModelConfig) {
-  return { ...c, providers: c.providers.map(({ apiKey, ...p }) => ({ ...p, hasKey: !!apiKey })) };
+  return { ...c, providers: c.providers.map(({ apiKey, ...p }) => ({ ...p, hasKey: !!apiKey })), media: publicMedia(c.media) };
 }
 
+export const publicMedia = (media: MediaProviderConfig[]) => media.map(({ apiKey, ...p }) => ({ ...p, hasKey: !!apiKey }));
+
 // 保存时留空密钥表示沿用旧值
-export function mergeProviders(next: ProviderConfig[], prev: ProviderConfig[]) {
+export function mergeProviders<T extends { name: string; apiKey?: string | undefined }>(next: T[], prev: T[]): T[] {
   return next.map((p) => ({ ...p, apiKey: p.apiKey || prev.find((x) => x.name === p.name)?.apiKey }));
 }

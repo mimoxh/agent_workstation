@@ -10,6 +10,8 @@ import { events } from '../events.js';
 import { buildPermCtx, logEvent, manifestOf } from '../usecases/core.js';
 import { qaContextOf } from '../repositories/qa.js';
 import { designContextOf } from '../usecases/designs.js';
+import { assetContextOf } from '../usecases/video_assets.js';
+import { videoContextOf } from '../usecases/videos.js';
 import { pushInbox, pushRunFailure } from '../usecases/inbox.js';
 import { notifyDependentsOfCancel, releaseDependents } from '../usecases/plan.js';
 import { threadAgents } from '../usecases/threads.js';
@@ -282,6 +284,8 @@ async function buildThreadContext(db: DB, a: AgentRow, th: ThreadRow, manifest: 
     threadMessages: msgs.map((m, i) => ({ senderId: names.get(m.senderId ?? '') ?? m.senderId, senderType: m.senderType, content: m.content, kind: m.kind, note: [focusNote(m.metaJson), i === lastElementsIdx ? elementsNote(m.metaJson) : undefined].filter(Boolean).join('\n') || undefined })),
     dispatchTargets: await dispatchTargetsOf(db, a),
     designs: manifest?.entities.Design ? await designContextOf(db, a.workstationId) : undefined,
+    videos: manifest?.entities.Video ? await videoContextOf(db, a.workstationId) : undefined,
+    assets: manifest?.entities.Asset ? await assetContextOf(db, a.workstationId) : undefined,
     quality: manifest?.entities.TestSuite ? await qaContextOf(db, a.workstationId) : undefined,
   });
 }

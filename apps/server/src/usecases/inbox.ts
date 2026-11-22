@@ -1,7 +1,7 @@
 import type { Actor } from '@aw/domain';
 import { and, eq } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
-import { inboxItem, project, run, task } from '../db/schema.js';
+import { entity, inboxItem, project, run, task } from '../db/schema.js';
 import { events } from '../events.js';
 import { condTransition } from '../runtime/dev_workflow.js';
 import { triggerRun } from '../runtime/scheduler.js';
@@ -118,6 +118,14 @@ export async function actOnInbox(actor: Actor, db: DB, id: string, body: InboxAc
     }
     const r = await transitionTaskUc(actor, db, t.id, t.status === 'escalated' ? 'resolve' : 'unblock');
     if (r.kind !== 'ok') return r;
+  }
+  // 片段申请：批准会记账并提交生成，是真正花钱的动作，交给视频台自己的用例处理
+  if (item.kind === 'clip_request' && item.refId && body.decision) {
+    const row = (await db.select().from(entity).where(eq(entity.id, item.refId)))[0];
+    if (!row) return { kind: 'not_found' as const, status: 404 as const, error: '片段申请不存在' };
+    const { decideClipRequest } = await import('./video_clips.js');
+    const r = await decideClipRequest(actor, db, row.workstationId, row.id, { decision: body.decision === 'approve' ? 'approve' : 'reject', reason: body.answer?.trim() });
+    return r.kind === 'ok' ? { kind: 'ok' as const } : r;
   }
   // 阶段门禁的人工检查项：确认后按 Agent 当初要去的阶段推进；不同意就把意见留给任务会话
   if (item.kind === 'gate_confirm' && item.refId && body.decision) {

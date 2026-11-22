@@ -27,10 +27,10 @@ function AgentDm({ agentId, projectId, names, hint, placeholder, meta }: { agent
 }
 
 // 「和 Agent 对话」侧栏：默认本台负责人私聊，可切成员、大群或已有会话
-export function ChatRail({ ws, projectId, names, root, meta, hint, placeholder, defaultAgentId }: { ws: WorkstationDetail; projectId: string; names: Record<string, string>; root: boolean; meta?: MessageMeta | undefined; hint?: string | undefined; placeholder?: string | undefined; defaultAgentId?: string | undefined }) {
+export function ChatRail({ ws, projectId, names, root, meta, hint, placeholder, defaultAgentId, defaultWs }: { ws: WorkstationDetail; projectId: string; names: Record<string, string>; root: boolean; meta?: MessageMeta | undefined; hint?: string | undefined; placeholder?: string | undefined; defaultAgentId?: string | undefined; defaultWs?: boolean | undefined }) {
   const steward = ws.agents.find((a) => a.isSteward === 1);
   const first = (defaultAgentId ? ws.agents.find((a) => a.id === defaultAgentId) : undefined) ?? steward;
-  const [sel, setSel] = useState<Target>(first ? { type: 'dm', agentId: first.id } : { type: 'ws' });
+  const [sel, setSel] = useState<Target>(first && !defaultWs ? { type: 'dm', agentId: first.id } : { type: 'ws' });
   const conversations = useConversations(ws.id);
   const convs = useMemo(() => (conversations.data?.conversations ?? []).filter((c) => !c.archivedAt || (sel.type === 'thread' && c.id === sel.id)), [conversations.data, sel]);
   const others = ws.agents.filter((a) => a.id !== steward?.id);

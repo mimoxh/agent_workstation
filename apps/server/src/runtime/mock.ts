@@ -77,6 +77,37 @@ function designerTurn<T>(user: string, calls: (items: [string, unknown][]) => T)
   return calls([['write_design', { title: 'Mock 落地页', html: MOCK_DESIGN, brief: '由对话生成（mock）', tweaks: [{ id: 'pad', label: '按钮内边距', cssVar: '--pad', type: 'range', value: '12', min: 4, max: 24, step: 2, unit: 'px' }], reason: '初稿（mock）' }]]);
 }
 
+const mockShotHtml = (title: string) => `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>
+body{margin:0;display:grid;place-items:center;background:#14202b;color:#f4f1ea;font-family:system-ui,sans-serif}
+h1{font-size:96px;margin:0;animation:in .6s ease-out both}
+p{font-size:44px;opacity:.8;animation:in .6s .4s ease-out both}
+@keyframes in{from{opacity:0;transform:translateY(48px)}to{opacity:1;transform:none}}
+</style></head><body><main><h1>${title}</h1><p>mock 画面</p></main></body></html>`;
+
+// 视频台：编导写讲解稿 / 拆分镜，动画师给点名的镜头写画面；id 都从会话里的 video: / shot: 标记取
+function videoTurn(tpl: string, lastLine: string, user: string): [string, unknown][] | null {
+  if (tpl === 'video-director') {
+    const videoId = [...lastLine.matchAll(/video: ([\w-]+)/g)].at(-1)?.[1] ?? [...user.matchAll(/video: ([\w-]+)/g)].at(-1)?.[1];
+    if (!videoId) return null;
+    if (lastLine.includes('配音')) return [['voice_shots', { videoId }]];
+    if (lastLine.includes('出片')) return [['render_video', { videoId, allowPlaceholders: true }]];
+    if (lastLine.includes('先给视频')) return [['write_video_script', { id: videoId, script: '# 讲解稿（mock）\n\n第一段：提出问题。\n\n第二段：给出答案。', reason: '初稿（mock）' }]];
+    if (lastLine.includes('分镜')) {
+      return [['write_storyboard', { videoId, shots: [
+        { title: '提出问题（mock）', narration: '你有没有想过，这件事为什么这么难？', transition: 'cut' },
+        { title: '给出答案（mock）', narration: '其实只要三步就能做到。', duration: 3, transition: 'fade' },
+      ], reason: '拆分镜（mock）' }]];
+    }
+    return null;
+  }
+  if (tpl === 'motion-designer') {
+    const ids = [...lastLine.matchAll(/shot: ([\w-]+)（([^）]*)）/g)];
+    if (ids.length === 0) return null;
+    return ids.slice(0, 4).map(([, id, title]) => ['write_shot_html', { id, html: mockShotHtml(title ?? '镜头'), reason: '画面初稿（mock）' }]);
+  }
+  return null;
+}
+
 // reviewer 按任务计数（同一任务首审 request_changes、再审 approve），不能按模型实例（每 run 都是新会话）
 const reviewCounts = new Map<string, number>();
 
@@ -111,6 +142,37 @@ export function createScriptedMock() {
       if (CONVERSATION_TRIGGERS.has(trigger)) {
         const user = userText(options.prompt);
         const lastLine = user.split('\n').filter(Boolean).at(-1) ?? '';
+        if (tpl === 'asset-producer') {
+          const shotId = [...user.matchAll(/shot: ([\w-]+)/g)].at(-1)?.[1];
+          if (toolRounds === 0) return calls([['list_assets', {}]]);
+          if (toolRounds === 1 && shotId) {
+            const assetId = lastToolOutput(options.prompt).match(/"id":"([\w-]+)"/)?.[1];
+            if (assetId) return calls([['update_shot', { id: shotId, visual: 'asset', asset: assetId, motion: 'zoom-in', reason: '接上已有素材（mock）' }]]);
+          }
+          return done(toolRounds > 0 ? '素材已接到镜头上（mock）。' : '没有点名的镜头或不适合用现成素材（mock）。');
+        }
+        if (tpl === 'video-director' || tpl === 'motion-designer') {
+          if (toolRounds > 0) return done(tpl === 'video-director' ? '分镜已更新（mock）。' : '画面已更新（mock）。');
+          const turn = videoTurn(tpl, lastLine, user);
+          if (turn) return calls(turn);
+        }
+        // 审片：先读视频拿内容哈希，再在第一个镜头留一条 note 评论并给 pass 结论
+        if (tpl === 'video-reviewer') {
+          const videoId = [...user.matchAll(/video: ([\w-]+)/g)].at(-1)?.[1];
+          if (toolRounds === 0 && videoId) return calls([['read_video', { id: videoId }]]);
+          if (toolRounds === 1 && videoId) {
+            const out = lastToolOutput(options.prompt);
+            const contentHash = out.match(/"contentHash":"([0-9a-f]{64})"/)?.[1];
+            const shotId = out.match(/"shots":\[\{"id":"([\w-]+)"/)?.[1];
+            if (contentHash && shotId) {
+              return calls([
+                ['comment_shot', { shotId, time: 0.5, body: '标题字号可以再大一点（mock）', severity: 'note' }],
+                ['save_video_review', { id: videoId, contentHash, verdict: 'pass', summary: '画面和旁白对得上，可以出片（mock）' }],
+              ]);
+            }
+          }
+          return done(toolRounds > 0 ? '审片通过（mock）。' : '没找到要审的视频（mock）。');
+        }
         if (tpl === 'failure-analyst' && toolRounds === 1) {
           const runId = userText(options.prompt).match(/分析测试运行 ([0-9a-f-]{36})/)?.[1];
           const fingerprint = lastToolOutput(options.prompt).match(/"fingerprint":"([0-9a-f]+)"/)?.[1];
