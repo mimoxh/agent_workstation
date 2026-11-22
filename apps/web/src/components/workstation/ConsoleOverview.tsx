@@ -33,10 +33,10 @@ const td = 'whitespace-nowrap border-b border-rule px-3.5 py-3 text-sm text-ink-
 
 function BudgetCell({ p, used, span }: { p: ProjectSummary; used: number; span: number }) {
   const limit = parseJson<{ tokens?: number } | null>(p.budgetJson, null)?.tokens;
-  if (!limit) return <td rowSpan={span} className={cn(td, 'align-top max-md:hidden')}><span className="text-faint">不限</span></td>;
+  if (!limit) return <td rowSpan={span} className={cn(td, 'border-l align-top max-md:hidden')}><span className="text-faint">不限</span></td>;
   const v = Math.min(1, used / limit);
   return (
-    <td rowSpan={span} className={cn(td, 'min-w-48 align-top max-md:hidden')}>
+    <td rowSpan={span} className={cn(td, 'min-w-48 border-l align-top max-md:hidden')}>
       <div className="flex justify-between gap-3 text-xs text-muted"><span>已用 <b className="font-semibold text-ink">{tokens(used)}</b></span><span>上限 {tokens(limit)}</span></div>
       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-paper-3"><div className={cn('h-full rounded-full', v > 0.6 ? 'bg-accent' : 'bg-ink-2')} style={{ width: `${v * 100}%` }} /></div>
     </td>
@@ -51,7 +51,7 @@ function ProjectRows({ p }: { p: ProjectSummary }) {
   const rows = project.data ? flatWorkstations(project.data) : [];
   const span = Math.max(rows.length, 1);
   const head = (
-    <td rowSpan={span} className={cn(td, 'align-top')}>
+    <td rowSpan={span} className={cn(td, 'border-r align-top')}>
       <Link to="/projects/$projectId" params={{ projectId: p.id }} className="flex items-center gap-2 font-semibold text-ink hover:underline" data-testid="project-card">
         <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-chip bg-primary text-[11px] text-primary-ink">{p.name.slice(0, 1).toUpperCase()}</span>
         {p.name}
@@ -95,14 +95,14 @@ function WsTable({ projects }: { projects: ProjectSummary[] }) {
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr>
-            <th className={th}>项目</th>
+            <th className={cn(th, 'border-r')}>项目</th>
             <th className={th}>工作台</th>
             <th className={cn(th, 'max-sm:hidden')}>插件</th>
             <th className={cn(th, 'text-right')}>进行中</th>
             <th className={cn(th, 'text-right')}>等你</th>
             <th className={cn(th, 'text-right max-sm:hidden')}>在跑</th>
             <th className={cn(th, 'text-right max-sm:hidden')}>待审</th>
-            <th className={cn(th, 'max-md:hidden')}>预算（tokens）</th>
+            <th className={cn(th, 'border-l max-md:hidden')}>预算（tokens）</th>
           </tr>
         </thead>
         {projects.map((p) => <ProjectRows key={p.id} p={p} />)}
